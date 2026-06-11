@@ -105,18 +105,18 @@ const nodeTemplates: NodeTemplate[] = [
   },
 ];
 
-const getDefaultCode = () => `export const io = {
-    inputs: {
-        value: { type: 'number', default: 0, description: 'Input value' },
-    },
-    outputs: {
-        result: { type: 'schematic', description: 'Output schematic' },
-    },
+const getDefaultCode = () => `type Inputs = {
+  value: Slider<{ min: 0; max: 100; default: 0 }>;
 };
 
-export function main({ value }) {
-    // Your code here
-    return {};
+type Outputs = {
+  result: Schematic;
+};
+
+function generate(inputs) {
+  const result = new Schematic();
+  // Your code here
+  return { result };
 }`;
 
 interface CommandPaletteProps {

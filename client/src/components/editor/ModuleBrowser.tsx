@@ -6,8 +6,8 @@
 import { useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Search, Star, Loader2, Package, GitFork, Eye, Zap,
-  GripVertical, ExternalLink
+  Search, Star, Loader2, Package, Zap,
+  GripVertical
 } from 'lucide-react';
 import { useFlowStore } from '../../store/flowStore';
 
@@ -80,7 +80,7 @@ export function ModuleBrowser() {
       position: { x: maxX + 300, y: centerY },
       data: {
         label: module.name,
-        code: null,
+        code: undefined,
         moduleRef: {
           id: module.id,
           slug: module.slug,
@@ -96,7 +96,7 @@ export function ModuleBrowser() {
     event.dataTransfer.setData('application/reactflow', 'code');
     event.dataTransfer.setData('application/reactflow-data', JSON.stringify({
       label: module.name,
-      code: null,
+      code: undefined,
       moduleRef: {
         id: module.id,
         slug: module.slug,

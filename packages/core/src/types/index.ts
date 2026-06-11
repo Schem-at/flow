@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { BlockContract } from './flow-type.js';
 
 // ============================================================================
 // Core Flow Types
@@ -42,10 +43,18 @@ export interface NodeData {
   position: Position;
   data: {
     label?: string;
-    code?: string;           // For code nodes (Synthase scripts)
+    code?: string;           // For code nodes (v2 block source)
     value?: unknown;         // For static input nodes
-    io?: IODefinition;       // Cached IO from static analysis
+    io?: IODefinition;       // Cached legacy IO projection
+    contract?: BlockContract; // v2 blocks: FlowType contract (drives ports/UI)
+    moduleRef?: {             // Shared-module reference for code nodes
+      id: string;
+      slug: string;
+      version: string;
+      pinned?: boolean;
+    };
     config?: Record<string, unknown>; // Node-specific config
+    [key: string]: unknown;  // Node-type-specific extras (widgets, files, subflows)
   };
 }
 

@@ -146,7 +146,7 @@ export function TagTreeSelector({ selected, onChange, disabled }: TagTreeSelecto
     const newExpanded = new Set(expanded);
     // Always expand top-level sections
     tree.forEach(section => newExpanded.add(section.id));
-    const checkAndExpand = (nodes: TagNode[], parentId?: string) => {
+    const checkAndExpand = (nodes: TagNode[], _parentId?: string) => {
       for (const node of nodes) {
         const hasSelectedChild = node.children.some(c => selectedIds.has(c.id));
         const hasSelectedDescendant = node.children.some(function check(c): boolean {

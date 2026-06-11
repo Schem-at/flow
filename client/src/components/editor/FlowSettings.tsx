@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Globe, Lock, Link2, Loader2, Check, Clock, GitFork,
-  Send, ShieldCheck, ShieldX, Ban, RotateCcw, Eye, Zap, X, Search, Tag
+  Send, ShieldCheck, ShieldX, Ban, RotateCcw, Eye, Zap
 } from 'lucide-react';
 import { useFlowStore } from '../../store/flowStore';
 import { MarkdownEditor } from '../ui/MarkdownEditor';

@@ -1,10 +1,8 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Search, Package, Star, GitFork, Eye, Zap, Trash2, Pencil,
-  MoreVertical, Loader2, AlertCircle, Globe, Lock, Link2, Send,
-  Plus, Clock
+  Search, Package, Star, GitFork, Zap, Trash2,
+  MoreVertical, Loader2, AlertCircle, Clock
 } from 'lucide-react';
 import { Navbar } from './layout/Navbar';
 import { useAuth } from '../hooks/useAuth';

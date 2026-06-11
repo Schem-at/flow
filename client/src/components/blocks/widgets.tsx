@@ -6,7 +6,6 @@
 
 import { useId, useRef, useState } from 'react';
 import { Plus, X, Upload } from 'lucide-react';
-import type { FlowType } from '@flow/core';
 import { defaultValueForType } from '@flow/core';
 import { getTypeEntry, type WidgetProps } from './registry';
 

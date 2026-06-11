@@ -2,17 +2,14 @@ import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Plus, LogIn, Loader2, ArrowLeft, User, LogOut, ChevronDown } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
-import { useQueryClient } from '@tanstack/react-query';
 
 const SCHEMATI_URL = import.meta.env.VITE_SCHEMATI_URL || 'https://schemati.test';
 
-const SERVER_URL = import.meta.env.VITE_SERVER_URL || '';
 
 export function Navbar() {
   const location = useLocation();
   const { user, isLoading, isAuthenticated, loginUrl } = useAuth();
   const [userMenu, setUserMenu] = useState(false);
-  const queryClient = useQueryClient();
 
   const isActive = (path: string) =>
     path === '/' ? location.pathname === '/' : location.pathname.startsWith(path);

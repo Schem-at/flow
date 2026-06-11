@@ -6,12 +6,15 @@
 import { useCallback, useEffect, useState, useRef } from 'react';
 import Editor, { type Monaco } from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
-import { Zap, Info, ArrowRight, CheckCircle, XCircle, Loader2, Plus, Save, AlertTriangle, ChevronDown, ChevronRight, Copy, Code, Package, Unplug, Pin, PinOff, Upload, Tag } from 'lucide-react';
+import { Zap, Info, ArrowRight, CheckCircle, XCircle, Loader2, Plus, Save, AlertTriangle, ChevronDown, ChevronRight, Copy, Code, Package, Unplug, Pin, PinOff, Upload, Tag, Code2, LayoutPanelLeft } from 'lucide-react';
 import { useFlowStore, type ExecutionError } from '../../store/flowStore';
-import type { IODefinition } from '@flow/core';
+import type { IODefinition, BlockContract } from '@flow/core';
+import { parseBlockSource, type ParsedBlock } from '../../lib/block/parser';
+import { contractToTypeScript } from '../../lib/block/codegen';
+import { contractToIO } from '../../lib/block/io-compat';
+import ContractBuilder from '../blocks/ContractBuilder';
+import BlockEditor from '../blocks/BlockEditor';
 
-// Use empty string for dev (Vite proxy handles /api), or VITE_SERVER_URL for production
-const SERVER_URL = import.meta.env.VITE_SERVER_URL ?? '';
 
 interface CodePanelProps {
   nodeId: string;
@@ -21,6 +24,7 @@ interface CodePanelProps {
 interface ValidationState {
   status: 'idle' | 'validating' | 'valid' | 'invalid';
   io?: IODefinition;
+  contract?: BlockContract;
   error?: string;
 }
 
@@ -134,6 +138,8 @@ export function CodePanel({ nodeId, onClose }: CodePanelProps) {
   const [isReleasing, setIsReleasing] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [validation, setValidation] = useState<ValidationState>({ status: 'idle' });
+  const [parsed, setParsed] = useState<ParsedBlock | null>(null);
+  const [viewMode, setViewMode] = useState<'visual' | 'code'>('visual');
   const [showIO, setShowIO] = useState(false);
   const [showTips, setShowTips] = useState(false);
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
@@ -171,28 +177,28 @@ export function CodePanel({ nodeId, onClose }: CodePanelProps) {
     lastValidatedCode.current = code;
 
     try {
-      // Parse IO schema from code locally — look for `export const io = { ... };`
-      const ioMatch = code.match(/export\s+const\s+io\s*=\s*(\{[\s\S]*?\});\s/);
-      if (ioMatch) {
-        // Evaluate the IO object safely
-        const ioStr = ioMatch[1];
-        // eslint-disable-next-line no-new-func
-        const io = new Function(`return (${ioStr})`)() as IODefinition;
-
-        if (io && io.inputs && io.outputs) {
-          setValidation({ status: 'valid', io });
-          updateNodeData(nodeId, { io });
-        } else {
-          setValidation({ status: 'invalid', error: 'IO schema must have inputs and outputs' });
-        }
-      } else {
-        // No IO block — check if it has a default export at least
-        if (code.includes('export default')) {
-          setValidation({ status: 'valid' });
-        } else {
-          setValidation({ status: 'invalid', error: 'Missing export default function' });
-        }
+      if (code.includes('export default')) {
+        setValidation({
+          status: 'invalid',
+          error:
+            'Legacy script format. Blocks now declare `type Inputs/Outputs` and a `function generate(inputs)` entry — no exports.',
+        });
+        return;
       }
+
+      // Types ARE the contract: parse Inputs/Outputs into the descriptor tree.
+      const parsedBlock = await parseBlockSource(code);
+      setParsed(parsedBlock);
+
+      if (!/\bgenerate\b/.test(parsedBlock.bodyText)) {
+        setValidation({ status: 'invalid', error: 'Block must define a function named generate(inputs)' });
+        return;
+      }
+
+      const contract = parsedBlock.contract;
+      const io = contractToIO(contract);
+      setValidation({ status: 'valid', io, contract });
+      updateNodeData(nodeId, { io, contract });
     } catch (error) {
       const err = error as Error;
       setValidation({ status: 'invalid', error: `Parse error: ${err.message}` });
@@ -400,6 +406,31 @@ export function CodePanel({ nodeId, onClose }: CodePanelProps) {
       }
     };
   }, []);
+
+  // Keep the contract projection in sync while typing (validateScript
+  // de-dupes identical code, so this is cheap).
+  useEffect(() => {
+    if (!localCode) return;
+    const timer = setTimeout(() => validateScript(localCode), 300);
+    return () => clearTimeout(timer);
+  }, [localCode, validateScript]);
+
+  // ── visual edits round-trip into the canonical source ──────────────────
+  const handleContractChange = useCallback(
+    (contract: BlockContract) => {
+      const body = parsed?.bodyText ?? '';
+      handleCodeChange(`${contractToTypeScript(contract)}\n\n${body}`.trimEnd() + '\n');
+    },
+    [parsed, handleCodeChange]
+  );
+
+  const handleBodyChange = useCallback(
+    (body: string) => {
+      const contractText = parsed?.contractText ?? '';
+      handleCodeChange(`${contractText}\n\n${body}`.trimEnd() + '\n');
+    },
+    [parsed, handleCodeChange]
+  );
 
   if (!node || !isCodeNode) {
     return (
@@ -745,31 +776,68 @@ export function CodePanel({ nodeId, onClose }: CodePanelProps) {
         </div>
       )}
 
-      {/* Monaco Editor */}
-      <div className="flex-1 border-b border-neutral-800/50">
-        <Editor
-          height="100%"
-          defaultLanguage="javascript"
-          theme="vs-dark"
-          value={localCode}
-          onChange={handleCodeChange}
-          onMount={handleEditorMount}
-          options={{
-            minimap: { enabled: false },
-            fontSize: 13,
-            lineNumbers: 'on',
-            scrollBeyondLastLine: false,
-            automaticLayout: true,
-            tabSize: 2,
-            wordWrap: 'on',
-            padding: { top: 16, bottom: 16 },
-            fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-            fontLigatures: true,
-            renderLineHighlight: 'line',
-            cursorBlinking: 'smooth',
-            smoothScrolling: true,
-          }}
-        />
+      {/* View toggle: visual (contract builder + body) is the default; raw types are opt-in */}
+      <div className="flex items-center justify-end gap-2 border-b border-neutral-800/50 bg-neutral-900/40 px-4 py-1.5">
+        <button
+          onClick={() => setViewMode((m) => (m === 'visual' ? 'code' : 'visual'))}
+          className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] transition ${
+            viewMode === 'code'
+              ? 'border-emerald-700 bg-emerald-600/15 text-emerald-300'
+              : 'border-neutral-700 text-neutral-400 hover:border-neutral-500 hover:text-neutral-200'
+          }`}
+          title={viewMode === 'code' ? 'Back to visual editing' : 'Edit the full source, types included'}
+        >
+          {viewMode === 'code' ? <LayoutPanelLeft className="h-3 w-3" /> : <Code2 className="h-3 w-3" />}
+          {viewMode === 'code' ? 'Visual' : 'Code'}
+        </button>
+      </div>
+
+      {/* Editor area */}
+      <div className="flex min-h-0 flex-1 border-b border-neutral-800/50">
+        {viewMode === 'code' ? (
+          <div className="min-w-0 flex-1">
+            <Editor
+              height="100%"
+              defaultLanguage="typescript"
+              theme="vs-dark"
+              value={localCode}
+              onChange={handleCodeChange}
+              onMount={handleEditorMount}
+              options={{
+                minimap: { enabled: false },
+                fontSize: 13,
+                lineNumbers: 'on',
+                scrollBeyondLastLine: false,
+                automaticLayout: true,
+                tabSize: 2,
+                wordWrap: 'on',
+                padding: { top: 16, bottom: 16 },
+                fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+                fontLigatures: true,
+                renderLineHighlight: 'line',
+                cursorBlinking: 'smooth',
+                smoothScrolling: true,
+              }}
+            />
+          </div>
+        ) : (
+          <>
+            <aside className="w-72 flex-none overflow-y-auto border-r border-neutral-800/50 p-3">
+              <ContractBuilder
+                contract={validation.contract ?? parsed?.contract ?? { inputs: {}, outputs: {} }}
+                onChange={handleContractChange}
+              />
+            </aside>
+            <div className="min-w-0 flex-1">
+              <BlockEditor
+                value={parsed?.bodyText ?? localCode}
+                onChange={handleBodyChange}
+                contractTypes={parsed?.contractText ?? ''}
+                height="100%"
+              />
+            </div>
+          </>
+        )}
       </div>
 
       {/* Enhanced Execution Error display */}
@@ -888,15 +956,15 @@ export function CodePanel({ nodeId, onClose }: CodePanelProps) {
               <div className="space-y-2 text-xs text-green-200/70">
                 <div className="flex items-start gap-2">
                   <ArrowRight className="w-3 h-3 mt-0.5 text-green-400 flex-shrink-0" />
-                  <span>Define IO with <code className="px-1 rounded bg-green-500/20 text-green-300">export const io = {'{ inputs: {}, outputs: {} }'}</code></span>
+                  <span>Define the contract visually, or as types: <code className="px-1 rounded bg-green-500/20 text-green-300">type Inputs = {'{ … }'}; type Outputs = {'{ … }'}</code></span>
                 </div>
                 <div className="flex items-start gap-2">
                   <ArrowRight className="w-3 h-3 mt-0.5 text-green-400 flex-shrink-0" />
-                  <span>Export default function: <code className="px-1 rounded bg-green-500/20 text-green-300">export default async function(inputs, context)</code></span>
+                  <span>Entry point: <code className="px-1 rounded bg-green-500/20 text-green-300">function generate(inputs) {'{ return outputs }'}</code> — no exports, no imports</span>
                 </div>
                 <div className="flex items-start gap-2">
                   <ArrowRight className="w-3 h-3 mt-0.5 text-green-400 flex-shrink-0" />
-                  <span>Context provides: <code className="px-1 rounded bg-green-500/20 text-green-300">Schematic, Logger, Vec3, Noise, Math</code></span>
+                  <span>Ambient context: <code className="px-1 rounded bg-green-500/20 text-green-300">Schematic, Logger, Vec, Noise, Math</code> — in scope everywhere</span>
                 </div>
               </div>
             </div>

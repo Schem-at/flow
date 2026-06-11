@@ -14,8 +14,8 @@ import {
   applyEdgeChanges,
   addEdge,
 } from '@xyflow/react';
-import type { FlowData, IODefinition, NodeData } from '@flow/core';
-import { extractSubflowConfig } from '@flow/core';
+import type { FlowData, IODefinition, NodeData, BlockContract, FlowType } from '@flow/core';
+import { extractSubflowConfig, isTypeCompatible } from '@flow/core';
 
 // ============================================================================
 // Types
@@ -66,6 +66,13 @@ export interface FlowNode extends Node {
     width?: number;
     height?: number;
     io?: IODefinition;
+    contract?: BlockContract;  // v2 blocks: FlowType contract (drives ports)
+    moduleRef?: {              // Shared-module reference for code nodes
+      id: string;
+      slug: string;
+      version: string;
+      pinned?: boolean;
+    };
     config?: Record<string, unknown>;
     // Input node specific
     dataType?: 'number' | 'string' | 'boolean';  // The actual data type
@@ -410,18 +417,51 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   
   onConnect: (connection) => {
     const state = get();
-    
+
+    // Type compatibility: when both port FlowTypes are known, refuse
+    // incompatible edges (the registry of kinds knows what flows into what).
+    const portType = (
+      nodeId: string | null,
+      handle: string | null | undefined,
+      direction: 'source' | 'target'
+    ): FlowType | null => {
+      if (!nodeId) return null;
+      const node = state.nodes.find((n) => n.id === nodeId);
+      if (!node) return null;
+      const data = node.data as Record<string, unknown>;
+      const contract = data.contract as BlockContract | undefined;
+      if (contract && handle) {
+        return (direction === 'source' ? contract.outputs : contract.inputs)[handle] ?? null;
+      }
+      if (node.type === 'input') {
+        const dataType = data.dataType as string | undefined;
+        if (dataType === 'number') return { kind: 'number' };
+        if (dataType === 'boolean') return { kind: 'boolean' };
+        if (dataType === 'string') return { kind: 'string' };
+      }
+      return null;
+    };
+
+    const sourceType = portType(connection.source, connection.sourceHandle, 'source');
+    const targetType = portType(connection.target, connection.targetHandle, 'target');
+    if (sourceType && targetType && !isTypeCompatible(sourceType, targetType)) {
+      get().addExecutionLog(
+        `⛔ Incompatible connection: ${sourceType.kind} → ${targetType.kind} (${connection.sourceHandle} → ${connection.targetHandle})`
+      );
+      return;
+    }
+
     // Record history before adding edge
     if (!state.isUndoRedoing) {
       get().pushHistory();
     }
-    
+
     // When a new connection is made, invalidate the target node
     const targetId = connection.target;
     if (targetId) {
       get().invalidateNode(targetId);
     }
-    
+
     set({
       edges: addEdge(connection, state.edges),
     });

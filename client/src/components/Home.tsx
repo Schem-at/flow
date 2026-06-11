@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Plus, Search, MoreVertical, Pencil, Trash2, Copy, Play, GitFork,
   Clock, Workflow, AlertCircle, Loader2, Globe, Lock, Link2, Eye, Shield,
-  Terminal, Boxes, Star, Zap, Send
+  Terminal, Boxes, Zap, Send
 } from 'lucide-react';
 import { Navbar } from './layout/Navbar';
 import { useAuth } from '../hooks/useAuth';

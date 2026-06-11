@@ -5,7 +5,7 @@
 import { memo, useCallback, useState } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { Zap, Code, CheckCircle, Loader2, AlertCircle, Clock, Package } from 'lucide-react';
-import type { IODefinition } from '@flow/core';
+import type { IODefinition, BlockContract } from '@flow/core';
 import { useFlowStore, type NodeExecutionStatus } from '../../store/flowStore';
 import { useShallow } from 'zustand/react/shallow';
 
@@ -20,6 +20,8 @@ interface CodeNodeData {
   label?: string;
   code?: string;
   io?: IODefinition;
+  /** v2 blocks: the FlowType contract parsed from the source — drives the ports. */
+  contract?: BlockContract;
   moduleRef?: ModuleRef;
 }
 
@@ -92,11 +94,17 @@ const CodeNode = memo(({ id, data, selected }: NodeProps & { data: CodeNodeData 
 
   const status = cache?.status || 'idle';
 
-  const inputs = data.io?.inputs || {};
-  const outputs = data.io?.outputs || {};
+  // Ports derive from the v2 contract when present; legacy io is the fallback.
+  const toPorts = (
+    flowTypes: Record<string, { kind: string }> | undefined,
+    legacy: Record<string, { type: string; description?: string }> | undefined
+  ): Array<[string, { type: string; description?: string }]> =>
+    flowTypes
+      ? Object.entries(flowTypes).map(([k, t]) => [k, { type: t.kind }])
+      : Object.entries(legacy || {});
 
-  const inputHandles = Object.entries(inputs);
-  const outputHandles = Object.entries(outputs);
+  const inputHandles = toPorts(data.contract?.inputs, data.io?.inputs);
+  const outputHandles = toPorts(data.contract?.outputs, data.io?.outputs);
   const isModule = !!data.moduleRef;
 
 

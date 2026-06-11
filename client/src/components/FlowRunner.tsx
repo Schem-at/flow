@@ -32,6 +32,7 @@ interface FlowNode {
     value?: unknown;
     code?: string;
     dataType?: string;
+    moduleRef?: { id: string; slug?: string; version?: string; pinned?: boolean };
     config?: Record<string, unknown>;
     io?: {
       inputs: Record<string, IOPort>;
@@ -89,7 +90,6 @@ export function FlowRunner() {
   const [liveMode, setLiveMode] = useState(true);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputsReadyRef = useRef(false);
-  const runCountRef = useRef(0);
   // Cache node outputs between runs to skip unchanged nodes
   const nodeOutputCacheRef = useRef<Map<string, { inputHash: string; outputs: Record<string, unknown> }>>(new Map());
 

@@ -3,7 +3,7 @@ import { uuid } from '../../lib/uuid';
  * Editor Toolbar - Node palette, subflows, and actions
  */
 
-import { useCallback, useState, useMemo } from 'react';
+import { useCallback, useState } from 'react';
 import {
   Zap,
   Hash,
@@ -131,7 +131,6 @@ const nodeCategories: { name: string; nodes: NodeTemplate[] }[] = [
 
 export function Toolbar() {
   const addNode = useFlowStore((state) => state.addNode);
-  const { nodes } = useFlowStore();
 
   const [expandedCategories, setExpandedCategories] = useState<string[]>(['Logic', 'Inputs', 'Outputs']);
   const [isCollapsed, setIsCollapsed] = useState(false);
