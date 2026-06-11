@@ -14,6 +14,7 @@ import type {
   ExecutionResult,
   ExecutionError,
 } from './types/index.js';
+import { defaultInputsForContract } from './types/index.js';
 import { SynthaseService, type ContextProviders } from './services/SynthaseService.js';
 
 export interface EngineOptions {
@@ -260,9 +261,13 @@ export class PolymeraseEngine {
 
       switch (node.type) {
         case 'code': {
-          // Get inputs from connected nodes
+          // Get inputs from connected nodes, starting from the block's
+          // contract defaults so unconnected inputs are still populated.
           const inputConnections = getNodeInputs(node.id, edges);
-          const inputs: Record<string, unknown> = {};
+          const contract = node.data.contract;
+          const inputs: Record<string, unknown> = contract
+            ? defaultInputsForContract(contract)
+            : {};
 
           for (const [handleId, connection] of inputConnections) {
             const sourceOutput = nodeOutputs.get(connection.sourceId);

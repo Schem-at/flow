@@ -1,23 +1,21 @@
 /**
  * Execution API routes
+ *
+ * User code (scripts and flows) is NEVER executed on the main server thread:
+ * every execution runs in a one-shot Bun worker via runInExecutionWorker,
+ * which hard-kills the worker on timeout or failure.
  */
 
 import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
 import { db, flows, executions, schematics, type NewExecution, type NewSchematic } from '../db/index.js';
 import type { FlowData } from '@flow/core';
-
-// Lazy import for the engine to allow optional dependency
-let PolymeraseEngine: typeof import('@flow/core').PolymeraseEngine;
-let createContextProviders: typeof import('@flow/core').createContextProviders;
-
-async function loadEngine() {
-  if (!PolymeraseEngine) {
-    const core = await import('@flow/core');
-    PolymeraseEngine = core.PolymeraseEngine;
-    createContextProviders = core.createContextProviders;
-  }
-}
+import {
+  runInExecutionWorker,
+  EXECUTION_WORKER_GRACE_MS,
+  type FlowWorkerResult,
+  type ScriptWorkerResult,
+} from '../services/workerExecutor.js';
 
 const executeRouter = new Hono();
 
@@ -26,8 +24,6 @@ const executeRouter = new Hono();
  */
 executeRouter.post('/', async (c) => {
   try {
-    await loadEngine();
-    
     const body = await c.req.json();
     const { flowData, flowId } = body;
 
@@ -59,101 +55,88 @@ executeRouter.post('/', async (c) => {
 
     await db.insert(executions).values(newExecution);
 
-    // Set up the engine with context providers
-    const contextProviders = await createContextProviders({
-      logCallback: (entry) => {
-        console.log(`[${entry.level}] ${entry.message}`);
-      },
-    });
-
-    const engine = new PolymeraseEngine({
-      contextProviders,
-      timeout: 60000,
-    });
-
-    // Track logs
+    // Track logs streamed from the worker
+    const timeout = 60000;
     const logs: string[] = [];
-    engine.events.on('node:start', (e) => logs.push(`▶ Node ${e.nodeId} started`));
-    engine.events.on('node:finish', (e) => logs.push(`✓ Node ${e.nodeId} finished`));
-    engine.events.on('node:error', (e) => logs.push(`✗ Node ${e.nodeId} error: ${e.error.message}`));
-    engine.events.on('progress', (e) => logs.push(`📊 ${e.message}`));
 
-    // Execute the flow
-    const result = await engine.executeFlow(flow);
+    let result: FlowWorkerResult;
+    try {
+      result = await runInExecutionWorker<FlowWorkerResult>(
+        { kind: 'flow', flow, timeout },
+        {
+          timeoutMs: timeout + EXECUTION_WORKER_GRACE_MS,
+          onEvent: (event) => {
+            const payload = event.payload as Record<string, any>;
+            switch (event.event) {
+              case 'node:start':
+                logs.push(`▶ Node ${payload.nodeId} started`);
+                break;
+              case 'node:finish':
+                logs.push(`✓ Node ${payload.nodeId} finished`);
+                break;
+              case 'node:error':
+                logs.push(`✗ Node ${payload.nodeId} error: ${payload.error?.message}`);
+                break;
+              case 'progress':
+                logs.push(`📊 ${payload.message}`);
+                break;
+              // 'log' entries are already echoed to the server console by the worker
+            }
+          },
+        }
+      );
+    } catch (error) {
+      // Worker crash, hard timeout, or kill — record the failure and rethrow
+      // to preserve the route's 500 error contract.
+      const err = error as Error;
+      await db.update(executions)
+        .set({
+          status: 'error',
+          completedAt: new Date(),
+          error: err.message,
+        })
+        .where(eq(executions.id, executionId));
+      throw err;
+    }
 
     // Update execution record
     await db.update(executions)
       .set({
         status: result.status,
         completedAt: new Date(),
-        result: JSON.stringify(result),
-        error: result.status === 'error' 
-          ? Object.values(result.nodeStates).find(s => s.error)?.error?.message 
-          : null,
+        result: JSON.stringify(result.resultSnapshot),
+        error: result.status === 'error' ? result.errorNode?.message ?? null : null,
       })
       .where(eq(executions.id, executionId));
 
     // Save any generated schematics and build serializable outputs
+    // (binary conversion already happened inside the worker)
     const processedOutputs: Record<string, unknown> = {};
-    if (result.finalOutput) {
-      for (const [key, value] of Object.entries(result.finalOutput)) {
-        // Check for schematic wrapper objects (WASM)
-        if (value && typeof value === 'object' && 'to_schematic' in value) {
-          const wrapper = value as { to_schematic: () => Uint8Array };
-          try {
-            const bytes = wrapper.to_schematic();
-            const schematicId = crypto.randomUUID();
-            const newSchematic: NewSchematic = {
-              id: schematicId,
-              name: key,
-              flowId: flow.id,
-              executionId,
-              format: 'schem',
-              data: Buffer.from(bytes).toString('base64'),
-              createdAt: new Date(),
-            };
-            await db.insert(schematics).values(newSchematic);
-            // Convert to SchematicData format for the response
-            processedOutputs[key] = {
-              format: 'schem',
-              data: Buffer.from(bytes).toString('base64'),
-              metadata: {
-                name: key,
-                fileSize: bytes.length,
-              },
-            };
-          } catch (err) {
-            console.error(`Failed to convert schematic "${key}":`, err);
-            processedOutputs[key] = value;
-          }
-        } else if (value instanceof Uint8Array || ArrayBuffer.isView(value)) {
-          const schematicId = crypto.randomUUID();
-          const newSchematic: NewSchematic = {
-            id: schematicId,
-            name: key,
-            flowId: flow.id,
-            executionId,
-            format: 'schem',
-            data: Buffer.from(value as Uint8Array).toString('base64'),
-            createdAt: new Date(),
-          };
-          await db.insert(schematics).values(newSchematic);
-          processedOutputs[key] = {
-            format: 'binary',
-            data: Buffer.from(value as Uint8Array).toString('base64'),
-            metadata: {
-              name: key,
-              fileSize: (value as Uint8Array).length,
-            },
-          };
-        } else {
-          processedOutputs[key] = value;
-        }
+    for (const output of result.outputs) {
+      if ((output.kind === 'schem' || output.kind === 'binary') && output.base64) {
+        const schematicId = crypto.randomUUID();
+        const newSchematic: NewSchematic = {
+          id: schematicId,
+          name: output.key,
+          flowId: flow.id,
+          executionId,
+          format: 'schem',
+          data: output.base64,
+          createdAt: new Date(),
+        };
+        await db.insert(schematics).values(newSchematic);
+        processedOutputs[output.key] = {
+          format: output.kind === 'schem' ? 'schem' : 'binary',
+          data: output.base64,
+          metadata: {
+            name: output.key,
+            fileSize: output.size,
+          },
+        };
+      } else {
+        processedOutputs[output.key] = output.value;
       }
     }
-
-    // Clean up
-    engine.destroy();
 
     return c.json({
       success: result.status === 'completed',
@@ -176,8 +159,6 @@ executeRouter.post('/', async (c) => {
  */
 executeRouter.post('/script', async (c) => {
   try {
-    await loadEngine();
-    
     const body = await c.req.json();
     const { code, inputs = {}, timeout = 60000 } = body;
 
@@ -187,23 +168,12 @@ executeRouter.post('/script', async (c) => {
 
     console.log('[Execute] Running script with inputs:', inputs);
 
-    // Set up the engine
-    const contextProviders = await createContextProviders({
-      logCallback: (entry) => {
-        console.log(`[Script] [${entry.level}] ${entry.message}`);
-      },
-    });
-
-    const engine = new PolymeraseEngine({
-      contextProviders,
-      timeout,
-    });
-
-    // Execute the script
-    const result = await engine.executeScript(code, inputs);
-
-    // Clean up
-    engine.destroy();
+    // Execute in a killable one-shot worker. Schematic outputs are already
+    // converted to base64 inside the worker.
+    const result = await runInExecutionWorker<ScriptWorkerResult>(
+      { kind: 'script', code, inputs, timeout },
+      { timeoutMs: timeout + EXECUTION_WORKER_GRACE_MS }
+    );
 
     console.log('[Execute] Result:', {
       success: result.success,
@@ -212,67 +182,13 @@ executeRouter.post('/script', async (c) => {
       schematicKeys: result.schematics ? Object.keys(result.schematics) : [],
     });
 
-    // Process result - convert schematic objects to base64
-    const schematicData: Record<string, string> = {};
-
-    // Check the result object for schematic wrapper instances
-    if (result.result) {
-      for (const [key, value] of Object.entries(result.result)) {
-        // Check if the value is a schematic wrapper (has to_schematic method)
-        if (value && typeof value === 'object' && 'to_schematic' in value) {
-          const wrapper = value as { to_schematic: () => Uint8Array };
-          try {
-            const bytes = wrapper.to_schematic();
-            schematicData[key] = Buffer.from(bytes).toString('base64');
-            console.log(`[Execute] Converted schematic "${key}" to base64 (${bytes.length} bytes)`);
-          } catch (err) {
-            console.error(`[Execute] Failed to convert schematic "${key}":`, err);
-          }
-        }
-      }
-    }
-
-    // Also check the schematics field if it exists
-    if (result.schematics) {
-      for (const [key, schem] of Object.entries(result.schematics)) {
-        if (schem && typeof schem === 'object' && 'to_schematic' in schem) {
-          const wrapper = schem as { to_schematic: () => Uint8Array };
-          try {
-            const bytes = wrapper.to_schematic();
-            schematicData[key] = Buffer.from(bytes).toString('base64');
-            console.log(`[Execute] Converted schematic "${key}" from schematics field to base64 (${bytes.length} bytes)`);
-          } catch (err) {
-            console.error(`[Execute] Failed to convert schematic from schematics field "${key}":`, err);
-          }
-        } else if (schem instanceof Uint8Array || ArrayBuffer.isView(schem)) {
-          const bytes = schem instanceof Uint8Array ? schem : new Uint8Array((schem as ArrayBufferView).buffer);
-          schematicData[key] = Buffer.from(bytes).toString('base64');
-        }
-      }
-    }
-
-    // Build response result without schematic wrapper objects
-    const processedResult: Record<string, unknown> = {};
-    if (result.result) {
-      for (const [key, value] of Object.entries(result.result)) {
-        if (value && typeof value === 'object' && 'to_schematic' in value) {
-          // Skip schematic wrappers in result (they're in schematics field)
-          processedResult[key] = '[Schematic Object]';
-        } else {
-          processedResult[key] = value;
-        }
-      }
-    }
-
-    const hasSchematic = Object.keys(schematicData).length > 0;
-
     return c.json({
       success: result.success,
-      result: processedResult,
-      schematics: hasSchematic ? schematicData : null,
-      hasSchematic,
+      result: result.result,
+      schematics: result.schematics,
+      hasSchematic: result.hasSchematic,
       executionTime: result.executionTime,
-      error: result.error?.message,
+      error: result.error,
     });
 
   } catch (error) {
@@ -287,8 +203,6 @@ executeRouter.post('/script', async (c) => {
  */
 executeRouter.post('/validate', async (c) => {
   try {
-    await loadEngine();
-    
     const body = await c.req.json();
     const { code } = body;
 
@@ -296,11 +210,14 @@ executeRouter.post('/validate', async (c) => {
       return c.json({ success: false, error: 'Code is required' }, 400);
     }
 
-    const contextProviders = await createContextProviders();
-    const engine = new PolymeraseEngine({ contextProviders });
-
-    const validation = await engine.validateScript(code);
-    engine.destroy();
+    // Validation may evaluate user code (module import for IO schema), so it
+    // also runs in a killable worker, never on the main thread.
+    const validation = await runInExecutionWorker<{
+      valid: boolean;
+      io?: unknown;
+      dependencies?: string[];
+      error?: string;
+    }>({ kind: 'validate', code }, { timeoutMs: 30000 + EXECUTION_WORKER_GRACE_MS });
 
     return c.json({
       success: true,
@@ -323,9 +240,9 @@ executeRouter.post('/validate', async (c) => {
 executeRouter.get('/executions', async (c) => {
   try {
     const flowId = c.req.query('flowId');
-    
+
     let query = db.select().from(executions);
-    
+
     if (flowId) {
       query = query.where(eq(executions.flowId, flowId)) as typeof query;
     }
@@ -377,4 +294,3 @@ executeRouter.get('/executions/:id', async (c) => {
 });
 
 export default executeRouter;
-

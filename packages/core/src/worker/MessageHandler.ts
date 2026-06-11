@@ -8,7 +8,8 @@ import { SynthaseService } from '../services/SynthaseService.js';
 import { createContextProviders } from './contextProviders.js';
 import { workerDataStore, type StoreDataOptions, type SerializeOptions } from './WorkerDataStore.js';
 import { processInputSchematics } from '../utils/schematic.js';
-import type { IODefinition } from '../types/index.js';
+import type { IODefinition, BlockContract } from '../types/index.js';
+import { defaultInputsForContract } from '../types/index.js';
 
 export interface MessageHandlerOptions {
   postMessage: (message: WorkerMessage) => void;
@@ -424,8 +425,12 @@ export class MessageHandler {
         if (node.type === 'code' && node.data.code) {
           this.postProgress(`Executing node: ${node.data.label || node.id}`);
 
-          // Gather inputs from connected nodes
-          const codeInputs: Record<string, unknown> = {};
+          // Start from the block's contract defaults — unconnected inputs get
+          // their declared default instead of undefined.
+          const contract = (node.data as { contract?: BlockContract }).contract;
+          const codeInputs: Record<string, unknown> = contract
+            ? defaultInputsForContract(contract)
+            : {};
           const incomingEdges = edges.filter(e => e.target === node.id);
 
           console.log(`[Subflow] Node ${node.id} incoming edges:`, incomingEdges.map(e => ({
@@ -446,9 +451,11 @@ export class MessageHandler {
               if (val === undefined && Object.keys(srcOutput).length === 1) {
                 val = srcOutput[Object.keys(srcOutput)[0]];
               }
-              console.log(`[Subflow] Mapping ${outputKey} -> ${inputName}:`, 
+              console.log(`[Subflow] Mapping ${outputKey} -> ${inputName}:`,
                 val && typeof val === 'object' ? `[${val.constructor?.name || typeof val}]` : val);
-              codeInputs[inputName] = val;
+              if (val !== undefined) {
+                codeInputs[inputName] = val;
+              }
             }
           }
 
@@ -568,7 +575,9 @@ export class MessageHandler {
 
       return {
         success: true,
-        outputs: finalOutputs,
+        // Deep-serialize so WASM schematics nested in lists/objects survive
+        // the worker boundary (top-level ones are also in `schematics`).
+        outputs: this.deepSerializeSchematics(finalOutputs) as Record<string, unknown>,
         schematics: processedSchematics,
         executionTime,
       };

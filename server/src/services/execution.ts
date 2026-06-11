@@ -25,17 +25,12 @@ import type {
   ExecuteOptions,
 } from 'shared';
 
-// Lazy import for the engine
-let PolymeraseEngine: typeof import('@flow/core').PolymeraseEngine;
-let createContextProviders: typeof import('@flow/core').createContextProviders;
-
-async function loadEngine() {
-  if (!PolymeraseEngine) {
-    const core = await import('@flow/core');
-    PolymeraseEngine = core.PolymeraseEngine;
-    createContextProviders = core.createContextProviders;
-  }
-}
+import {
+  runInExecutionWorker,
+  ExecutionCancelledError,
+  EXECUTION_WORKER_GRACE_MS,
+  type FlowWorkerResult,
+} from './workerExecutor.js';
 
 /**
  * Service for executing flows and managing runs
@@ -43,6 +38,8 @@ async function loadEngine() {
 export class ExecutionService {
   private static instance: ExecutionService;
   private cleanupInterval: ReturnType<typeof setInterval> | null = null;
+  /** Kill switches for in-flight runs (terminates the execution worker). */
+  private activeKills = new Map<string, () => void>();
 
   private constructor() {}
 
@@ -288,8 +285,6 @@ export class ExecutionService {
       flowApiId?: string;
     } = {}
   ): Promise<Run> {
-    await loadEngine();
-
     // Create or use existing run
     const runId = options.runId || await this.createRun(flow.id, inputs, {
       flowApiId: options.flowApiId,
@@ -309,126 +304,104 @@ export class ExecutionService {
       // Map input node values to the flow
       const flowWithInputs = this.mapInputsToFlow(flow, inputs);
 
-      // Set up the engine
-      const contextProviders = await createContextProviders({
-        logCallback: (entry) => {
-          logs.push({
-            timestamp: Date.now(),
-            level: entry.level as 'debug' | 'info' | 'warn' | 'error',
-            message: entry.message,
-          });
-        },
-      });
-
-      const engine = new PolymeraseEngine({
-        contextProviders,
-        timeout: options.timeout || 60000,
-      });
-
       // Track node progress
       const totalNodes = flow.nodes.filter(n => n.type !== 'comment').length;
       let completedNodes = 0;
+      const timeout = options.timeout || 60000;
 
-      engine.events.on('node:start', async (e) => {
-        nodeResults[e.nodeId] = {
-          nodeId: e.nodeId,
-          status: 'running',
-          startedAt: Date.now(),
-        };
-        
-        await this.updateRunStatus(runId, 'running', {
-          currentNode: e.nodeId,
-          progress: Math.round((completedNodes / totalNodes) * 100),
-        });
-      });
-
-      engine.events.on('node:finish', (e) => {
-        completedNodes++;
-        const nodeResult = nodeResults[e.nodeId];
-        if (nodeResult) {
-          nodeResult.status = 'completed';
-          nodeResult.completedAt = Date.now();
-          nodeResult.output = e.output;
-          nodeResult.executionTimeMs = 
-            (nodeResult.completedAt || 0) - (nodeResult.startedAt || 0);
-        }
-      });
-
-      engine.events.on('node:error', (e) => {
-        const nodeResult = nodeResults[e.nodeId];
-        if (nodeResult) {
-          nodeResult.status = 'failed';
-          nodeResult.completedAt = Date.now();
-          nodeResult.error = {
-            code: e.error.type || 'EXECUTION_ERROR',
-            message: e.error.message,
-            nodeId: e.nodeId,
-            stack: e.error.stack,
-          };
-        }
-      });
-
-      // Execute the flow
+      // Execute in a killable one-shot worker — user code never runs on the
+      // main server thread. Events (logs, node progress) are streamed back.
       const startTime = Date.now();
-      const result = await engine.executeFlow(flowWithInputs);
+      let result: FlowWorkerResult;
+      try {
+        result = await runInExecutionWorker<FlowWorkerResult>(
+          { kind: 'flow', flow: flowWithInputs, timeout },
+          {
+            timeoutMs: timeout + EXECUTION_WORKER_GRACE_MS,
+            registerKill: (kill) => this.activeKills.set(runId, kill),
+            onEvent: (event) => {
+              const payload = event.payload as Record<string, any>;
+              switch (event.event) {
+                case 'log':
+                  logs.push({
+                    timestamp: (payload.timestamp as number) || Date.now(),
+                    level: payload.level as 'debug' | 'info' | 'warn' | 'error',
+                    message: String(payload.message),
+                  });
+                  break;
+                case 'node:start': {
+                  const nodeId = payload.nodeId as string;
+                  nodeResults[nodeId] = {
+                    nodeId,
+                    status: 'running',
+                    startedAt: Date.now(),
+                  };
+                  this.updateRunStatus(runId, 'running', {
+                    currentNode: nodeId,
+                    progress: Math.round((completedNodes / totalNodes) * 100),
+                  }).catch(console.error);
+                  break;
+                }
+                case 'node:finish': {
+                  completedNodes++;
+                  const nodeResult = nodeResults[payload.nodeId as string];
+                  if (nodeResult) {
+                    nodeResult.status = 'completed';
+                    nodeResult.completedAt = Date.now();
+                    nodeResult.output = payload.output;
+                    nodeResult.executionTimeMs =
+                      (nodeResult.completedAt || 0) - (nodeResult.startedAt || 0);
+                  }
+                  break;
+                }
+                case 'node:error': {
+                  const nodeResult = nodeResults[payload.nodeId as string];
+                  if (nodeResult) {
+                    nodeResult.status = 'failed';
+                    nodeResult.completedAt = Date.now();
+                    nodeResult.error = {
+                      code: (payload.error?.type as string) || 'EXECUTION_ERROR',
+                      message: payload.error?.message as string,
+                      nodeId: payload.nodeId as string,
+                      stack: payload.error?.stack as string | undefined,
+                    };
+                  }
+                  break;
+                }
+              }
+            },
+          }
+        );
+      } finally {
+        this.activeKills.delete(runId);
+      }
       const executionTimeMs = Date.now() - startTime;
 
-      // Clean up
-      engine.destroy();
-
-      // Process artifacts (schematics, files, etc.) and build serializable outputs
+      // Process artifacts (schematics, files, etc.) and build serializable
+      // outputs — binary conversion already happened inside the worker.
       const artifacts: Omit<RunArtifact, 'id'>[] = [];
       const processedOutputs: Record<string, unknown> = {};
-      
-      if (result.finalOutput) {
-        for (const [key, value] of Object.entries(result.finalOutput)) {
-          // Check for schematic wrapper objects
-          if (value && typeof value === 'object' && 'to_schematic' in value) {
-            const wrapper = value as { to_schematic: () => Uint8Array };
-            try {
-              const bytes = wrapper.to_schematic();
-              artifacts.push({
-                name: key,
-                type: 'schematic',
-                format: 'schem',
-                size: bytes.length,
-                data: Buffer.from(bytes).toString('base64'),
-              });
-              // Convert to SchematicData format for the outputs
-              processedOutputs[key] = {
-                format: 'schem',
-                data: Buffer.from(bytes).toString('base64'),
-                metadata: {
-                  name: key,
-                  fileSize: bytes.length,
-                },
-              };
-            } catch (err) {
-              console.error(`Failed to convert schematic "${key}":`, err);
-              processedOutputs[key] = value;
-            }
-          } else if (value instanceof Uint8Array || ArrayBuffer.isView(value)) {
-            const bytes = value instanceof Uint8Array ? value : new Uint8Array((value as ArrayBufferView).buffer);
-            artifacts.push({
-              name: key,
-              type: 'data',
-              format: 'binary',
-              size: bytes.length,
-              data: Buffer.from(bytes).toString('base64'),
-            });
-            // Store as base64 in outputs
-            processedOutputs[key] = {
-              format: 'binary',
-              data: Buffer.from(bytes).toString('base64'),
-              metadata: {
-                name: key,
-                fileSize: bytes.length,
-              },
-            };
-          } else {
-            // Pass through other values unchanged
-            processedOutputs[key] = value;
-          }
+
+      for (const output of result.outputs) {
+        if ((output.kind === 'schem' || output.kind === 'binary') && output.base64) {
+          artifacts.push({
+            name: output.key,
+            type: output.kind === 'schem' ? 'schematic' : 'data',
+            format: output.kind === 'schem' ? 'schem' : 'binary',
+            size: output.size || 0,
+            data: output.base64,
+          });
+          processedOutputs[output.key] = {
+            format: output.kind === 'schem' ? 'schem' : 'binary',
+            data: output.base64,
+            metadata: {
+              name: output.key,
+              fileSize: output.size,
+            },
+          };
+        } else {
+          // Pass through other values unchanged
+          processedOutputs[output.key] = output.value;
         }
       }
 
@@ -447,13 +420,12 @@ export class ExecutionService {
           executionTimeMs,
         });
       } else if (result.status === 'error') {
-        const errorNode = Object.entries(result.nodeStates).find(([, s]) => s.error);
         await this.updateRunStatus(runId, 'failed', {
-          error: errorNode?.[1].error ? {
+          error: result.errorNode ? {
             code: 'EXECUTION_FAILED',
-            message: errorNode[1].error.message,
-            nodeId: errorNode[0],
-            stack: errorNode[1].error.stack,
+            message: result.errorNode.message,
+            nodeId: result.errorNode.nodeId,
+            stack: result.errorNode.stack,
           } : {
             code: 'EXECUTION_FAILED',
             message: 'Flow execution failed',
@@ -475,10 +447,19 @@ export class ExecutionService {
 
     } catch (error) {
       const err = error as Error;
-      
-      // Check if it's a timeout
+
+      // Explicit kill via cancelRun — record as cancelled, not failed
+      if (err instanceof ExecutionCancelledError || err.name === 'ExecutionCancelledError') {
+        await this.updateRunStatus(runId, 'cancelled', {
+          logs,
+          nodeResults,
+        });
+        return (await this.getRun(runId))!;
+      }
+
+      // Check if it's a timeout (incl. the worker hard-kill timeout)
       const isTimeout = err.message.includes('timeout') || err.message.includes('timed out');
-      
+
       await this.updateRunStatus(runId, isTimeout ? 'timeout' : 'failed', {
         error: {
           code: isTimeout ? 'EXECUTION_TIMEOUT' : 'EXECUTION_FAILED',
@@ -546,9 +527,20 @@ export class ExecutionService {
    */
   async cancelRun(runId: string): Promise<boolean> {
     const run = await db.select().from(runs).where(eq(runs.id, runId)).get();
-    
+
     if (!run) return false;
     if (!['pending', 'running'].includes(run.status)) return false;
+
+    // Actually kill the execution worker if this run is in flight
+    const kill = this.activeKills.get(runId);
+    if (kill) {
+      this.activeKills.delete(runId);
+      try {
+        kill();
+      } catch (err) {
+        console.error(`Failed to kill worker for run ${runId}:`, err);
+      }
+    }
 
     await this.updateRunStatus(runId, 'cancelled');
     return true;

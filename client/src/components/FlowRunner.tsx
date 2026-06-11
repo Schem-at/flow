@@ -8,6 +8,8 @@ import {
 import Markdown from 'react-markdown';
 import { Navbar } from './layout/Navbar';
 import { useLocalExecutor } from '../hooks/useLocalExecutor';
+import type { BlockContract } from '@flow/core';
+import { defaultInputsForContract } from '@flow/core';
 import SchematicRenderer from './others/SchematicRenderer';
 import { cacheFile, getCachedFile } from '../lib/fileCache';
 
@@ -178,7 +180,11 @@ export function FlowRunner() {
     node: FlowNode,
     nodeOutputs: Map<string, Record<string, unknown>>,
   ): Record<string, unknown> => {
-    const resolved: Record<string, unknown> = {};
+    // Contract defaults first — unconnected inputs keep their declared default.
+    const contract = (node.data as { contract?: BlockContract }).contract;
+    const resolved: Record<string, unknown> = contract
+      ? defaultInputsForContract(contract)
+      : {};
     const nodeInputs = node.data.io?.inputs || {};
 
     for (const [handleName] of Object.entries(nodeInputs)) {

@@ -17,6 +17,8 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import type { Edge } from '@xyflow/react';
+import type { BlockContract } from '@flow/core';
+import { defaultInputsForContract } from '@flow/core';
 import { type FlowNode } from '../../store/flowStore';
 
 import { 
@@ -727,9 +729,13 @@ export function Editor() {
             continue;
           }
 
-          // Gather inputs from connected upstream nodes
+          // Gather inputs from connected upstream nodes, starting from the
+          // block's contract defaults so unconnected inputs are populated.
           // For code nodes, prefer handles (_schematicHandle) over serialized data
-          const inputValues: Record<string, unknown> = {};
+          const nodeContract = (node.data as { contract?: BlockContract }).contract;
+          const inputValues: Record<string, unknown> = nodeContract
+            ? defaultInputsForContract(nodeContract)
+            : {};
           const incomingEdges = edges.filter(e => e.target === node.id);
           
           for (const edge of incomingEdges) {

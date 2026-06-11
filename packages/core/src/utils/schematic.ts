@@ -80,27 +80,39 @@ export async function schematicDataToWrapper(schematicData: SchematicData): Prom
 export async function processInputSchematics(
   inputs: Record<string, unknown>
 ): Promise<Record<string, unknown>> {
-  const processed: Record<string, unknown> = {};
-  
-  for (const [key, value] of Object.entries(inputs)) {
-    if (isSchematicData(value)) {
-      // Convert SchematicData to SchematicWrapper
-      processed[key] = await schematicDataToWrapper(value);
-    } else if (value && typeof value === 'object' && !Array.isArray(value)) {
-      // Check nested objects (but not arrays)
-      const nested = value as Record<string, unknown>;
-      const hasSchematicData = Object.values(nested).some(v => isSchematicData(v));
-      if (hasSchematicData) {
-        processed[key] = await processInputSchematics(nested);
-      } else {
-        processed[key] = value;
-      }
-    } else {
-      processed[key] = value;
-    }
+  return (await rehydrateSchematics(inputs)) as Record<string, unknown>;
+}
+
+/**
+ * Deep mirror of the worker's output serialization: SchematicData anywhere in
+ * the value tree (lists of lists included) becomes a live SchematicWrapper.
+ * Typed arrays and non-plain objects pass through untouched.
+ */
+async function rehydrateSchematics(value: unknown, depth = 0): Promise<unknown> {
+  if (depth > 16 || value === null || typeof value !== 'object') return value;
+  if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) return value;
+
+  if (isSchematicData(value)) {
+    return schematicDataToWrapper(value);
   }
-  
-  return processed;
+
+  if (Array.isArray(value)) {
+    const out = new Array(value.length);
+    for (let i = 0; i < value.length; i++) {
+      out[i] = await rehydrateSchematics(value[i], depth + 1);
+    }
+    return out;
+  }
+
+  const proto = Object.getPrototypeOf(value);
+  if (proto === Object.prototype || proto === null) {
+    const out: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      out[key] = await rehydrateSchematics(item, depth + 1);
+    }
+    return out;
+  }
+  return value;
 }
 
 

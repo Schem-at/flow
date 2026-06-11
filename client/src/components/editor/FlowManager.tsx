@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useFlowStore } from '../../store/flowStore';
 import { Modal } from '../ui/Modal';
+import { EXAMPLE_FLOWS } from '../../lib/exampleFlows';
 
 // Use empty string for dev (Vite proxy handles /api), or VITE_SERVER_URL for production
 const SERVER_URL = import.meta.env.VITE_SERVER_URL ?? '';
@@ -231,6 +232,38 @@ export function FlowManager({ isOpen, onClose }: FlowManagerProps) {
           </div>
 
           {/* Search / Filter could go here */}
+        </div>
+
+        {/* Example flows */}
+        <div className="mb-6">
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">
+            Examples
+          </h3>
+          <div className="space-y-2">
+            {EXAMPLE_FLOWS.map((example) => (
+              <div
+                key={example.id}
+                className="flex items-center justify-between gap-3 rounded-xl border border-neutral-800 bg-neutral-900/60 px-4 py-3"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-white">{example.name}</p>
+                  <p className="truncate text-xs text-neutral-500">
+                    {example.nodes.length} nodes · multi-step block pipeline
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    loadFlow({ ...example, id: '', createdAt: Date.now() });
+                    useFlowStore.getState().setFlowName(example.name);
+                    onClose();
+                  }}
+                  className="flex-none rounded-lg border border-emerald-600/40 bg-emerald-600/15 px-3 py-1.5 text-xs font-medium text-emerald-300 transition hover:bg-emerald-600/25"
+                >
+                  Load example
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* New Flow Input */}
