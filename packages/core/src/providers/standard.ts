@@ -54,7 +54,9 @@ export const standardProvider: RuntimeProvider = {
 
       Pathfinding,
 
-      Math: Object.assign({}, Math, {
+      // Math's built-ins are non-enumerable — spread/assign would produce an
+      // empty shadow. Prototype-chain it instead so sin/cos/… resolve.
+      Math: Object.assign(Object.create(Math), {
         TAU: Math.PI * 2,
       }),
     };
