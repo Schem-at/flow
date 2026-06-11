@@ -426,8 +426,8 @@ export function Home() {
                       </p>
                     )}
 
-                    {/* Tags */}
-                    {flow.tags.length > 0 && (
+                    {/* Tags (flows created via the raw API may have none) */}
+                    {(flow.tags?.length ?? 0) > 0 && (
                       <div className="flex items-center gap-1 mb-3 flex-wrap">
                         {flow.tags.slice(0, 4).map(tag => (
                           <span
@@ -478,13 +478,13 @@ export function Home() {
                       </div>
 
                       <div className="flex items-center gap-2 text-[10px] text-neutral-700 font-mono">
-                        {flow.stats.forks > 0 && (
+                        {(flow.stats?.forks ?? 0) > 0 && (
                           <span className="flex items-center gap-0.5"><GitFork className="w-2.5 h-2.5" />{flow.stats.forks}</span>
                         )}
-                        {flow.stats.runs > 0 && (
+                        {(flow.stats?.runs ?? 0) > 0 && (
                           <span className="flex items-center gap-0.5"><Zap className="w-2.5 h-2.5" />{flow.stats.runs}</span>
                         )}
-                        {flow.stats.views > 0 && (
+                        {(flow.stats?.views ?? 0) > 0 && (
                           <span className="flex items-center gap-0.5"><Eye className="w-2.5 h-2.5" />{flow.stats.views}</span>
                         )}
                         <span className="flex items-center gap-0.5">

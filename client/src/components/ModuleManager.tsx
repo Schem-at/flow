@@ -210,7 +210,7 @@ export function ModuleManager() {
                       <p className="text-xs text-neutral-600 line-clamp-2 mb-3 leading-relaxed">{mod.description}</p>
                     )}
 
-                    {mod.tags.length > 0 && (
+                    {(mod.tags?.length ?? 0) > 0 && (
                       <div className="flex gap-1 mb-3 flex-wrap">
                         {mod.tags.slice(0, 3).map(t => (
                           <span key={t.id} className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/[0.04] border border-neutral-800/40 text-neutral-500"
