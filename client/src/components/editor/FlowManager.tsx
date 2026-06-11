@@ -1,3 +1,4 @@
+import { uuid } from '../../lib/uuid';
 /**
  * FlowManager - Manage flows from database
  */
@@ -65,7 +66,7 @@ export function FlowManager({ isOpen, onClose }: FlowManagerProps) {
         
         // Map old node IDs to new ones
         flowData.nodes.forEach((node: { id: string; type?: string }) => {
-          const newId = `${node.type || 'node'}-${crypto.randomUUID().slice(0, 8)}`;
+          const newId = `${node.type || 'node'}-${uuid().slice(0, 8)}`;
           idMap.set(node.id, newId);
         });
         
@@ -78,7 +79,7 @@ export function FlowManager({ isOpen, onClose }: FlowManagerProps) {
         // Update edge source/target IDs
         const newEdges = flowData.edges.map((edge: { id: string; source: string; target: string; [key: string]: unknown }) => ({
           ...edge,
-          id: `edge-${crypto.randomUUID().slice(0, 8)}`,
+          id: `edge-${uuid().slice(0, 8)}`,
           source: idMap.get(edge.source) || edge.source,
           target: idMap.get(edge.target) || edge.target,
         }));
@@ -86,7 +87,7 @@ export function FlowManager({ isOpen, onClose }: FlowManagerProps) {
         // Load the flow with new IDs
         loadFlow({
           ...flowData,
-          id: crypto.randomUUID(),
+          id: uuid(),
           name: flowData.name || 'Imported Flow',
           version: flowData.version || '1.0.0',
           createdAt: flowData.createdAt || Date.now(),

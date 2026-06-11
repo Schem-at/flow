@@ -1,3 +1,4 @@
+import { uuid } from '../../lib/uuid';
 /**
  * Editor - Main flow editor component with execution state visualization
  */
@@ -189,7 +190,7 @@ export function Editor() {
     const nodeToClone = nodes.find(n => n.id === selectedNodeId);
     if (!nodeToClone) return;
     
-    const newId = `${nodeToClone.type}-${crypto.randomUUID().slice(0, 8)}`;
+    const newId = `${nodeToClone.type}-${uuid().slice(0, 8)}`;
     const newNode: FlowNode = {
       ...nodeToClone,
       id: newId,
@@ -236,7 +237,7 @@ export function Editor() {
     // Generate ID mapping for new nodes
     const idMap = new Map<string, string>();
     clipboard.nodes.forEach(node => {
-      const newId = `${node.type}-${crypto.randomUUID().slice(0, 8)}`;
+      const newId = `${node.type}-${uuid().slice(0, 8)}`;
       idMap.set(node.id, newId);
     });
     
@@ -259,7 +260,7 @@ export function Editor() {
     // Create new edges with updated IDs
     const newEdges: Edge[] = clipboard.edges.map(edge => ({
       ...edge,
-      id: `edge-${crypto.randomUUID().slice(0, 8)}`,
+      id: `edge-${uuid().slice(0, 8)}`,
       source: idMap.get(edge.source)!,
       target: idMap.get(edge.target)!,
     }));
@@ -1459,7 +1460,7 @@ export function Editor() {
       const nodeData = dataString ? JSON.parse(dataString) : { label: `${type} node` };
 
       const newNode: FlowNode = {
-        id: `${type}-${crypto.randomUUID().slice(0, 8)}`,
+        id: `${type}-${uuid().slice(0, 8)}`,
         type,
         position,
         data: nodeData,

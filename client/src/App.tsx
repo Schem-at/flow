@@ -10,6 +10,7 @@ import { Editor } from './components/editor/Editor';
 import { Home } from './components/Home';
 import { FlowRunner } from './components/FlowRunner';
 import { ModuleManager } from './components/ModuleManager';
+import Workbench from './components/Workbench';
 
 const queryClient = new QueryClient();
 
@@ -20,6 +21,7 @@ function App() {
 				<BrowserRouter>
 					<Routes>
 						<Route path="/" element={<Home />} />
+						<Route path="/workbench" element={<Workbench />} />
 						<Route path="/modules" element={<ModuleManager />} />
 						<Route path="/editor" element={<Editor />} />
 						<Route path="/editor/:flowId" element={<Editor />} />

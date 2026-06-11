@@ -1,3 +1,4 @@
+import { uuid } from '../../lib/uuid';
 /**
  * Editor Toolbar - Node palette, subflows, and actions
  */
@@ -145,7 +146,7 @@ export function Toolbar() {
   };
 
   const handleAddNode = useCallback((template: NodeTemplate) => {
-    const id = `${template.type}-${crypto.randomUUID().slice(0, 8)}`;
+    const id = `${template.type}-${uuid().slice(0, 8)}`;
     const newNode: FlowNode = {
       id,
       type: template.type,

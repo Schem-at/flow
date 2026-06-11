@@ -1,3 +1,4 @@
+import { uuid } from '../../lib/uuid';
 /**
  * CommandPalette - Quick node insertion with fuzzy search (Cmd+K)
  */
@@ -221,7 +222,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
   // Handle template selection
   const handleSelectTemplate = useCallback((template: NodeTemplate) => {
     const position = getNextPosition();
-    const nodeId = `${template.type}-${crypto.randomUUID().slice(0, 8)}`;
+    const nodeId = `${template.type}-${uuid().slice(0, 8)}`;
     
     const nodeData: FlowNode['data'] = {
       label: template.label,

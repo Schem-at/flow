@@ -1,3 +1,4 @@
+import { uuid } from '../lib/uuid';
 /**
  * Zustand store for managing flow state with execution cache
  */
@@ -669,7 +670,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   exportFlow: () => {
     const state = get();
     return {
-      id: state.flowId || crypto.randomUUID(),
+      id: state.flowId || uuid(),
       name: state.flowName,
       version: '1.0.0',
       nodes: state.nodes.map((node) => ({
@@ -827,7 +828,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     }
     
     const subflow: SavedSubflow = {
-      id: crypto.randomUUID(),
+      id: uuid(),
       name,
       category,
       version: '1.0.0',
@@ -871,7 +872,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   addSubflowNode: (subflow: SavedSubflow, position: { x: number; y: number }) => {
     const state = get();
     const newNode: FlowNode = {
-      id: `subflow-${crypto.randomUUID().slice(0, 8)}`,
+      id: `subflow-${uuid().slice(0, 8)}`,
       type: 'subflow',
       position,
       data: {

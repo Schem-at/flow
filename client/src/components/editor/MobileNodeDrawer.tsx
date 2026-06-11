@@ -1,3 +1,4 @@
+import { uuid } from '../../lib/uuid';
 /**
  * MobileNodeDrawer - Bottom drawer for adding nodes on mobile
  * Features horizontal scrolling categories with touch-friendly cards
@@ -129,7 +130,7 @@ export function MobileNodeDrawer({ isOpen, onClose, onNodeAdded }: MobileNodeDra
   const [activeCategory, setActiveCategory] = useState(0);
 
   const handleAddNode = useCallback((template: NodeTemplate) => {
-    const id = `${template.type}-${crypto.randomUUID().slice(0, 8)}`;
+    const id = `${template.type}-${uuid().slice(0, 8)}`;
     const newNode: FlowNode = {
       id,
       type: template.type,
@@ -146,7 +147,7 @@ export function MobileNodeDrawer({ isOpen, onClose, onNodeAdded }: MobileNodeDra
   }, [addNode, onNodeAdded]);
 
   const handleAddSubflow = useCallback((subflow: SavedSubflow) => {
-    const id = `subflow-${crypto.randomUUID().slice(0, 8)}`;
+    const id = `subflow-${uuid().slice(0, 8)}`;
     const newNode: FlowNode = {
       id,
       type: 'subflow',

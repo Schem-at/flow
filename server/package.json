@@ -16,7 +16,7 @@
     "@flow/synthase": "workspace:*",
     "drizzle-orm": "^0.36.4",
     "hono": "^4.7.11",
-    "nucleation": "^0.1.135",
+    "nucleation": "^0.2.13",
     "shared": "workspace:*"
   },
   "devDependencies": {
