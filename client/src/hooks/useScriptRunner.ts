@@ -34,7 +34,13 @@ export function useScriptRunner() {
       workerFactory: () => new Worker(),
     } as ConstructorParameters<typeof WorkerClient>[0]);
     clientRef.current = client;
-    setReady(true);
+
+    // Ready only once the worker has finished initializing (WASM load can be
+    // slow over the network); the constructor alone doesn't mean runnable.
+    client.on('ready', () => setReady(true));
+    if ((client as unknown as { state?: string }).state === 'ready') {
+      setReady(true);
+    }
 
     client.on('progress', (payload: any) => {
       if (!payload?.message) return;
