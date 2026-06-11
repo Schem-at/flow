@@ -146,6 +146,7 @@ export function Editor() {
   // Modal states
   const [showFlowManager, setShowFlowManager] = useState(false);
   const [showCodeEditor, setShowCodeEditor] = useState(false);
+  const [codeEditorFullscreen, setCodeEditorFullscreen] = useState(false);
   const [showNodeProperties, setShowNodeProperties] = useState(false);
   const [showExecution, setShowExecution] = useState(false);
   const [showApiPanel, setShowApiPanel] = useState(false);
@@ -1813,16 +1814,20 @@ export function Editor() {
         onClose={() => {
           setShowCodeEditor(false);
           setEditingNodeId(null);
+          setCodeEditorFullscreen(false);
         }}
-        size={isMobile ? 'full' : 'xl'}
+        size={isMobile || codeEditorFullscreen ? 'full' : 'xl'}
         showCloseButton={false}
       >
         {editingNodeId && (
-          <CodePanel 
-            nodeId={editingNodeId} 
+          <CodePanel
+            nodeId={editingNodeId}
+            isFullscreen={codeEditorFullscreen}
+            onToggleFullscreen={() => setCodeEditorFullscreen((v) => !v)}
             onClose={() => {
               setShowCodeEditor(false);
               setEditingNodeId(null);
+              setCodeEditorFullscreen(false);
             }}
           />
         )}

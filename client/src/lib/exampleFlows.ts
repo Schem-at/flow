@@ -114,6 +114,12 @@ export const JULIA_STITCH_FLOW: FlowData = {
       },
     },
     {
+      id: 'tiles-viewer',
+      type: 'viewer',
+      position: { x: 780, y: 420 },
+      data: { label: 'Tile gallery', isResizable: true },
+    },
+    {
       id: 'mosaic-viewer',
       type: 'viewer',
       position: { x: 1240, y: 0 },
@@ -140,6 +146,13 @@ export const JULIA_STITCH_FLOW: FlowData = {
       target: 'stitcher',
       sourceHandle: 'tiles',
       targetHandle: 'tiles',
+    },
+    {
+      id: 'e-tiles-view',
+      source: 'julia-gen',
+      target: 'tiles-viewer',
+      sourceHandle: 'tiles',
+      targetHandle: 'input',
     },
     {
       id: 'e-view',

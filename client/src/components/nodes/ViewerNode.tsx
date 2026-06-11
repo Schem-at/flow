@@ -15,10 +15,14 @@ import {
   type SchematicData,
   type ImageData as CoreImageData,
   type TabularData,
-  type DataValue
+  type DataValue,
+  type FlowType,
+  type BlockContract
 } from '@flow/core';
 
 import SchematicRenderer from '../others/SchematicRenderer';
+import { FieldViewer } from '../blocks/viewers';
+import { getSharedWorkerClient } from '../../hooks/useLocalExecutor';
 
 // ============================================================================
 // Types
@@ -484,12 +488,27 @@ const ViewerNode = memo(({ id, data, selected, width, height }: NodeProps & { da
   const setNodeOutput = useFlowStore((state) => state.setNodeOutput);
 
   // Optimized selector to only re-render when relevant data changes
-  const { viewerCache, sourceCache, inputEdge } = useFlowStore(useShallow((state) => {
+  const { viewerCache, sourceCache, inputEdge, upstreamType } = useFlowStore(useShallow((state) => {
     const inputEdge = state.edges.find(e => e.target === id);
+    // The upstream port's FlowType drives the typed viewer (lists of
+    // schematics → gallery, list of objects → table, image → canvas, …).
+    let upstreamType: FlowType | null = null;
+    if (inputEdge) {
+      const sourceNode = state.nodes.find(n => n.id === inputEdge.source);
+      const contract = (sourceNode?.data as { contract?: BlockContract } | undefined)?.contract;
+      if (contract) {
+        if (inputEdge.sourceHandle && contract.outputs[inputEdge.sourceHandle]) {
+          upstreamType = contract.outputs[inputEdge.sourceHandle];
+        } else {
+          const outputs = Object.values(contract.outputs);
+          if (outputs.length === 1) upstreamType = outputs[0];
+        }
+      }
+    }
     const viewerCache = state.nodeCache[id];
     const sourceCache = inputEdge ? state.nodeCache[inputEdge.source] : null;
 
-    return { viewerCache, sourceCache, inputEdge };
+    return { viewerCache, sourceCache, inputEdge, upstreamType };
   }));
 
   const [isHovered, setIsHovered] = useState(false);
@@ -575,6 +594,12 @@ const ViewerNode = memo(({ id, data, selected, width, height }: NodeProps & { da
   const TypeIcon = getTypeIcon(valueType);
   const typeColor = getTypeColor(valueType);
 
+  // Resolves resident-schematic handles against the shared worker.
+  const getHandleData = useCallback(
+    (handleId: string) => getSharedWorkerClient().getData(handleId),
+    []
+  );
+
   const renderPreview = () => {
     // No input connected and no cached value
     if (!hasInput && displayValue === null) {
@@ -592,6 +617,17 @@ const ViewerNode = memo(({ id, data, selected, width, height }: NodeProps & { da
         <div className="text-center text-neutral-500 py-6">
           <Eye className="w-8 h-8 mx-auto mb-2 opacity-50" />
           <div className="text-xs">Waiting for data...</div>
+        </div>
+      );
+    }
+
+    // Typed rendering: when the upstream port declares a FlowType, recurse
+    // through the registry viewers (schematic gallery, table, image, tree…).
+    // Plain schematics keep the node's own resizable preview path below.
+    if (upstreamType && upstreamType.kind !== 'schematic' && upstreamType.kind !== 'unknown') {
+      return (
+        <div className="nowheel nodrag max-h-[420px] overflow-auto pr-1">
+          <FieldViewer type={upstreamType} value={displayValue} getData={getHandleData} />
         </div>
       );
     }
@@ -653,7 +689,11 @@ const ViewerNode = memo(({ id, data, selected, width, height }: NodeProps & { da
           relative rounded-xl overflow-visible
           bg-neutral-900 flex flex-col
           border transition-all duration-200 group
-          ${isResized ? 'w-full h-full' : 'min-w-[180px] max-w-[280px]'}
+          ${isResized
+            ? 'w-full h-full'
+            : upstreamType && upstreamType.kind === 'list'
+              ? 'min-w-[320px] max-w-[440px]'
+              : 'min-w-[180px] max-w-[280px]'}
           ${selected
             ? 'border-pink-500/50 shadow-lg shadow-pink-500/10'
             : isHovered

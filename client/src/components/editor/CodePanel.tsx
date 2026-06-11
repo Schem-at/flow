@@ -6,19 +6,38 @@
 import { useCallback, useEffect, useState, useRef } from 'react';
 import Editor, { type Monaco } from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
-import { Zap, Info, ArrowRight, CheckCircle, XCircle, Loader2, Plus, Save, AlertTriangle, ChevronDown, ChevronRight, Copy, Code, Package, Unplug, Pin, PinOff, Upload, Tag, Code2, LayoutPanelLeft } from 'lucide-react';
+import { Zap, Info, ArrowRight, CheckCircle, XCircle, Loader2, Plus, Save, AlertTriangle, ChevronDown, ChevronRight, Copy, Code, Package, Unplug, Pin, PinOff, Upload, Tag, Code2, LayoutPanelLeft, FlaskConical, Maximize2, Minimize2, Play, Square } from 'lucide-react';
 import { useFlowStore, type ExecutionError } from '../../store/flowStore';
-import type { IODefinition, BlockContract } from '@flow/core';
+import type { IODefinition, BlockContract, ExecutionResult } from '@flow/core';
+import { defaultInputsForContract } from '@flow/core';
 import { parseBlockSource, type ParsedBlock } from '../../lib/block/parser';
 import { contractToTypeScript } from '../../lib/block/codegen';
 import { contractToIO } from '../../lib/block/io-compat';
 import ContractBuilder from '../blocks/ContractBuilder';
 import BlockEditor from '../blocks/BlockEditor';
+import { FieldWidget } from '../blocks/widgets';
+import OutputView from '../blocks/OutputView';
+import { useLocalExecutor } from '../../hooks/useLocalExecutor';
 
 
 interface CodePanelProps {
   nodeId: string;
   onClose?: () => void;
+  isFullscreen?: boolean;
+  onToggleFullscreen?: () => void;
+}
+
+/** One-line description of a flow-provided value for the "from flow" chip. */
+function summarizeValue(value: unknown): string {
+  if (value === null || value === undefined) return 'empty';
+  if (Array.isArray(value)) return `array · ${value.length} item${value.length === 1 ? '' : 's'}`;
+  if (typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    if ('_schematicHandle' in obj) return 'schematic (resident)';
+    if ('format' in obj && 'data' in obj) return `schematic (${String(obj.format)})`;
+    return 'object';
+  }
+  return String(value);
 }
 
 interface ValidationState {
@@ -120,7 +139,7 @@ function ExecutionErrorDisplay({ error }: { error: ExecutionError }) {
   );
 }
 
-export function CodePanel({ nodeId, onClose }: CodePanelProps) {
+export function CodePanel({ nodeId, onClose, isFullscreen, onToggleFullscreen }: CodePanelProps) {
   const { nodes, updateNodeData, addNode, edges, setEdges, setNodeOutput, nodeCache, exportFlow, flowId } = useFlowStore();
   const [localCode, setLocalCode] = useState('');
   const [showPublish, setShowPublish] = useState(false);
@@ -140,6 +159,15 @@ export function CodePanel({ nodeId, onClose }: CodePanelProps) {
   const [validation, setValidation] = useState<ValidationState>({ status: 'idle' });
   const [parsed, setParsed] = useState<ParsedBlock | null>(null);
   const [viewMode, setViewMode] = useState<'visual' | 'code'>('visual');
+  // Standalone test bench: run this block in isolation, inputs prefilled from
+  // the connected flow where available, manually editable everywhere.
+  const [testMode, setTestMode] = useState(false);
+  const [testValues, setTestValues] = useState<Record<string, unknown>>({});
+  const [flowFed, setFlowFed] = useState<Record<string, boolean>>({});
+  const [testResult, setTestResult] = useState<ExecutionResult | null>(null);
+  const [testError, setTestError] = useState<string | null>(null);
+  const [testRunning, setTestRunning] = useState(false);
+  const { executeScript, getData, workerClient } = useLocalExecutor();
   const [showIO, setShowIO] = useState(false);
   const [showTips, setShowTips] = useState(false);
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
@@ -415,6 +443,74 @@ export function CodePanel({ nodeId, onClose }: CodePanelProps) {
     return () => clearTimeout(timer);
   }, [localCode, validateScript]);
 
+  // ── standalone test bench ───────────────────────────────────────────────
+  /**
+   * Seed test inputs: contract defaults, overridden by values the flow has
+   * already produced on connected ports (upstream node caches).
+   */
+  const seedTestValues = useCallback(() => {
+    const contract = validation.contract;
+    if (!contract) return;
+    const values = defaultInputsForContract(contract);
+    const fed: Record<string, boolean> = {};
+
+    for (const name of Object.keys(contract.inputs)) {
+      const edge = edges.find((e) => e.target === nodeId && e.targetHandle === name);
+      if (!edge) continue;
+      const sourceOutput = nodeCache[edge.source]?.output as
+        | Record<string, unknown>
+        | undefined;
+      if (sourceOutput === undefined || sourceOutput === null) continue;
+
+      let val: unknown;
+      if (typeof sourceOutput === 'object') {
+        const key = edge.sourceHandle || 'default';
+        val = sourceOutput[key];
+        if (val === undefined) {
+          const keys = Object.keys(sourceOutput);
+          val = keys.length === 1 ? sourceOutput[keys[0]] : sourceOutput['default'];
+        }
+      }
+      if (val === undefined) val = sourceOutput;
+      if (val !== undefined) {
+        values[name] = val;
+        fed[name] = true;
+      }
+    }
+
+    setTestValues(values);
+    setFlowFed(fed);
+  }, [validation.contract, edges, nodeId, nodeCache]);
+
+  const toggleTestMode = useCallback(() => {
+    setTestMode((on) => {
+      if (!on) seedTestValues();
+      return !on;
+    });
+  }, [seedTestValues]);
+
+  const runTest = useCallback(async () => {
+    setTestError(null);
+    setTestRunning(true);
+    try {
+      const result = await executeScript(localCode, testValues, { returnHandles: false });
+      setTestResult(result);
+      if (!result.success) setTestError(result.error?.message ?? 'Execution failed');
+    } catch (e) {
+      setTestError((e as Error).message);
+    } finally {
+      setTestRunning(false);
+    }
+  }, [executeScript, localCode, testValues]);
+
+  const cancelTest = useCallback(async () => {
+    try {
+      await workerClient.cancelExecution();
+    } finally {
+      setTestRunning(false);
+    }
+  }, [workerClient]);
+
   // ── visual edits round-trip into the canonical source ──────────────────
   const handleContractChange = useCallback(
     (contract: BlockContract) => {
@@ -444,7 +540,7 @@ export function CodePanel({ nodeId, onClose }: CodePanelProps) {
   }
 
   return (
-    <div className="flex flex-col h-full sm:h-[80vh]">
+    <div className={`flex flex-col h-full ${isFullscreen ? 'sm:h-[92vh]' : 'sm:h-[80vh]'}`}>
       {/* Header info */}
       <div className="px-4 py-3 sm:px-6 sm:py-4 border-b border-neutral-800/50 flex flex-col sm:flex-row sm:items-center gap-3 sm:justify-between bg-neutral-900/50">
         <div className="flex items-center gap-3 w-full sm:w-auto">
@@ -549,6 +645,17 @@ export function CodePanel({ nodeId, onClose }: CodePanelProps) {
             </span>
           )}
           
+          {/* Fullscreen toggle */}
+          {onToggleFullscreen && (
+            <button
+              onClick={onToggleFullscreen}
+              className="hidden sm:flex p-1.5 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800/50 transition-colors"
+              title={isFullscreen ? 'Exit full screen' : 'Full screen'}
+            >
+              {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+            </button>
+          )}
+
           {/* Desktop Close Button */}
           {onClose && (
             <button
@@ -779,6 +886,19 @@ export function CodePanel({ nodeId, onClose }: CodePanelProps) {
       {/* View toggle: visual (contract builder + body) is the default; raw types are opt-in */}
       <div className="flex items-center justify-end gap-2 border-b border-neutral-800/50 bg-neutral-900/40 px-4 py-1.5">
         <button
+          onClick={toggleTestMode}
+          disabled={!validation.contract}
+          className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] transition disabled:cursor-not-allowed disabled:opacity-40 ${
+            testMode
+              ? 'border-amber-600 bg-amber-500/15 text-amber-300'
+              : 'border-neutral-700 text-neutral-400 hover:border-neutral-500 hover:text-neutral-200'
+          }`}
+          title="Run this block standalone — inputs prefilled from the flow where connected"
+        >
+          <FlaskConical className="h-3 w-3" />
+          Test
+        </button>
+        <button
           onClick={() => setViewMode((m) => (m === 'visual' ? 'code' : 'visual'))}
           className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] transition ${
             viewMode === 'code'
@@ -791,6 +911,84 @@ export function CodePanel({ nodeId, onClose }: CodePanelProps) {
           {viewMode === 'code' ? 'Visual' : 'Code'}
         </button>
       </div>
+
+      {/* Test bench: inputs on top (flow-prefilled or manual), run, outputs */}
+      {testMode && validation.contract && (
+        <div className="border-b border-amber-900/30 bg-amber-500/[0.03] px-4 py-3">
+          <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
+            {Object.entries(validation.contract.inputs).map(([name, type]) => (
+              <div key={name} className="min-w-[150px] max-w-[260px] flex-1">
+                <label className="mb-1 flex items-baseline justify-between gap-2">
+                  <span className="text-[11px] font-medium text-neutral-300">{name}</span>
+                  <span className="text-[9px] uppercase tracking-wide text-neutral-600">
+                    {type.kind}
+                  </span>
+                </label>
+                {flowFed[name] ? (
+                  <button
+                    onClick={() => setFlowFed((f) => ({ ...f, [name]: false }))}
+                    className="flex w-full items-center gap-1.5 rounded-md border border-cyan-700/40 bg-cyan-500/10 px-2 py-1.5 text-left text-[11px] text-cyan-300 transition hover:border-cyan-500/60"
+                    title="Value comes from the connected flow — click to edit manually"
+                  >
+                    <span className="rounded bg-cyan-500/20 px-1 text-[9px] font-semibold uppercase">
+                      flow
+                    </span>
+                    <span className="truncate">{summarizeValue(testValues[name])}</span>
+                  </button>
+                ) : (
+                  <FieldWidget
+                    type={type}
+                    value={testValues[name]}
+                    onChange={(v) => setTestValues((s) => ({ ...s, [name]: v }))}
+                  />
+                )}
+              </div>
+            ))}
+
+            <div className="ml-auto flex items-center gap-2 pb-0.5">
+              {testResult?.executionTime != null && !testRunning && (
+                <span className="text-[10px] text-neutral-500">{testResult.executionTime} ms</span>
+              )}
+              {testRunning ? (
+                <button
+                  onClick={cancelTest}
+                  className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-red-500"
+                >
+                  <Square className="h-3 w-3" /> Cancel
+                </button>
+              ) : (
+                <button
+                  onClick={runTest}
+                  className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-emerald-500"
+                >
+                  <Play className="h-3.5 w-3.5" /> Run block
+                </button>
+              )}
+            </div>
+          </div>
+
+          {testError && (
+            <pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded-md bg-red-500/10 p-2 text-[11px] text-red-300">
+              {testError}
+            </pre>
+          )}
+
+          {testResult?.success && (
+            <div className="mt-3 max-h-96 overflow-y-auto rounded-lg border border-neutral-800/60 bg-neutral-950/50 p-3">
+              <OutputView
+                contract={validation.contract}
+                result={
+                  testResult.result && typeof testResult.result === 'object'
+                    ? (testResult.result as Record<string, unknown>)
+                    : null
+                }
+                schematics={testResult.schematics as Record<string, unknown> | undefined}
+                getData={getData}
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Editor area */}
       <div className="flex min-h-0 flex-1 border-b border-neutral-800/50">
