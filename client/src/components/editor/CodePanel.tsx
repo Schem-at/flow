@@ -453,6 +453,72 @@ export function CodePanel({ nodeId, onClose, isFullscreen, onToggleFullscreen }:
     return () => clearTimeout(timer);
   }, [localCode, validateScript]);
 
+  // ── contract → input-node back-propagation ─────────────────────────────
+  /**
+   * When the contract changes (e.g. a slider's max), update the widgets of
+   * input nodes already connected to those ports: constraints, widget type,
+   * options — and clamp the current value into the new range.
+   */
+  const syncInputNodesWithContract = useCallback((contract: BlockContract) => {
+    for (const [name, flowType] of Object.entries(contract.inputs)) {
+      const edge = edges.find((e) => e.target === nodeId && e.targetHandle === name);
+      if (!edge) continue;
+      const source = nodes.find((n) => n.id === edge.source);
+      if (!source || source.type !== 'input') continue;
+
+      const next: Record<string, unknown> = {};
+      if (flowType.kind === 'number') {
+        next.dataType = 'number';
+        next.widgetType = flowType.widget === 'slider' ? 'slider' : 'number';
+        next.min = flowType.min;
+        next.max = flowType.max;
+        next.step = flowType.step;
+        let value =
+          typeof source.data.value === 'number' ? source.data.value : flowType.default;
+        if (typeof value === 'number') {
+          if (flowType.min !== undefined && value < flowType.min) value = flowType.min;
+          if (flowType.max !== undefined && value > flowType.max) value = flowType.max;
+        }
+        if (value !== source.data.value) next.value = value;
+      } else if (flowType.kind === 'enum') {
+        const options = flowType.options.map(String);
+        next.dataType = 'string';
+        next.widgetType = 'select';
+        next.options = options;
+        if (!options.includes(String(source.data.value))) {
+          next.value = String(flowType.default ?? flowType.options[0]);
+        }
+      } else if (flowType.kind === 'boolean') {
+        next.dataType = 'boolean';
+        next.widgetType = 'boolean';
+      } else if (flowType.kind === 'string' || flowType.kind === 'block') {
+        next.dataType = 'string';
+        next.widgetType = flowType.kind === 'string' && flowType.multiline ? 'textarea' : 'text';
+      } else {
+        continue;
+      }
+
+      const changed = Object.entries(next).some(([key, value]) => {
+        const current = (source.data as Record<string, unknown>)[key];
+        return key === 'options'
+          ? JSON.stringify(current) !== JSON.stringify(value)
+          : current !== value;
+      });
+      if (changed) {
+        updateNodeData(source.id, next);
+        if ('value' in next) {
+          setNodeOutput(source.id, { output: next.value });
+        }
+      }
+    }
+  }, [edges, nodes, nodeId, updateNodeData, setNodeOutput]);
+
+  useEffect(() => {
+    if (validation.contract) {
+      syncInputNodesWithContract(validation.contract);
+    }
+  }, [validation.contract, syncInputNodesWithContract]);
+
   // ── standalone test bench ───────────────────────────────────────────────
   /**
    * Seed test inputs: contract defaults, overridden by values the flow has
