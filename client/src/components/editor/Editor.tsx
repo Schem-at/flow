@@ -1275,18 +1275,22 @@ export function Editor() {
             continue;
           }
 
-          // Gather inputs from connected upstream nodes (use cached values when available)
-          const inputValues: Record<string, unknown> = {};
+          // Gather inputs from connected upstream nodes (use cached values when
+          // available), starting from the block's contract defaults.
+          const liveContract = (node.data as { contract?: BlockContract }).contract;
+          const inputValues: Record<string, unknown> = liveContract
+            ? defaultInputsForContract(liveContract)
+            : {};
           const incomingEdges = edges.filter(e => e.target === node.id);
-          
+
           for (const edge of incomingEdges) {
             const sourceOutput = nodeOutputs.get(edge.source);
-            
+
             if (sourceOutput) {
               const inputName = edge.targetHandle || 'default';
               const outputKey = edge.sourceHandle || inputName;
               let value = sourceOutput[outputKey];
-              
+
               if (value === undefined) {
                 const outputKeys = Object.keys(sourceOutput);
                 if (outputKeys.length === 1) {
@@ -1295,17 +1299,27 @@ export function Editor() {
                   value = sourceOutput['default'];
                 }
               }
-              
-              inputValues[inputName] = value;
+
+              if (value !== undefined) {
+                inputValues[inputName] = value;
+              }
             }
           }
 
           const returnHandles = true;
+          const nodeLabel = node.data.label || 'Code';
+
+          const missingLive = missingRequiredInputs(liveContract, inputValues);
+          if (missingLive.length) {
+            const message = missingInputsMessage(missingLive);
+            setNodeExecutionStatus(node.id, 'error', undefined, createSimpleError(message));
+            addExecutionLog(`[ERROR] "${nodeLabel}": ${message}`);
+            continue;
+          }
 
           // Mark as running
           setExecutingNodeId(node.id);
           setNodeExecutionStatus(node.id, 'running');
-          const nodeLabel = node.data.label || 'Code';
           addExecutionLog(`Executing "${nodeLabel}"...`);
 
           // Execute with timing
@@ -1316,12 +1330,15 @@ export function Editor() {
 
           if (result.success) {
             let finalResult: Record<string, unknown> = {};
-            
+
             if (returnHandles && result.schematicHandles && Object.keys(result.schematicHandles).length > 0) {
+              // Keep ALL outputs (fields, images, tables arrive deep-serialized
+              // in result.result); swap schematic keys for resident handles.
+              finalResult = { ...(result.result as Record<string, unknown> | undefined ?? {}) };
               for (const [key, handleId] of Object.entries(result.schematicHandles)) {
                 finalResult[key] = { _schematicHandle: handleId };
               }
-              
+
               if (Object.keys(finalResult).length === 1 && !('default' in finalResult)) {
                 finalResult['default'] = finalResult[Object.keys(finalResult)[0]];
               }
@@ -1331,7 +1348,7 @@ export function Editor() {
                   finalResult[key] = value;
                 }
               }
-              
+
               if (Object.keys(finalResult).length === 1 && !('default' in finalResult)) {
                 finalResult['default'] = finalResult[Object.keys(finalResult)[0]];
               }
