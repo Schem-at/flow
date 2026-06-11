@@ -24,9 +24,10 @@ export function useLocalExecutor() {
   const { addExecutionLog } = useFlowStore();
 
   useEffect(() => {
-    // Initialize worker
+    // Initialize worker; the factory lets the client respawn a fresh worker
+    // after cancellation or a hard-timeout kill.
     const worker = new Worker();
-    const client = new WorkerClient({ worker });
+    const client = new WorkerClient({ worker, workerFactory: () => new Worker() });
     workerClientRef.current = client;
     setWorkerClient(client);
 

@@ -25,9 +25,18 @@ export interface WorkerClientOptions extends WorkerConfig {
   workerUrl?: string;
   /** Worker instance (if already created) */
   worker?: Worker;
+  /**
+   * Factory used to (re)spawn workers. When provided, the client can do a
+   * robust kill: terminate the current worker (cancellation / hard timeout)
+   * and respawn + re-initialize a fresh one so the client returns to READY.
+   */
+  workerFactory?: () => Worker;
   /** Whether to use module workers */
   useModule?: boolean;
 }
+
+/** Extra grace given to the worker's own soft timeout before a hard kill. */
+const EXECUTION_KILL_GRACE_MS = 1000;
 
 /**
  * Result from executing a subflow in the worker
@@ -56,12 +65,15 @@ export class WorkerClient {
   }>();
   private eventListeners = new Map<string, Set<EventCallback>>();
   private initPromise: Promise<void> | null = null;
+  private workerFactory: (() => Worker) | null = null;
 
   constructor(options: WorkerClientOptions = {}) {
     this.config = { ...DEFAULT_WORKER_CONFIG, ...options };
-    
-    if (options.worker) {
-      this.worker = options.worker;
+    this.workerFactory = options.workerFactory ?? null;
+
+    const worker = options.worker ?? (this.workerFactory ? this.workerFactory() : null);
+    if (worker) {
+      this.worker = worker;
       this.setupWorkerEventHandlers();
       this.initPromise = this.initializeWorker();
     }
@@ -225,6 +237,8 @@ export class WorkerClient {
       throw new Error(`Worker not ready. Current state: ${this.state}`);
     }
 
+    const timeout = options.timeout || 60000;
+
     try {
       this.state = WORKER_STATES.EXECUTING;
       this.emit('executionStart', undefined);
@@ -233,9 +247,14 @@ export class WorkerClient {
         code,
         inputs,
         options: {
-          timeout: options.timeout || 60000,
+          timeout,
           returnHandles: options.returnHandles,
         },
+      }, {
+        // Hard timeout: if the worker never responds (e.g. a tight sync
+        // loop), terminate it and respawn instead of leaving a zombie.
+        timeoutMs: timeout + EXECUTION_KILL_GRACE_MS,
+        killOnTimeout: true,
       }) as ExecutionResult;
 
       this.state = WORKER_STATES.READY;
@@ -243,7 +262,10 @@ export class WorkerClient {
 
       return result;
     } catch (error) {
-      this.state = WORKER_STATES.READY;
+      // Don't clobber the state if a kill/respawn is in progress
+      if (this.state === WORKER_STATES.EXECUTING) {
+        this.state = WORKER_STATES.READY;
+      }
       this.emit('executionError', error);
       throw error;
     }
@@ -265,6 +287,8 @@ export class WorkerClient {
       throw new Error(`Worker not ready. Current state: ${this.state}`);
     }
 
+    const timeout = options.timeout || 60000;
+
     try {
       this.state = WORKER_STATES.EXECUTING;
       this.emit('executionStart', undefined);
@@ -275,8 +299,11 @@ export class WorkerClient {
         inputs,
         outputNodeIds,
         options: {
-          timeout: options.timeout || 60000,
+          timeout,
         },
+      }, {
+        timeoutMs: timeout + EXECUTION_KILL_GRACE_MS,
+        killOnTimeout: true,
       }) as SubflowResult;
 
       this.state = WORKER_STATES.READY;
@@ -284,7 +311,10 @@ export class WorkerClient {
 
       return result;
     } catch (error) {
-      this.state = WORKER_STATES.READY;
+      // Don't clobber the state if a kill/respawn is in progress
+      if (this.state === WORKER_STATES.EXECUTING) {
+        this.state = WORKER_STATES.READY;
+      }
       this.emit('executionError', error);
       throw error;
     }
@@ -381,7 +411,9 @@ export class WorkerClient {
   }
 
   /**
-   * Cancel current execution by terminating the worker
+   * Cancel current execution with a robust kill: terminate the worker,
+   * reject all in-flight messages, then (if a workerFactory was provided)
+   * spawn a fresh worker and re-initialize so the client returns to READY.
    */
   async cancelExecution(): Promise<boolean> {
     if (this.state !== WORKER_STATES.EXECUTING) {
@@ -389,20 +421,9 @@ export class WorkerClient {
     }
 
     try {
-      // Terminating worker for cancellation
-
-      const oldWorker = this.worker;
-      this.state = WORKER_STATES.INITIALIZING;
-      this.worker = null;
-      this.pendingMessages.clear();
-
-      if (oldWorker) {
-        oldWorker.terminate();
-        await new Promise((resolve) => setTimeout(resolve, 100));
-        // Worker terminated
-      }
-
+      const respawn = this.killAndRespawn('Execution cancelled');
       this.emit('executionCancelled', { forced: true });
+      await respawn;
       return true;
     } catch (error) {
       console.error('Failed to cancel execution:', error);
@@ -413,9 +434,66 @@ export class WorkerClient {
   }
 
   /**
+   * Terminate the current worker (killing any runaway user code), reject all
+   * in-flight message promises with a cancellation error, then respawn a
+   * fresh worker via the factory (when available) and re-initialize it.
+   *
+   * @returns true if a fresh worker is READY, false if no factory exists or
+   *   respawn failed (client left in ERROR state until createFromUrl/Blob).
+   */
+  private async killAndRespawn(reason: string): Promise<boolean> {
+    const oldWorker = this.worker;
+    this.worker = null;
+    this.initPromise = null;
+    this.state = WORKER_STATES.INITIALIZING;
+
+    // Reject all in-flight messages with a cancellation error
+    const cancellation = new Error(reason);
+    cancellation.name = 'ExecutionCancelledError';
+    const pending = Array.from(this.pendingMessages.values());
+    this.pendingMessages.clear();
+    for (const { reject } of pending) {
+      try {
+        reject(cancellation);
+      } catch {
+        // listener errors must not block the kill
+      }
+    }
+
+    if (oldWorker) {
+      oldWorker.onmessage = null;
+      oldWorker.onerror = null;
+      oldWorker.onmessageerror = null;
+      oldWorker.terminate();
+    }
+
+    if (!this.workerFactory) {
+      // No way to respawn — client unusable until createFromUrl/createFromBlob
+      this.state = WORKER_STATES.ERROR;
+      return false;
+    }
+
+    try {
+      this.worker = this.workerFactory();
+      this.setupWorkerEventHandlers();
+      this.initPromise = this.initializeWorker();
+      await this.initPromise; // sets READY and emits 'ready'
+      return true;
+    } catch (error) {
+      this.state = WORKER_STATES.ERROR;
+      this.emit('error', error);
+      return false;
+    }
+  }
+
+  /**
    * Send a message to the worker and wait for response
    */
-  private sendMessage(type: MessageType, payload: unknown = null): Promise<unknown> {
+  private sendMessage(
+    type: MessageType,
+    payload: unknown = null,
+    opts: { timeoutMs?: number; killOnTimeout?: boolean } = {}
+  ): Promise<unknown> {
     return new Promise((resolve, reject) => {
       if (!this.worker) {
         reject(new Error('Worker not available'));
@@ -423,10 +501,16 @@ export class WorkerClient {
       }
 
       const id = ++this.messageId;
+      const timeoutMs = opts.timeoutMs ?? this.config.timeout ?? DEFAULT_WORKER_CONFIG.timeout!;
       const timeout = setTimeout(() => {
         this.pendingMessages.delete(id);
+        if (opts.killOnTimeout) {
+          // Hard kill: the worker is unresponsive (likely stuck in a tight
+          // loop) — terminate it and respawn instead of leaving a zombie.
+          void this.killAndRespawn(`Message timeout: ${type} after ${timeoutMs}ms`);
+        }
         reject(new Error(`Message timeout: ${type}`));
-      }, this.config.timeout);
+      }, timeoutMs);
 
       this.pendingMessages.set(id, {
         resolve: (result) => {
@@ -493,7 +577,17 @@ export class WorkerClient {
    */
   destroy(): void {
     this.eventListeners.clear();
+
+    // Reject any in-flight messages so callers don't hang forever
+    const pending = Array.from(this.pendingMessages.values());
     this.pendingMessages.clear();
+    for (const { reject } of pending) {
+      try {
+        reject(new Error('Worker destroyed'));
+      } catch {
+        // ignore listener errors during teardown
+      }
+    }
 
     if (this.worker) {
       this.worker.terminate();

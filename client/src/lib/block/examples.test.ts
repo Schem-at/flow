@@ -4,13 +4,23 @@ import { EXAMPLE_BLOCKS } from './examples';
 import { parseBlockSource } from './parser';
 
 describe('EXAMPLE_BLOCKS', () => {
-  it('contains the four built-in examples', () => {
+  it('contains the built-in examples', () => {
     expect(EXAMPLE_BLOCKS.map((b) => b.id)).toEqual([
       'redstone-bus',
       'parametric-terrain',
       'parametric-building',
       'build-analysis',
+      'julia-grid',
     ]);
+  });
+
+  it('julia-grid outputs a list of lists of schematics', async () => {
+    const parsed = await parseBlockSource(
+      EXAMPLE_BLOCKS.find((b) => b.id === 'julia-grid')!.source
+    );
+    expect(parsed.contract.outputs).toEqual({
+      tiles: { kind: 'list', of: { kind: 'list', of: { kind: 'schematic' } } },
+    });
   });
 
   for (const example of EXAMPLE_BLOCKS) {

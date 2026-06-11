@@ -58,7 +58,7 @@ export class SynthaseService {
 
     try {
       const synthase = await import('@flow/synthase');
-      this.synthaseModule = synthase as SynthaseModule;
+      this.synthaseModule = synthase as unknown as SynthaseModule;
       this.initialized = true;
       return this.synthaseModule;
     } catch (error) {
@@ -120,24 +120,43 @@ export class SynthaseService {
 
       const synthase = await this.getSynthase();
 
-      const result = await synthase.execute(this.prepareSource(scriptContent), processedInputs, {
-        contextProviders: this.contextProviders,
-        limits: {
-          timeout,
-          maxRecursionDepth,
-          maxImportedScripts,
-        },
-      });
+      let result: Record<string, unknown>;
+      if (isBlockSource(scriptContent)) {
+        // v2 block: compile to a bare function expression and run it inside a
+        // SES Compartment. The only authority inside is the endowed context
+        // (assembled in trusted scope — e.g. nucleation/WASM init happens
+        // OUTSIDE the compartment, before lockdown is lazily applied at the
+        // first block execution).
+        const compiled = compileBlock(scriptContent, {
+          contextKeys: Object.keys(this.contextProviders),
+        });
+        result = (await synthase.executeInCompartment(
+          compiled.functionCode,
+          processedInputs,
+          this.contextProviders,
+          { timeout }
+        )) as Record<string, unknown>;
+      } else {
+        // Legacy `export default` script: blob + dynamic import path.
+        result = await synthase.execute(scriptContent, processedInputs, {
+          contextProviders: this.contextProviders,
+          limits: {
+            timeout,
+            maxRecursionDepth,
+            maxImportedScripts,
+          },
+        });
+      }
 
       const executionTime = Math.round(performance.now() - startTime);
 
       // Find any returned values that are schematics
       const schematics: Record<string, unknown> = {};
-      
+
       // Check if the result itself is a schematic (direct return)
       if (this.isSchematicWrapper(result)) {
         schematics['default'] = result;
-      } else {
+      } else if (result && typeof result === 'object') {
         // Check each property of the result object
         for (const [key, value] of Object.entries(result)) {
           if (this.isSchematicWrapper(value)) {
@@ -253,7 +272,14 @@ interface SynthaseModule {
       };
     }
   ) => Promise<Record<string, unknown>>;
-  
+
+  executeInCompartment: (
+    functionCode: string,
+    inputs: Record<string, unknown>,
+    context: Record<string, unknown>,
+    opts?: { timeout?: number }
+  ) => Promise<unknown>;
+
   validate: (
     code: string,
     options: { contextProviders: ContextProviders }

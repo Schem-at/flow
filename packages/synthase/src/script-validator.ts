@@ -1,6 +1,8 @@
 // script-validator.ts
 /**
- * Validates script content for safety and correctness
+ * Lints script content. The pattern list below is advisory only (lint hints) —
+ * it is NOT a security boundary. Real isolation comes from the sandbox and
+ * killable workers in the execution layer.
  */
 export class ScriptValidator {
 	private dangerousPatterns = [
@@ -73,17 +75,6 @@ export class ScriptValidator {
 		{
 			pattern: /while\s*\([^)]*[0-9]{6,}/,
 			message: "Very large loop detected - potential DoS",
-		},
-	];
-
-	private requiredPatterns = [
-		{
-			pattern: /export\s+const\s+io\s*=/,
-			message: "Missing required 'export const io = ...' declaration",
-		},
-		{
-			pattern: /export\s+default/,
-			message: "Missing required 'export default function' declaration",
 		},
 	];
 
@@ -206,21 +197,14 @@ export class ScriptValidator {
 		const strippedContent = this.stripComments(content);
 		const maskedContent = this.maskStrings(strippedContent);
 
-		for (const required of this.requiredPatterns) {
-			if (!required.pattern.test(strippedContent)) {
-				errors.push(required.message);
-			}
-		}
-
+		// Lint hints only — never errors, never a security control.
 		for (const danger of this.dangerousPatterns) {
 			if (danger.pattern.test(maskedContent)) {
-				errors.push(danger.message);
+				warnings.push(danger.message);
 			}
 		}
 
 		this.validateStructure(content, errors, warnings);
-
-		this.validateIOSchema(strippedContent, errors, warnings);
 
 		return {
 			valid: errors.length === 0,
@@ -342,7 +326,9 @@ export class ScriptValidator {
 
 	/**
 	 * Validate IO schema structure
+	 * @deprecated The v2 block format has no `export const io`; kept unused for reference until fully removed.
 	 */
+	// @ts-expect-error - intentionally unused
 	private validateIOSchema(
 		content: string,
 		errors: string[],

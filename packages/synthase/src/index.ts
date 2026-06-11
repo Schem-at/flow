@@ -5,6 +5,13 @@ export { Synthase } from "./synthase";
 // Utility functions for common operations
 export { SynthaseUtils } from "./synthase-utils";
 
+// SES Compartment executor for compiled block functions
+export {
+	executeInCompartment,
+	ensureLockdown,
+	type CompartmentExecuteOptions,
+} from "./compartment-executor";
+
 // Safety and monitoring classes
 export { ExecutionLimits } from "./execution-limits";
 export { ScriptValidator } from "./script-validator";

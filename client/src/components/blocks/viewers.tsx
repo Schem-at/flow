@@ -179,6 +179,19 @@ export function ListViewer(props: ViewerProps) {
   if (isFlatObjectType(type.of)) {
     return <TableViewer {...props} />;
   }
+  // Lists of schematics render as a gallery grid — all cells share one WebGL
+  // context (SchematicRendererContext), so many viewports stay cheap.
+  if (type.of.kind === 'schematic') {
+    return (
+      <div className="grid grid-cols-2 gap-2">
+        {value.map((item, i) => (
+          <div key={i} className="overflow-hidden rounded-md border border-neutral-800/70">
+            <FieldViewer type={type.of} value={item} getData={getData} />
+          </div>
+        ))}
+      </div>
+    );
+  }
   return (
     <div className="space-y-2">
       {value.map((item, i) => (

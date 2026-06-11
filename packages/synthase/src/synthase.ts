@@ -675,17 +675,13 @@ export class Synthase {
 			// Import the module as a proper ES6 module to preserve all scope
 			const module = await import(moduleInfo.url);
 
-			// Extract IO schema
-			if (!module.io) {
-				throw new Error("No 'io' export found in script");
-			}
-
 			// Extract default function
 			if (!module.default || typeof module.default !== "function") {
 				throw new Error("No default function export found in script");
 			}
 
-			const io = module.io;
+			// `io` is optional: v2 blocks carry their contract in types, not exports.
+			const io = module.io ?? { inputs: {}, outputs: {} };
 			const defaultFunction = module.default;
 			const deps = this.extractDependencies(moduleInfo.content);
 

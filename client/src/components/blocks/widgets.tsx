@@ -9,8 +9,9 @@ import { Plus, X, Upload } from 'lucide-react';
 import { defaultValueForType } from '@flow/core';
 import { getTypeEntry, type WidgetProps } from './registry';
 
-const inputCls =
-  'w-full rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1.5 text-xs text-neutral-200 outline-none focus:border-neutral-600';
+const inputBaseCls =
+  'rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1.5 text-xs text-neutral-200 outline-none focus:border-neutral-600';
+const inputCls = `w-full ${inputBaseCls}`;
 
 /** Render any FlowType's widget by registry lookup. */
 export function FieldWidget(props: WidgetProps) {
@@ -41,7 +42,7 @@ export function NumberWidget({ type, value, onChange }: WidgetProps) {
           step={type.step ?? 1}
           value={num}
           onChange={(e) => onChange(Number(e.target.value))}
-          className={`${inputCls} w-20 flex-none text-right`}
+          className={`${inputBaseCls} w-16 flex-none text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none`}
         />
       </div>
     );

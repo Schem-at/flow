@@ -220,7 +220,11 @@ export class MessageHandler {
 
         return {
           success: true,
-          result: executionResult.result,
+          // Deep-serialize: WASM schematics nested anywhere in the result
+          // (lists, objects) become transferable SchematicData.
+          result: this.deepSerializeSchematics(executionResult.result) as
+            | Record<string, unknown>
+            | undefined,
           schematics: processedSchematics,
           schematicHandles,
           executionTime: executionResult.executionTime,
@@ -235,6 +239,48 @@ export class MessageHandler {
       this.postProgress('Execution failed: ' + err.message);
       throw error;
     }
+  }
+
+  /**
+   * Recursively replace SchematicWrapper (WASM) values anywhere in a result
+   * tree with serialized SchematicData — WASM objects cannot cross the worker
+   * boundary (structured clone mangles them). Arrays and plain objects are
+   * walked; typed arrays and primitives pass through untouched.
+   */
+  private deepSerializeSchematics(value: unknown, depth = 0): unknown {
+    if (depth > 16 || value === null || typeof value !== 'object') return value;
+    if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) return value;
+
+    if (this.isSchematicWrapper(value)) {
+      const schem = value as { to_schematic?: () => Uint8Array; name?: () => string };
+      if (typeof schem.to_schematic !== 'function') return value;
+      try {
+        return {
+          format: 'schem',
+          data: schem.to_schematic(),
+          metadata: { name: typeof schem.name === 'function' ? schem.name() : 'schematic' },
+        };
+      } catch (error) {
+        console.error('Failed to deep-serialize schematic:', error);
+        return null;
+      }
+    }
+
+    if (Array.isArray(value)) {
+      return value.map((item) => this.deepSerializeSchematics(item, depth + 1));
+    }
+
+    // Only walk plain objects — class instances (other WASM wrappers, Maps…)
+    // are left for structured clone to handle/fail as before.
+    const proto = Object.getPrototypeOf(value);
+    if (proto === Object.prototype || proto === null) {
+      const out: Record<string, unknown> = {};
+      for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+        out[key] = this.deepSerializeSchematics(item, depth + 1);
+      }
+      return out;
+    }
+    return value;
   }
 
   /**
