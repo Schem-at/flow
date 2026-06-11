@@ -585,10 +585,18 @@ const ViewerNode = memo(({ id, data, selected, width, height }: NodeProps & { da
     updateNodeData(id, { width: params.width, height: params.height });
   }, [id, updateNodeData]);
 
-  // Re-anchor edges/handles after the node's dimensions change.
+  // Re-anchor edges/handles after the node's dimensions change. Measure after
+  // layout has applied (double rAF), or React Flow caches the old position.
   const updateNodeInternals = useUpdateNodeInternals();
   useEffect(() => {
-    updateNodeInternals(id);
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => updateNodeInternals(id));
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
   }, [id, currentWidth, currentHeight, updateNodeInternals]);
 
   const TypeIcon = getTypeIcon(valueType);
@@ -692,6 +700,7 @@ const ViewerNode = memo(({ id, data, selected, width, height }: NodeProps & { da
       <NodeResizeControl
         minWidth={180}
         minHeight={120}
+        onResize={() => updateNodeInternals(id)}
         onResizeEnd={handleResizeEnd}
         style={{ background: 'transparent', border: 'none' }}
       >
@@ -705,7 +714,7 @@ const ViewerNode = memo(({ id, data, selected, width, height }: NodeProps & { da
         className={`
           relative rounded-xl overflow-visible
           bg-neutral-900 flex flex-col
-          border transition-all duration-200 group
+          border transition-colors duration-200 group
           ${isResized
             ? 'w-full h-full'
             : upstreamType && upstreamType.kind === 'list'
