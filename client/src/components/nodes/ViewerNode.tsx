@@ -1,13 +1,12 @@
 import { memo, useState, useCallback, useRef, useMemo, useEffect } from 'react';
-import { Handle, Position, type NodeProps, NodeResizer } from '@xyflow/react';
+import { Handle, Position, type NodeProps, NodeResizeControl, useUpdateNodeInternals } from '@xyflow/react';
 import {
   Eye, Box, Hash, Type, ToggleLeft, ArrowRight,
-  Image, Table, FileJson, List, Binary, AlertCircle,
-  Maximize2, Minimize2
+  Image, Table, FileJson, List, Binary, AlertCircle
 } from 'lucide-react';
 import { useFlowStore } from '../../store/flowStore';
 import { useShallow } from 'zustand/react/shallow';
-import { NodeContextMenu, NodeContextMenuItem, NodeContextMenuSeparator } from './NodeContextMenu';
+import { NodeContextMenu, NodeContextMenuItem } from './NodeContextMenu';
 import {
   isSchematicData,
   isImageData,
@@ -568,7 +567,6 @@ const ViewerNode = memo(({ id, data, selected, width, height }: NodeProps & { da
     : 'null';
 
   const passthrough = data.passthrough ?? false;
-  const isResizable = data.isResizable ?? false;
 
   // Update viewer's output cache when passthrough is enabled and we have input
   // This makes the output available to downstream nodes
@@ -583,13 +581,15 @@ const ViewerNode = memo(({ id, data, selected, width, height }: NodeProps & { da
     updateNodeData(id, { passthrough: !passthrough });
   }, [id, passthrough, updateNodeData]);
 
-  const toggleResizable = useCallback(() => {
-    updateNodeData(id, { isResizable: !isResizable });
-  }, [id, isResizable, updateNodeData]);
-
   const handleResizeEnd = useCallback((_event: any, params: { width: number; height: number }) => {
     updateNodeData(id, { width: params.width, height: params.height });
   }, [id, updateNodeData]);
+
+  // Re-anchor edges/handles after the node's dimensions change.
+  const updateNodeInternals = useUpdateNodeInternals();
+  useEffect(() => {
+    updateNodeInternals(id);
+  }, [id, currentWidth, currentHeight, updateNodeInternals]);
 
   const TypeIcon = getTypeIcon(valueType);
   const typeColor = getTypeColor(valueType);
@@ -624,9 +624,13 @@ const ViewerNode = memo(({ id, data, selected, width, height }: NodeProps & { da
     // Typed rendering: when the upstream port declares a FlowType, recurse
     // through the registry viewers (schematic gallery, table, image, tree…).
     // Plain schematics keep the node's own resizable preview path below.
-    if (upstreamType && upstreamType.kind !== 'schematic' && upstreamType.kind !== 'unknown') {
+    if (usingTypedViewer && upstreamType) {
       return (
-        <div className="nowheel nodrag max-h-[420px] overflow-auto pr-1">
+        <div
+          className={`nowheel nodrag overflow-auto pr-1 ${
+            isResized ? 'h-full' : 'max-h-[360px]'
+          }`}
+        >
           <FieldViewer type={upstreamType} value={displayValue} getData={getHandleData} />
         </div>
       );
@@ -674,16 +678,29 @@ const ViewerNode = memo(({ id, data, selected, width, height }: NodeProps & { da
   // Check if this is a "full height" type that needs special container
   const isFullHeightType = valueType === 'schematic' || valueType === 'image';
 
+  // Typed registry rendering applies to everything except plain schematics
+  // (which keep the node's dedicated preview) and unknown.
+  const usingTypedViewer = !!(
+    upstreamType &&
+    upstreamType.kind !== 'schematic' &&
+    upstreamType.kind !== 'unknown'
+  );
+
   return (
     <>
-      <NodeResizer
+      {/* Always-available bottom-right resize grabber */}
+      <NodeResizeControl
         minWidth={180}
         minHeight={120}
-        isVisible={isResizable && (selected || isHovered)}
-        lineClassName="!border-pink-500"
-        handleClassName="!w-2 !h-2 !bg-pink-500 !border-pink-600"
         onResizeEnd={handleResizeEnd}
-      />
+        style={{ background: 'transparent', border: 'none' }}
+      >
+        <div
+          className={`pointer-events-none absolute bottom-1 right-1 h-3 w-3 rounded-br border-b-2 border-r-2 transition-colors ${
+            selected || isHovered ? 'border-pink-400' : 'border-neutral-600'
+          }`}
+        />
+      </NodeResizeControl>
       <div
         className={`
           relative rounded-xl overflow-visible
@@ -755,21 +772,21 @@ const ViewerNode = memo(({ id, data, selected, width, height }: NodeProps & { da
                 >
                   Passthrough
                 </NodeContextMenuItem>
-                <NodeContextMenuSeparator />
-                <NodeContextMenuItem
-                  icon={isResizable ? Minimize2 : Maximize2}
-                  onClick={toggleResizable}
-                  checked={isResizable}
-                >
-                  Resizable
-                </NodeContextMenuItem>
               </NodeContextMenu>
             </div>
           </div>
         </div>
 
         {/* Content */}
-        <div className={`${isResized || isFullHeightType ? 'flex-1 min-h-0 p-0' : 'p-3'}`}>
+        <div
+          className={`${
+            isResized || isFullHeightType
+              ? 'flex-1 min-h-0 p-0'
+              : usingTypedViewer
+                ? 'flex-1 min-h-0 p-2'
+                : 'p-3'
+          }`}
+        >
           {renderPreview()}
         </div>
 

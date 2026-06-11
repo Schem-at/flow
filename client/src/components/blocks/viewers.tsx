@@ -183,11 +183,15 @@ export function ListViewer(props: ViewerProps) {
   }
   // Lists of schematics render as a gallery grid — all cells share one WebGL
   // context (SchematicRendererContext), so many viewports stay cheap.
+  // Cells are compact and override the viewer's default h-64.
   if (type.of.kind === 'schematic') {
     return (
       <div className="grid grid-cols-2 gap-2">
         {value.map((item, i) => (
-          <div key={i} className="overflow-hidden rounded-md border border-neutral-800/70">
+          <div
+            key={i}
+            className="h-36 overflow-hidden rounded-md border border-neutral-800/70 [&>div]:!h-full [&>div]:!rounded-none [&>div]:!border-0"
+          >
             <FieldViewer type={type.of} value={item} getData={getData} />
           </div>
         ))}

@@ -200,8 +200,29 @@ const SchematicRenderer = ({ schematic }: { schematic: Uint8Array | ArrayBuffer 
         })();
     }, [schematic]);
 
+    const userOrbitedRef = useRef(false);
+    const reframeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
     const handleResize = useCallback(() => {
-        rendererRef.current?.renderManager?.updateCanvasSize();
+        const renderer = rendererRef.current;
+        if (!renderer) return;
+        renderer.renderManager?.updateCanvasSize();
+        // Resizing clears the canvas — re-blit synchronously so shared-context
+        // viewports don't sit black until their next scheduled frame.
+        renderer.renderManager?.render?.();
+        // The first framing happened at the old canvas size — re-fit after the
+        // resize settles, but never override a camera the user has moved.
+        if (reframeTimerRef.current) clearTimeout(reframeTimerRef.current);
+        reframeTimerRef.current = setTimeout(async () => {
+            const current = rendererRef.current;
+            if (!current || userOrbitedRef.current || !hasFramedRef.current) return;
+            await current.cameraManager?.focusOnSchematics?.({
+                animationDuration: 0,
+                useTightBounds: true,
+                preserveCamera: false,
+            });
+            current.renderManager?.render?.();
+        }, 250);
     }, []);
 
     useEffect(() => {
@@ -221,7 +242,10 @@ const SchematicRenderer = ({ schematic }: { schematic: Uint8Array | ArrayBuffer 
         <div
       ref={ref}
       className="relative w-full h-full nodrag nopan"
-      onPointerDown={(e) => e.stopPropagation()}
+      onPointerDown={(e) => {
+        userOrbitedRef.current = true;
+        e.stopPropagation();
+      }}
       onMouseDown={(e) => e.stopPropagation()}
       onScroll={(e) => e.stopPropagation()}
     >

@@ -364,9 +364,19 @@ export function CodePanel({ nodeId, onClose, isFullscreen, onToggleFullscreen }:
       const inputNodeId = `input-${nodeId}-${key}-${Date.now()}-${index}`;
       const yOffset = (index - inputEntries.length / 2) * 100;
 
-      // Determine widget type based on input config
+      // Determine widget type — the FlowType contract knows the declared
+      // widget (slider vs field, enum dropdown); legacy io is the fallback.
+      const flowType = validation.contract?.inputs[key];
       let widgetType: 'number' | 'slider' | 'text' | 'boolean' | 'select' = 'text';
-      if (config.type === 'number') {
+      if (flowType?.kind === 'number') {
+        widgetType = flowType.widget === 'slider' ? 'slider' : 'number';
+      } else if (flowType?.kind === 'boolean') {
+        widgetType = 'boolean';
+      } else if (flowType?.kind === 'enum') {
+        widgetType = 'select';
+      } else if (flowType?.kind === 'string' || flowType?.kind === 'block') {
+        widgetType = 'text';
+      } else if (config.type === 'number') {
         widgetType = config.options ? 'select' : 'number';
       } else if (config.type === 'boolean') {
         widgetType = 'boolean';
@@ -424,7 +434,7 @@ export function CodePanel({ nodeId, onClose, isFullscreen, onToggleFullscreen }:
 
       console.log(`Created ${newNodes.length} input node(s) from IO schema`);
     }
-  }, [validation.io, node, nodeId, edges, addNode, setEdges, setNodeOutput]);
+  }, [validation.io, validation.contract, node, nodeId, edges, addNode, setEdges, setNodeOutput]);
 
   // Cleanup debounce on unmount
   useEffect(() => {
