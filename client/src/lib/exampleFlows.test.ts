@@ -11,6 +11,7 @@ describe('EXAMPLE_FLOWS', () => {
       'example-city',
       'example-terrain-pipeline',
       'example-logic-lab',
+      'example-build-report',
     ]);
   });
 

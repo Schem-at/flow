@@ -17,6 +17,7 @@ import { useScriptRunner } from '../hooks/useScriptRunner';
 import type { BlockContract, ExecutionResult } from '@flow/core';
 import { defaultInputsForContract } from '@flow/core';
 import { parseBlockSource, type ParsedBlock } from '../lib/block/parser';
+import { missingRequiredInputs, missingInputsMessage } from '../lib/validateRequiredInputs';
 import { contractToTypeScript } from '../lib/block/codegen';
 import { EXAMPLE_BLOCKS } from '../lib/block/examples';
 import ContractBuilder from './blocks/ContractBuilder';
@@ -117,6 +118,11 @@ export default function Workbench() {
   const handleRun = useCallback(async () => {
     if (runningRef.current) {
       pendingLiveRun.current = true;
+      return;
+    }
+    const missing = missingRequiredInputs(parsed?.contract, values);
+    if (missing.length) {
+      setError(missingInputsMessage(missing));
       return;
     }
     setError(null);

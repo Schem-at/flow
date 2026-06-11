@@ -5,9 +5,11 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { Download, BarChart3 } from 'lucide-react';
 import type { FlowType } from '@flow/core';
 import SchematicRenderer from '../others/SchematicRenderer';
 import { getTypeEntry, type ViewerProps } from './registry';
+import { downloadText, rowsToCsv, downloadBarChartPng } from '../../lib/downloadFile';
 
 /** Render any FlowType's viewer by registry lookup. */
 export function FieldViewer(props: ViewerProps) {
@@ -16,6 +18,19 @@ export function FieldViewer(props: ViewerProps) {
 }
 
 export function PrimitiveViewer({ value }: ViewerProps) {
+  if (typeof value === 'string' && (value.includes('\n') || value.length > 200)) {
+    const lines = value.split('\n').length;
+    return (
+      <div>
+        <pre className="max-h-56 overflow-auto rounded-md bg-neutral-900 p-2 font-mono text-[11px] leading-relaxed text-neutral-300">
+          {value}
+        </pre>
+        <p className="mt-0.5 text-[10px] text-neutral-600">
+          {lines.toLocaleString()} lines · {value.length.toLocaleString()} chars
+        </p>
+      </div>
+    );
+  }
   return (
     <span className="font-mono text-xs text-neutral-200">
       {value === null || value === undefined ? '—' : String(value)}
@@ -140,34 +155,87 @@ function isFlatObjectType(type: FlowType): type is Extract<FlowType, { kind: 'ob
   );
 }
 
-/** Table for lists of flat objects. */
+/** Table for lists of flat objects — inline bars + CSV/PNG export. */
 function TableViewer({ type, value }: ViewerProps) {
   if (type.kind !== 'list' || !isFlatObjectType(type.of) || !Array.isArray(value)) return null;
-  const columns = Object.keys(type.of.fields);
+  const fields = type.of.fields;
+  const columns = Object.keys(fields);
+  const rows = value as Array<Record<string, unknown>>;
+
+  // First numeric column drives the inline bars and the chart export.
+  const numericCol = columns.find((c) => fields[c].kind === 'number');
+  const labelCol = columns.find((c) => fields[c].kind !== 'number') ?? columns[0];
+  const max = numericCol
+    ? Math.max(1, ...rows.map((r) => Number(r[numericCol]) || 0))
+    : 1;
+
+  const exportCsv = () => downloadText('data.csv', rowsToCsv(columns, rows), 'text/csv');
+  const exportPng = () => {
+    if (!numericCol) return;
+    void downloadBarChartPng({
+      filename: 'chart.png',
+      title: `${labelCol} by ${numericCol}`,
+      rows: rows.slice(0, 40).map((r) => ({
+        label: String(r[labelCol] ?? ''),
+        value: Number(r[numericCol]) || 0,
+      })),
+    });
+  };
+
   return (
-    <div className="max-h-64 overflow-auto rounded-md border border-neutral-800">
-      <table className="w-full text-left text-xs">
-        <thead className="sticky top-0 bg-neutral-900">
-          <tr>
-            {columns.map((col) => (
-              <th key={col} className="px-2 py-1.5 font-medium text-neutral-400">
-                {col}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {value.map((row, i) => (
-            <tr key={i} className="border-t border-neutral-800/60">
+    <div>
+      <div className="mb-1 flex items-center justify-end gap-1.5">
+        <button
+          onClick={exportCsv}
+          className="inline-flex items-center gap-1 rounded border border-neutral-700 px-1.5 py-0.5 text-[10px] text-neutral-400 transition hover:border-neutral-500 hover:text-neutral-200"
+          title="Download as CSV"
+        >
+          <Download className="h-2.5 w-2.5" /> CSV
+        </button>
+        {numericCol && (
+          <button
+            onClick={exportPng}
+            className="inline-flex items-center gap-1 rounded border border-neutral-700 px-1.5 py-0.5 text-[10px] text-neutral-400 transition hover:border-neutral-500 hover:text-neutral-200"
+            title="Download bar chart as PNG"
+          >
+            <BarChart3 className="h-2.5 w-2.5" /> PNG
+          </button>
+        )}
+      </div>
+      <div className="max-h-64 overflow-auto rounded-md border border-neutral-800">
+        <table className="w-full text-left text-xs">
+          <thead className="sticky top-0 bg-neutral-900">
+            <tr>
               {columns.map((col) => (
-                <td key={col} className="px-2 py-1 font-mono text-neutral-300">
-                  {String((row as Record<string, unknown>)?.[col] ?? '—')}
-                </td>
+                <th key={col} className="px-2 py-1.5 font-medium text-neutral-400">
+                  {col}
+                </th>
               ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {rows.map((row, i) => (
+              <tr key={i} className="border-t border-neutral-800/60">
+                {columns.map((col) => {
+                  const isBarCell = col === numericCol;
+                  const ratio = isBarCell ? (Number(row[col]) || 0) / max : 0;
+                  return (
+                    <td key={col} className="relative px-2 py-1 font-mono text-neutral-300">
+                      {isBarCell && (
+                        <div
+                          className="absolute inset-y-0.5 left-0 rounded-sm bg-emerald-500/15"
+                          style={{ width: `${Math.min(100, ratio * 100)}%` }}
+                        />
+                      )}
+                      <span className="relative">{String(row?.[col] ?? '—')}</span>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

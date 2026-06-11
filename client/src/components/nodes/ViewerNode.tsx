@@ -2,8 +2,9 @@ import { memo, useState, useCallback, useRef, useMemo, useEffect } from 'react';
 import { Handle, Position, type NodeProps, NodeResizeControl, useUpdateNodeInternals } from '@xyflow/react';
 import {
   Eye, Box, Hash, Type, ToggleLeft, ArrowRight,
-  Image, Table, FileJson, List, Binary, AlertCircle
+  Image, Table, FileJson, List, Binary, AlertCircle, Download
 } from 'lucide-react';
+import { downloadText, filenameForOutput } from '../../lib/downloadFile';
 import { useFlowStore } from '../../store/flowStore';
 import { useShallow } from 'zustand/react/shallow';
 import { NodeContextMenu, NodeContextMenuItem } from './NodeContextMenu';
@@ -633,12 +634,29 @@ const ViewerNode = memo(({ id, data, selected, width, height }: NodeProps & { da
     // through the registry viewers (schematic gallery, table, image, tree…).
     // Plain schematics keep the node's own resizable preview path below.
     if (usingTypedViewer && upstreamType) {
+      const outputName = inputEdge?.sourceHandle || 'output';
+      const stringFile =
+        upstreamType.kind === 'string' && typeof displayValue === 'string' && displayValue.length > 0
+          ? filenameForOutput(outputName)
+          : null;
       return (
         <div
           className={`nowheel nodrag overflow-auto pr-1 ${
             isResized ? 'h-full' : 'max-h-[360px]'
           }`}
         >
+          {stringFile && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                downloadText(stringFile, displayValue as string);
+              }}
+              className="mb-1.5 inline-flex items-center gap-1 rounded border border-neutral-700 px-1.5 py-0.5 text-[10px] text-neutral-400 transition hover:border-neutral-500 hover:text-neutral-200"
+              title={`Download ${stringFile}`}
+            >
+              <Download className="h-2.5 w-2.5" /> {stringFile}
+            </button>
+          )}
           <FieldViewer type={upstreamType} value={displayValue} getData={getHandleData} />
         </div>
       );

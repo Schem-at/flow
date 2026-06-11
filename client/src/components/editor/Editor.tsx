@@ -19,6 +19,7 @@ import '@xyflow/react/dist/style.css';
 import type { Edge } from '@xyflow/react';
 import type { BlockContract } from '@flow/core';
 import { defaultInputsForContract } from '@flow/core';
+import { missingRequiredInputs, missingInputsMessage } from '../../lib/validateRequiredInputs';
 import { type FlowNode } from '../../store/flowStore';
 
 import { 
@@ -850,11 +851,21 @@ export function Editor() {
           // Always use handles - keeps data in worker, avoids serialization
           // Viewers will fetch serialized data on-demand using the handle
           const returnHandles = true;
+          const nodeLabel = node.data.label || 'Code';
+
+          // Domain inputs (schematic/image) can't be defaulted — fail fast
+          // with a clear message instead of an opaque null error mid-block.
+          const missing = missingRequiredInputs(nodeContract, inputValues);
+          if (missing.length) {
+            const message = missingInputsMessage(missing);
+            setNodeExecutionStatus(node.id, 'error', undefined, createSimpleError(message));
+            addExecutionLog(`[ERROR] "${nodeLabel}": ${message}`);
+            continue;
+          }
 
           // Mark as running
           setExecutingNodeId(node.id);
           setNodeExecutionStatus(node.id, 'running');
-          const nodeLabel = node.data.label || 'Code';
           addExecutionLog(`Executing "${nodeLabel}"...`);
 
           // Execute with timing

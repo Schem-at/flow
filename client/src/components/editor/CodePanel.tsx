@@ -18,6 +18,7 @@ import BlockEditor from '../blocks/BlockEditor';
 import { FieldWidget } from '../blocks/widgets';
 import OutputView from '../blocks/OutputView';
 import { useLocalExecutor } from '../../hooks/useLocalExecutor';
+import { missingRequiredInputs, missingInputsMessage } from '../../lib/validateRequiredInputs';
 
 
 interface CodePanelProps {
@@ -566,6 +567,11 @@ export function CodePanel({ nodeId, onClose, isFullscreen, onToggleFullscreen }:
   }, [seedTestValues]);
 
   const runTest = useCallback(async () => {
+    const missing = missingRequiredInputs(validation.contract, testValues);
+    if (missing.length) {
+      setTestError(missingInputsMessage(missing));
+      return;
+    }
     setTestError(null);
     setTestRunning(true);
     try {
@@ -577,7 +583,7 @@ export function CodePanel({ nodeId, onClose, isFullscreen, onToggleFullscreen }:
     } finally {
       setTestRunning(false);
     }
-  }, [executeScript, localCode, testValues]);
+  }, [executeScript, localCode, testValues, validation.contract]);
 
   const cancelTest = useCallback(async () => {
     try {

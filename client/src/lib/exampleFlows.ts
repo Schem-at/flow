@@ -7,7 +7,7 @@
  */
 
 import type { FlowData, BlockContract } from '@flow/core';
-import { EXAMPLE_BLOCKS } from './block/examples';
+import { EXAMPLE_BLOCKS, EXAMPLE_BLOCK_CONTRACTS } from './block/examples';
 import { contractToIO } from './block/io-compat';
 
 const JULIA_SOURCE = EXAMPLE_BLOCKS.find((b) => b.id === 'julia-grid')!.source;
@@ -988,10 +988,149 @@ export const LOGIC_LAB_FLOW: FlowData = {
   ],
 };
 
+// ─── Build Report ───────────────────────────────────────────────────────────
+// One generator fans out into three analysis/export blocks: census (table with
+// chart/CSV export), build analysis (heatmap + dimensions), and the hologram
+// mcfunction (downloadable). The automated-report pattern: generate → analyze
+// → export, all driven by sliders.
+
+const BUILDING_SOURCE = EXAMPLE_BLOCKS.find((b) => b.id === 'parametric-building')!.source;
+const CENSUS_SOURCE = EXAMPLE_BLOCKS.find((b) => b.id === 'block-census')!.source;
+const HOLOGRAM_SOURCE = EXAMPLE_BLOCKS.find((b) => b.id === 'hologram-mcfunction')!.source;
+
+export const BUILD_REPORT_FLOW: FlowData = {
+  id: 'example-build-report',
+  name: 'Build Report',
+  version: '1.0.0',
+  createdAt: 0,
+  nodes: [
+    {
+      id: 'br-floors',
+      type: 'input',
+      position: { x: 0, y: 0 },
+      data: {
+        label: 'floors',
+        value: 6,
+        dataType: 'number',
+        widgetType: 'slider',
+        min: 1,
+        max: 32,
+        step: 1,
+      },
+    },
+    {
+      id: 'br-roof',
+      type: 'input',
+      position: { x: 0, y: 170 },
+      data: {
+        label: 'roof',
+        value: 'gable',
+        dataType: 'string',
+        widgetType: 'select',
+        options: ['flat', 'gable', 'pyramid'],
+      },
+    },
+    {
+      id: 'br-building',
+      type: 'code',
+      position: { x: 300, y: 20 },
+      data: {
+        label: 'Building',
+        code: BUILDING_SOURCE,
+        contract: EXAMPLE_BLOCK_CONTRACTS['parametric-building'],
+        io: contractToIO(EXAMPLE_BLOCK_CONTRACTS['parametric-building']),
+      },
+    },
+    {
+      id: 'br-census',
+      type: 'code',
+      position: { x: 800, y: -120 },
+      data: {
+        label: 'Block Census',
+        code: CENSUS_SOURCE,
+        contract: EXAMPLE_BLOCK_CONTRACTS['block-census'],
+        io: contractToIO(EXAMPLE_BLOCK_CONTRACTS['block-census']),
+      },
+    },
+    {
+      id: 'br-analysis',
+      type: 'code',
+      position: { x: 800, y: 240 },
+      data: {
+        label: 'Build Analysis',
+        code: EXAMPLE_BLOCKS.find((b) => b.id === 'build-analysis')!.source,
+        contract: EXAMPLE_BLOCK_CONTRACTS['build-analysis'],
+        io: contractToIO(EXAMPLE_BLOCK_CONTRACTS['build-analysis']),
+      },
+    },
+    {
+      id: 'br-hologram',
+      type: 'code',
+      position: { x: 800, y: 600 },
+      data: {
+        label: 'Hologram',
+        code: HOLOGRAM_SOURCE,
+        contract: EXAMPLE_BLOCK_CONTRACTS['hologram-mcfunction'],
+        io: contractToIO(EXAMPLE_BLOCK_CONTRACTS['hologram-mcfunction']),
+      },
+    },
+    {
+      id: 'br-building-view',
+      type: 'viewer',
+      position: { x: 300, y: 420 },
+      data: { label: 'Building' },
+    },
+    {
+      id: 'br-census-view',
+      type: 'viewer',
+      position: { x: 1300, y: -160 },
+      data: { label: 'Census (chart/CSV export)' },
+    },
+    {
+      id: 'br-heatmap-view',
+      type: 'viewer',
+      position: { x: 1300, y: 240 },
+      data: { label: 'Density heatmap' },
+    },
+    {
+      id: 'br-holo-view',
+      type: 'viewer',
+      position: { x: 1300, y: 600 },
+      data: { label: 'mcfunction (download)' },
+    },
+    {
+      id: 'br-csv-out',
+      type: 'output',
+      position: { x: 1300, y: 60 },
+      data: { label: 'census_csv' },
+    },
+    {
+      id: 'br-holo-out',
+      type: 'output',
+      position: { x: 1300, y: 900 },
+      data: { label: 'hologram_mcfunction' },
+    },
+  ],
+  edges: [
+    { id: 'br-f', source: 'br-floors', target: 'br-building', sourceHandle: 'output', targetHandle: 'floors' },
+    { id: 'br-r', source: 'br-roof', target: 'br-building', sourceHandle: 'output', targetHandle: 'roof' },
+    { id: 'br-b1', source: 'br-building', target: 'br-census', sourceHandle: 'building', targetHandle: 'schematic' },
+    { id: 'br-b2', source: 'br-building', target: 'br-analysis', sourceHandle: 'building', targetHandle: 'schematic' },
+    { id: 'br-b3', source: 'br-building', target: 'br-hologram', sourceHandle: 'building', targetHandle: 'schematic' },
+    { id: 'br-bv', source: 'br-building', target: 'br-building-view', sourceHandle: 'building', targetHandle: 'input' },
+    { id: 'br-cv', source: 'br-census', target: 'br-census-view', sourceHandle: 'rows', targetHandle: 'input' },
+    { id: 'br-hv', source: 'br-analysis', target: 'br-heatmap-view', sourceHandle: 'heatmap', targetHandle: 'input' },
+    { id: 'br-mv', source: 'br-hologram', target: 'br-holo-view', sourceHandle: 'mcfunction', targetHandle: 'input' },
+    { id: 'br-co', source: 'br-census', target: 'br-csv-out', sourceHandle: 'csv', targetHandle: 'input' },
+    { id: 'br-mo', source: 'br-hologram', target: 'br-holo-out', sourceHandle: 'mcfunction', targetHandle: 'input' },
+  ],
+};
+
 export const EXAMPLE_FLOWS: FlowData[] = [
   JULIA_STITCH_FLOW,
   MAZE_FLOW,
   CITY_FLOW,
   TERRAIN_PIPELINE_FLOW,
   LOGIC_LAB_FLOW,
+  BUILD_REPORT_FLOW,
 ];
