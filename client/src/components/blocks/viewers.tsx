@@ -112,8 +112,10 @@ export function ImageViewer({ value }: ViewerProps) {
     canvas.height = img.height;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    const data =
-      img.data instanceof Uint8ClampedArray ? img.data : new Uint8ClampedArray(Array.from(img.data));
+    // Copy into a fresh ArrayBuffer-backed array — worker values may be
+    // ArrayBufferLike-backed, which ImageData's typings reject.
+    const data = new Uint8ClampedArray(img.width * img.height * 4);
+    data.set(img.data);
     ctx.putImageData(new ImageData(data, img.width, img.height), 0, 0);
   }, [value]);
 
