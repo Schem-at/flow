@@ -232,6 +232,10 @@ export class MessageHandler {
         };
       } else {
         this.currentExecution = null;
+        if (executionResult.error?.stack) {
+          // Surface the in-sandbox stack — the client only receives the message.
+          console.error('[Worker] execution error stack:', executionResult.error.stack);
+        }
         throw new Error(executionResult.error?.message || 'Unknown execution error');
       }
     } catch (error) {

@@ -796,11 +796,14 @@ export function Editor() {
             });
             
             if (returnHandles && result.schematicHandles && Object.keys(result.schematicHandles).length > 0) {
-              // Store handles - downstream code nodes will use these
+              // Keep ALL outputs (lots, grids, stats, … arrive deep-serialized
+              // in result.result), then swap schematic outputs for handles so
+              // they stay resident in the worker.
+              finalResult = { ...(result.result as Record<string, unknown> | undefined ?? {}) };
               for (const [key, handleId] of Object.entries(result.schematicHandles)) {
                 finalResult[key] = { _schematicHandle: handleId };
               }
-              
+
               if (Object.keys(finalResult).length === 1 && !('default' in finalResult)) {
                 finalResult['default'] = finalResult[Object.keys(finalResult)[0]];
               }

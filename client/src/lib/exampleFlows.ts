@@ -171,4 +171,736 @@ export const JULIA_STITCH_FLOW: FlowData = {
   ],
 };
 
-export const EXAMPLE_FLOWS: FlowData[] = [JULIA_STITCH_FLOW];
+// ─── Maze & Pathfinder ──────────────────────────────────────────────────────
+// Node 1 carves a perfect maze (recursive backtracker, seeded) and emits BOTH
+// the schematic and the raw grid; node 2 BFS-solves the grid and draws the
+// shortest path in glowstone on a copy of the maze — data and geometry flowing
+// side by side between blocks.
+
+const MAZE_GEN_SOURCE = `type Inputs = {
+  width: Slider<{ min: 5; max: 41; default: 21 }>;
+  height: Slider<{ min: 5; max: 41; default: 21 }>;
+  wall: Block<{ default: 'minecraft:stone_bricks' }>;
+  seed: number;
+};
+
+type Outputs = {
+  maze: Schematic;
+  grid: number[][];
+};
+
+function mulberry32(seed) {
+  let s = seed >>> 0 || 1;
+  return () => {
+    s |= 0;
+    s = (s + 0x6d2b79f5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function generate(inputs) {
+  // Odd dimensions so walls and corridors alternate cleanly.
+  const w = inputs.width % 2 ? inputs.width : inputs.width + 1;
+  const h = inputs.height % 2 ? inputs.height : inputs.height + 1;
+  const rand = mulberry32(inputs.seed | 0 || 42);
+
+  const grid = [];
+  for (let z = 0; z < h; z++) {
+    const row = [];
+    for (let x = 0; x < w; x++) row.push(1);
+    grid.push(row);
+  }
+
+  // Recursive backtracker (iterative): carve 2 cells at a time.
+  const dirs = [[2, 0], [-2, 0], [0, 2], [0, -2]];
+  const stack = [[1, 1]];
+  grid[1][1] = 0;
+  while (stack.length) {
+    const [cx, cz] = stack[stack.length - 1];
+    const options = [];
+    for (const [dx, dz] of dirs) {
+      const nx = cx + dx;
+      const nz = cz + dz;
+      if (nx > 0 && nz > 0 && nx < w - 1 && nz < h - 1 && grid[nz][nx] === 1) {
+        options.push([nx, nz, dx, dz]);
+      }
+    }
+    if (!options.length) {
+      stack.pop();
+      continue;
+    }
+    const [nx, nz, dx, dz] = options[Math.floor(rand() * options.length)];
+    grid[nz][nx] = 0;
+    grid[cz + dz / 2][cx + dx / 2] = 0;
+    stack.push([nx, nz]);
+  }
+
+  const maze = new Schematic();
+  for (let z = 0; z < h; z++) {
+    for (let x = 0; x < w; x++) {
+      maze.set_block(x, 0, z, 'minecraft:polished_andesite');
+      if (grid[z][x] === 1) {
+        maze.set_block(x, 1, z, inputs.wall);
+        maze.set_block(x, 2, z, inputs.wall);
+      }
+    }
+  }
+
+  return { maze, grid };
+}
+`;
+
+const MAZE_GEN_CONTRACT: BlockContract = {
+  inputs: {
+    width: { kind: 'number', widget: 'slider', min: 5, max: 41, default: 21 },
+    height: { kind: 'number', widget: 'slider', min: 5, max: 41, default: 21 },
+    wall: { kind: 'block', default: 'minecraft:stone_bricks' },
+    seed: { kind: 'number' },
+  },
+  outputs: {
+    maze: { kind: 'schematic' },
+    grid: { kind: 'list', of: { kind: 'list', of: { kind: 'number' } } },
+  },
+};
+
+const MAZE_SOLVE_SOURCE = `type Inputs = {
+  maze: Schematic;
+  grid: number[][];
+  marker: Block<{ default: 'minecraft:glowstone' }>;
+};
+
+type Outputs = {
+  solved: Schematic;
+  stats: { found: boolean; length: number; explored: number };
+};
+
+function generate(inputs) {
+  const grid = inputs.grid || [];
+  const h = grid.length;
+  const w = h ? grid[0].length : 0;
+  const goal = [w - 2, h - 2];
+
+  // BFS from entrance to exit — shortest path in a perfect maze.
+  const prev = new Map();
+  const seen = new Set(['1,1']);
+  const queue = [[1, 1]];
+  let explored = 0;
+  let found = false;
+  while (queue.length) {
+    const [x, z] = queue.shift();
+    explored++;
+    if (x === goal[0] && z === goal[1]) {
+      found = true;
+      break;
+    }
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx;
+      const nz = z + dz;
+      if (nx < 0 || nz < 0 || nz >= h || nx >= w) continue;
+      const key = nx + ',' + nz;
+      if (grid[nz][nx] !== 0 || seen.has(key)) continue;
+      seen.add(key);
+      prev.set(key, x + ',' + z);
+      queue.push([nx, nz]);
+    }
+  }
+
+  const solved = new Schematic();
+  for (const b of inputs.maze.blocks()) {
+    solved.set_block(b.x, b.y, b.z, b.name);
+  }
+
+  let length = 0;
+  if (found) {
+    let cursor = goal[0] + ',' + goal[1];
+    while (cursor) {
+      const [px, pz] = cursor.split(',').map(Number);
+      solved.set_block(px, 1, pz, inputs.marker);
+      length++;
+      cursor = prev.get(cursor);
+    }
+  }
+
+  return { solved, stats: { found: found, length: length, explored: explored } };
+}
+`;
+
+const MAZE_SOLVE_CONTRACT: BlockContract = {
+  inputs: {
+    maze: { kind: 'schematic' },
+    grid: { kind: 'list', of: { kind: 'list', of: { kind: 'number' } } },
+    marker: { kind: 'block', default: 'minecraft:glowstone' },
+  },
+  outputs: {
+    solved: { kind: 'schematic' },
+    stats: {
+      kind: 'object',
+      fields: {
+        found: { kind: 'boolean' },
+        length: { kind: 'number' },
+        explored: { kind: 'number' },
+      },
+    },
+  },
+};
+
+export const MAZE_FLOW: FlowData = {
+  id: 'example-maze-solver',
+  name: 'Maze & Pathfinder',
+  version: '1.0.0',
+  createdAt: 0,
+  nodes: [
+    {
+      id: 'maze-size',
+      type: 'input',
+      position: { x: 0, y: 0 },
+      data: {
+        label: 'size',
+        value: 25,
+        dataType: 'number',
+        widgetType: 'slider',
+        min: 5,
+        max: 41,
+        step: 2,
+        description: 'Maze width & height',
+      },
+    },
+    {
+      id: 'maze-seed',
+      type: 'input',
+      position: { x: 0, y: 180 },
+      data: { label: 'seed', value: 7, dataType: 'number', widgetType: 'number' },
+    },
+    {
+      id: 'maze-gen',
+      type: 'code',
+      position: { x: 320, y: 0 },
+      data: {
+        label: 'Maze Generator',
+        code: MAZE_GEN_SOURCE,
+        contract: MAZE_GEN_CONTRACT,
+        io: contractToIO(MAZE_GEN_CONTRACT),
+      },
+    },
+    {
+      id: 'maze-solve',
+      type: 'code',
+      position: { x: 800, y: 60 },
+      data: {
+        label: 'Path Solver',
+        code: MAZE_SOLVE_SOURCE,
+        contract: MAZE_SOLVE_CONTRACT,
+        io: contractToIO(MAZE_SOLVE_CONTRACT),
+      },
+    },
+    {
+      id: 'maze-view',
+      type: 'viewer',
+      position: { x: 1280, y: 0 },
+      data: { label: 'Solved maze' },
+    },
+    {
+      id: 'maze-stats',
+      type: 'viewer',
+      position: { x: 1280, y: 380 },
+      data: { label: 'Search stats' },
+    },
+    {
+      id: 'maze-out',
+      type: 'output',
+      position: { x: 1280, y: 600 },
+      data: { label: 'solved' },
+    },
+  ],
+  edges: [
+    { id: 'me-w', source: 'maze-size', target: 'maze-gen', sourceHandle: 'output', targetHandle: 'width' },
+    { id: 'me-h', source: 'maze-size', target: 'maze-gen', sourceHandle: 'output', targetHandle: 'height' },
+    { id: 'me-s', source: 'maze-seed', target: 'maze-gen', sourceHandle: 'output', targetHandle: 'seed' },
+    { id: 'me-m', source: 'maze-gen', target: 'maze-solve', sourceHandle: 'maze', targetHandle: 'maze' },
+    { id: 'me-g', source: 'maze-gen', target: 'maze-solve', sourceHandle: 'grid', targetHandle: 'grid' },
+    { id: 'me-v', source: 'maze-solve', target: 'maze-view', sourceHandle: 'solved', targetHandle: 'input' },
+    { id: 'me-st', source: 'maze-solve', target: 'maze-stats', sourceHandle: 'stats', targetHandle: 'input' },
+    { id: 'me-o', source: 'maze-solve', target: 'maze-out', sourceHandle: 'solved', targetHandle: 'input' },
+  ],
+};
+
+// ─── Procedural City ────────────────────────────────────────────────────────
+// A planner lays out road grid + building lots (a LIST OF OBJECTS — rendered
+// as a table by the viewer), then a tower builder raises glass-banded towers
+// on each lot. Skyline peaks toward the city center.
+
+const CITY_PLAN_SOURCE = `type Inputs = {
+  size: Slider<{ min: 32; max: 96; default: 64 }>;
+  lot: Slider<{ min: 6; max: 16; default: 10 }>;
+  density: Slider<{ min: 0.1; max: 1; step: 0.05; default: 0.75 }>;
+  seed: number;
+};
+
+type Outputs = {
+  lots: Array<{ x: number; z: number; w: number; d: number; floors: number }>;
+  ground: Schematic;
+};
+
+function mulberry32(seed) {
+  let s = seed >>> 0 || 1;
+  return () => {
+    s |= 0;
+    s = (s + 0x6d2b79f5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function generate(inputs) {
+  const size = inputs.size | 0;
+  const lotSize = inputs.lot | 0;
+  const rand = mulberry32(inputs.seed | 0 || 7);
+  const pitch = lotSize + 1;
+
+  const ground = new Schematic();
+  for (let x = 0; x < size; x++) {
+    for (let z = 0; z < size; z++) {
+      const onRoad = x % pitch === 0 || z % pitch === 0;
+      ground.set_block(x, 0, z, onRoad ? 'minecraft:gray_concrete' : 'minecraft:smooth_stone');
+    }
+  }
+
+  const lots = [];
+  const center = size / 2;
+  for (let lx = 1; lx + lotSize <= size; lx += pitch) {
+    for (let lz = 1; lz + lotSize <= size; lz += pitch) {
+      if (rand() > inputs.density) continue;
+      // Skyline: tall towers downtown, low-rise at the edges.
+      const dist = Math.hypot(lx + lotSize / 2 - center, lz + lotSize / 2 - center);
+      const skyline = Math.max(1, Math.round(9 * (1 - dist / (center * 1.5))));
+      const floors = Math.max(1, Math.min(9, skyline + Math.floor(rand() * 3) - 1));
+      lots.push({ x: lx + 1, z: lz + 1, w: lotSize - 2, d: lotSize - 2, floors: floors });
+    }
+  }
+
+  return { lots, ground };
+}
+`;
+
+const CITY_PLAN_CONTRACT: BlockContract = {
+  inputs: {
+    size: { kind: 'number', widget: 'slider', min: 32, max: 96, default: 64 },
+    lot: { kind: 'number', widget: 'slider', min: 6, max: 16, default: 10 },
+    density: { kind: 'number', widget: 'slider', min: 0.1, max: 1, step: 0.05, default: 0.75 },
+    seed: { kind: 'number' },
+  },
+  outputs: {
+    lots: {
+      kind: 'list',
+      of: {
+        kind: 'object',
+        fields: {
+          x: { kind: 'number' },
+          z: { kind: 'number' },
+          w: { kind: 'number' },
+          d: { kind: 'number' },
+          floors: { kind: 'number' },
+        },
+      },
+    },
+    ground: { kind: 'schematic' },
+  },
+};
+
+const CITY_BUILD_SOURCE = `type Inputs = {
+  lots: Array<{ x: number; z: number; w: number; d: number; floors: number }>;
+  ground: Schematic;
+  wall: Block<{ default: 'minecraft:light_gray_concrete' }>;
+  glass: Block<{ default: 'minecraft:cyan_stained_glass' }>;
+};
+
+type Outputs = {
+  city: Schematic;
+};
+
+function generate(inputs) {
+  const city = new Schematic();
+  for (const b of inputs.ground.blocks()) {
+    city.set_block(b.x, b.y, b.z, b.name);
+  }
+
+  for (const lot of inputs.lots || []) {
+    const top = lot.floors * 4;
+    for (let y = 1; y <= top; y++) {
+      const band = y % 4 === 2 || y % 4 === 3; // window band on each floor
+      for (let x = lot.x; x < lot.x + lot.w; x++) {
+        for (let z = lot.z; z < lot.z + lot.d; z++) {
+          const onEdgeX = x === lot.x || x === lot.x + lot.w - 1;
+          const onEdgeZ = z === lot.z || z === lot.z + lot.d - 1;
+          if (!onEdgeX && !onEdgeZ) continue;
+          const corner = onEdgeX && onEdgeZ;
+          const block = band && !corner && (x + z) % 2 === 0 ? inputs.glass : inputs.wall;
+          city.set_block(x, y, z, block);
+        }
+      }
+    }
+    for (let x = lot.x; x < lot.x + lot.w; x++) {
+      for (let z = lot.z; z < lot.z + lot.d; z++) {
+        city.set_block(x, top + 1, z, 'minecraft:polished_andesite');
+      }
+    }
+  }
+
+  return { city };
+}
+`;
+
+const CITY_BUILD_CONTRACT: BlockContract = {
+  inputs: {
+    lots: CITY_PLAN_CONTRACT.outputs.lots,
+    ground: { kind: 'schematic' },
+    wall: { kind: 'block', default: 'minecraft:light_gray_concrete' },
+    glass: { kind: 'block', default: 'minecraft:cyan_stained_glass' },
+  },
+  outputs: {
+    city: { kind: 'schematic' },
+  },
+};
+
+export const CITY_FLOW: FlowData = {
+  id: 'example-city',
+  name: 'Procedural City',
+  version: '1.0.0',
+  createdAt: 0,
+  nodes: [
+    {
+      id: 'city-size',
+      type: 'input',
+      position: { x: 0, y: 0 },
+      data: {
+        label: 'size',
+        value: 64,
+        dataType: 'number',
+        widgetType: 'slider',
+        min: 32,
+        max: 96,
+        step: 1,
+        description: 'City footprint',
+      },
+    },
+    {
+      id: 'city-density',
+      type: 'input',
+      position: { x: 0, y: 180 },
+      data: {
+        label: 'density',
+        value: 0.75,
+        dataType: 'number',
+        widgetType: 'slider',
+        min: 0.1,
+        max: 1,
+        step: 0.05,
+        description: 'Built-lot probability',
+      },
+    },
+    {
+      id: 'city-seed',
+      type: 'input',
+      position: { x: 0, y: 360 },
+      data: { label: 'seed', value: 7, dataType: 'number', widgetType: 'number' },
+    },
+    {
+      id: 'city-plan',
+      type: 'code',
+      position: { x: 320, y: 60 },
+      data: {
+        label: 'City Planner',
+        code: CITY_PLAN_SOURCE,
+        contract: CITY_PLAN_CONTRACT,
+        io: contractToIO(CITY_PLAN_CONTRACT),
+      },
+    },
+    {
+      id: 'city-build',
+      type: 'code',
+      position: { x: 800, y: 120 },
+      data: {
+        label: 'Tower Builder',
+        code: CITY_BUILD_SOURCE,
+        contract: CITY_BUILD_CONTRACT,
+        io: contractToIO(CITY_BUILD_CONTRACT),
+      },
+    },
+    {
+      id: 'city-lots-table',
+      type: 'viewer',
+      position: { x: 800, y: 480 },
+      data: { label: 'Zoning table' },
+    },
+    {
+      id: 'city-view',
+      type: 'viewer',
+      position: { x: 1280, y: 60 },
+      data: { label: 'Skyline' },
+    },
+    {
+      id: 'city-out',
+      type: 'output',
+      position: { x: 1280, y: 520 },
+      data: { label: 'city' },
+    },
+  ],
+  edges: [
+    { id: 'ce-s', source: 'city-size', target: 'city-plan', sourceHandle: 'output', targetHandle: 'size' },
+    { id: 'ce-d', source: 'city-density', target: 'city-plan', sourceHandle: 'output', targetHandle: 'density' },
+    { id: 'ce-r', source: 'city-seed', target: 'city-plan', sourceHandle: 'output', targetHandle: 'seed' },
+    { id: 'ce-l', source: 'city-plan', target: 'city-build', sourceHandle: 'lots', targetHandle: 'lots' },
+    { id: 'ce-g', source: 'city-plan', target: 'city-build', sourceHandle: 'ground', targetHandle: 'ground' },
+    { id: 'ce-t', source: 'city-plan', target: 'city-lots-table', sourceHandle: 'lots', targetHandle: 'input' },
+    { id: 'ce-v', source: 'city-build', target: 'city-view', sourceHandle: 'city', targetHandle: 'input' },
+    { id: 'ce-o', source: 'city-build', target: 'city-out', sourceHandle: 'city', targetHandle: 'input' },
+  ],
+};
+
+// ─── Terrain → Erosion → Analysis ───────────────────────────────────────────
+// A three-stage pipeline: noise terrain (the workbench example as a node) →
+// thermal erosion (schematic in, schematic out) → the build-analysis block
+// fanning out into vec3 / table / image viewers.
+
+const TERRAIN_SOURCE = EXAMPLE_BLOCKS.find((b) => b.id === 'parametric-terrain')!.source;
+const ANALYSIS_SOURCE = EXAMPLE_BLOCKS.find((b) => b.id === 'build-analysis')!.source;
+
+const TERRAIN_CONTRACT: BlockContract = {
+  inputs: {
+    width: { kind: 'number', widget: 'slider', min: 8, max: 256, default: 64 },
+    depth: { kind: 'number', widget: 'slider', min: 8, max: 256, default: 64 },
+    amplitude: { kind: 'number', widget: 'slider', min: 1, max: 64, default: 16 },
+    scale: { kind: 'number', widget: 'slider', min: 0.01, max: 0.2, step: 0.01, default: 0.05 },
+    seed: { kind: 'number' },
+    surface: { kind: 'block', default: 'minecraft:grass_block' },
+  },
+  outputs: {
+    terrain: { kind: 'schematic' },
+  },
+};
+
+const ANALYSIS_CONTRACT: BlockContract = {
+  inputs: {
+    schematic: { kind: 'schematic' },
+  },
+  outputs: {
+    dimensions: { kind: 'vec3' },
+    blockCounts: {
+      kind: 'list',
+      of: {
+        kind: 'object',
+        fields: { block: { kind: 'block' }, count: { kind: 'number' } },
+      },
+    },
+    heatmap: { kind: 'image' },
+  },
+};
+
+const ERODE_SOURCE = `type Inputs = {
+  terrain: Schematic;
+  iterations: Slider<{ min: 0; max: 60; default: 25 }>;
+  talus: Slider<{ min: 1; max: 4; default: 1 }>;
+};
+
+type Outputs = {
+  eroded: Schematic;
+};
+
+function generate(inputs) {
+  // Read the heightmap (top block per column) out of the input schematic.
+  const tops = new Map();
+  let maxX = 0;
+  let maxZ = 0;
+  for (const b of inputs.terrain.blocks()) {
+    const key = b.x + ',' + b.z;
+    const top = tops.get(key);
+    if (!top || b.y > top.y) tops.set(key, { y: b.y, name: b.name });
+    if (b.x > maxX) maxX = b.x;
+    if (b.z > maxZ) maxZ = b.z;
+  }
+  const w = maxX + 1;
+  const d = maxZ + 1;
+  const height = [];
+  const surface = [];
+  for (let x = 0; x < w; x++) {
+    height.push([]);
+    surface.push([]);
+    for (let z = 0; z < d; z++) {
+      const top = tops.get(x + ',' + z);
+      height[x].push(top ? top.y + 1 : 1);
+      surface[x].push(top ? top.name : 'minecraft:grass_block');
+    }
+  }
+
+  // Thermal erosion: steep slopes shed material onto their lowest neighbour.
+  const talus = inputs.talus | 0 || 1;
+  for (let it = 0; it < inputs.iterations; it++) {
+    for (let x = 0; x < w; x++) {
+      for (let z = 0; z < d; z++) {
+        let lx = x;
+        let lz = z;
+        let lowest = height[x][z];
+        for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const nx = x + dx;
+          const nz = z + dz;
+          if (nx < 0 || nz < 0 || nx >= w || nz >= d) continue;
+          if (height[nx][nz] < lowest) {
+            lowest = height[nx][nz];
+            lx = nx;
+            lz = nz;
+          }
+        }
+        if (height[x][z] - lowest > talus) {
+          height[x][z]--;
+          height[lx][lz]++;
+        }
+      }
+    }
+  }
+
+  const eroded = new Schematic();
+  for (let x = 0; x < w; x++) {
+    for (let z = 0; z < d; z++) {
+      const h = Math.max(1, height[x][z]);
+      for (let y = 0; y < h - 1; y++) eroded.set_block(x, y, z, 'minecraft:dirt');
+      eroded.set_block(x, h - 1, z, surface[x][z]);
+    }
+  }
+
+  return { eroded };
+}
+`;
+
+const ERODE_CONTRACT: BlockContract = {
+  inputs: {
+    terrain: { kind: 'schematic' },
+    iterations: { kind: 'number', widget: 'slider', min: 0, max: 60, default: 25 },
+    talus: { kind: 'number', widget: 'slider', min: 1, max: 4, default: 1 },
+  },
+  outputs: {
+    eroded: { kind: 'schematic' },
+  },
+};
+
+export const TERRAIN_PIPELINE_FLOW: FlowData = {
+  id: 'example-terrain-pipeline',
+  name: 'Terrain → Erosion → Analysis',
+  version: '1.0.0',
+  createdAt: 0,
+  nodes: [
+    {
+      id: 'tp-amplitude',
+      type: 'input',
+      position: { x: 0, y: 0 },
+      data: {
+        label: 'amplitude',
+        value: 22,
+        dataType: 'number',
+        widgetType: 'slider',
+        min: 1,
+        max: 64,
+        step: 1,
+        description: 'Mountain height',
+      },
+    },
+    {
+      id: 'tp-seed',
+      type: 'input',
+      position: { x: 0, y: 180 },
+      data: { label: 'seed', value: 3, dataType: 'number', widgetType: 'number' },
+    },
+    {
+      id: 'tp-iterations',
+      type: 'input',
+      position: { x: 0, y: 340 },
+      data: {
+        label: 'iterations',
+        value: 25,
+        dataType: 'number',
+        widgetType: 'slider',
+        min: 0,
+        max: 60,
+        step: 1,
+        description: 'Erosion passes',
+      },
+    },
+    {
+      id: 'tp-terrain',
+      type: 'code',
+      position: { x: 300, y: 20 },
+      data: {
+        label: 'Terrain',
+        code: TERRAIN_SOURCE,
+        contract: TERRAIN_CONTRACT,
+        io: contractToIO(TERRAIN_CONTRACT),
+      },
+    },
+    {
+      id: 'tp-erode',
+      type: 'code',
+      position: { x: 760, y: 80 },
+      data: {
+        label: 'Thermal Erosion',
+        code: ERODE_SOURCE,
+        contract: ERODE_CONTRACT,
+        io: contractToIO(ERODE_CONTRACT),
+      },
+    },
+    {
+      id: 'tp-analyze',
+      type: 'code',
+      position: { x: 1220, y: 300 },
+      data: {
+        label: 'Build Analysis',
+        code: ANALYSIS_SOURCE,
+        contract: ANALYSIS_CONTRACT,
+        io: contractToIO(ANALYSIS_CONTRACT),
+      },
+    },
+    {
+      id: 'tp-eroded-view',
+      type: 'viewer',
+      position: { x: 1220, y: -60 },
+      data: { label: 'Eroded terrain' },
+    },
+    {
+      id: 'tp-heatmap-view',
+      type: 'viewer',
+      position: { x: 1700, y: 160 },
+      data: { label: 'Density heatmap' },
+    },
+    {
+      id: 'tp-counts-view',
+      type: 'viewer',
+      position: { x: 1700, y: 520 },
+      data: { label: 'Block counts' },
+    },
+    {
+      id: 'tp-out',
+      type: 'output',
+      position: { x: 1700, y: -40 },
+      data: { label: 'terrain' },
+    },
+  ],
+  edges: [
+    { id: 'te-a', source: 'tp-amplitude', target: 'tp-terrain', sourceHandle: 'output', targetHandle: 'amplitude' },
+    { id: 'te-s', source: 'tp-seed', target: 'tp-terrain', sourceHandle: 'output', targetHandle: 'seed' },
+    { id: 'te-t', source: 'tp-terrain', target: 'tp-erode', sourceHandle: 'terrain', targetHandle: 'terrain' },
+    { id: 'te-i', source: 'tp-iterations', target: 'tp-erode', sourceHandle: 'output', targetHandle: 'iterations' },
+    { id: 'te-e', source: 'tp-erode', target: 'tp-analyze', sourceHandle: 'eroded', targetHandle: 'schematic' },
+    { id: 'te-ev', source: 'tp-erode', target: 'tp-eroded-view', sourceHandle: 'eroded', targetHandle: 'input' },
+    { id: 'te-hv', source: 'tp-analyze', target: 'tp-heatmap-view', sourceHandle: 'heatmap', targetHandle: 'input' },
+    { id: 'te-cv', source: 'tp-analyze', target: 'tp-counts-view', sourceHandle: 'blockCounts', targetHandle: 'input' },
+    { id: 'te-o', source: 'tp-erode', target: 'tp-out', sourceHandle: 'eroded', targetHandle: 'input' },
+  ],
+};
+
+export const EXAMPLE_FLOWS: FlowData[] = [
+  JULIA_STITCH_FLOW,
+  MAZE_FLOW,
+  CITY_FLOW,
+  TERRAIN_PIPELINE_FLOW,
+];
