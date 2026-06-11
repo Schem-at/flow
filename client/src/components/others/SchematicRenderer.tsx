@@ -124,6 +124,11 @@ const SchematicRenderer = ({ schematic }: { schematic: Uint8Array | ArrayBuffer 
                 enableInteraction: true,
                 enableDragAndDrop: false,
                 showGrid: true,
+                // Don't auto-frame on every schematic load — the user's camera
+                // stays put across re-runs; we frame explicitly on first load.
+                cameraOptions: {
+                    preserveCameraOnUpdate: true,
+                },
                 callbacks: {
                     onRendererInitialized: () => resolveInit(),
                 },
