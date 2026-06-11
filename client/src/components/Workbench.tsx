@@ -12,7 +12,7 @@
  */
 
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { Play, Square, Loader2, Code2, LayoutPanelLeft, ChevronDown } from 'lucide-react';
+import { Play, Square, Loader2, Code2, LayoutPanelLeft, ChevronDown, Zap } from 'lucide-react';
 import { useScriptRunner } from '../hooks/useScriptRunner';
 import type { BlockContract, ExecutionResult } from '@flow/core';
 import { defaultInputsForContract } from '@flow/core';
@@ -51,6 +51,9 @@ export default function Workbench() {
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<ExecutionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [live, setLive] = useState(false);
+  const runningRef = useRef(false);
+  const pendingLiveRun = useRef(false);
 
   // ── source → contract projection (debounced, graceful on failure) ──────
   const parseSeq = useRef(0);
@@ -109,11 +112,17 @@ export default function Workbench() {
   }, []);
 
   // ── run / cancel ────────────────────────────────────────────────────────
+  // Note: the previous result stays mounted while a re-run is in flight, so
+  // the schematic viewer swaps schematics in place instead of re-initializing.
   const handleRun = useCallback(async () => {
+    if (runningRef.current) {
+      pendingLiveRun.current = true;
+      return;
+    }
     setError(null);
-    setResult(null);
     clearLogs();
     setRunning(true);
+    runningRef.current = true;
     try {
       const res = await run(source, values);
       setResult(res);
@@ -122,8 +131,28 @@ export default function Workbench() {
       setError((e as Error).message);
     } finally {
       setRunning(false);
+      runningRef.current = false;
     }
   }, [source, values, run, clearLogs]);
+
+  // Live mode: debounce-recompute whenever inputs or the source change.
+  const handleRunRef = useRef(handleRun);
+  handleRunRef.current = handleRun;
+  useEffect(() => {
+    if (!live || !ready) return;
+    const timer = setTimeout(() => {
+      handleRunRef.current();
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [values, source, live, ready]);
+
+  // A change that arrived mid-run re-runs once the current run finishes.
+  useEffect(() => {
+    if (!running && pendingLiveRun.current) {
+      pendingLiveRun.current = false;
+      if (live) handleRunRef.current();
+    }
+  }, [running, live]);
 
   const handleCancel = useCallback(async () => {
     await cancel();
@@ -160,6 +189,19 @@ export default function Workbench() {
         </div>
 
         <div className="flex-1" />
+
+        <button
+          onClick={() => setLive((v) => !v)}
+          className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs transition ${
+            live
+              ? 'border-amber-600 bg-amber-500/15 text-amber-300'
+              : 'border-neutral-700 text-neutral-400 hover:border-neutral-500 hover:text-neutral-200'
+          }`}
+          title="Re-run automatically (debounced) when inputs or code change"
+        >
+          <Zap className="h-3.5 w-3.5" />
+          Live
+        </button>
 
         <button
           onClick={() => setCodeView((v) => !v)}

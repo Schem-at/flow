@@ -1,19 +1,24 @@
 import { SchematicRenderer as Renderer } from 'schematic-renderer';
 import { useRef, useState, useEffect, useCallback } from 'react';
 import { Download } from 'lucide-react';
+import { getSharedRendererContext } from '../../lib/schematicRendererContext';
 
 /**
- * SchematicRenderer component - renders schematic binary data (Uint8Array/ArrayBuffer)
- * Expects binary .schem format data, not WASM objects.
+ * SchematicRenderer component - renders schematic binary data (Uint8Array/ArrayBuffer).
+ *
+ * All instances share one SchematicRendererContext (assets, worker pool, WebGL
+ * context — render-and-blit). The per-mount Renderer is a cheap viewport that
+ * is created ONCE; subsequent `schematic` prop changes swap the loaded
+ * schematic in place instead of re-initializing packs/atlas.
  */
 const SchematicRenderer = ({ schematic }: { schematic: Uint8Array | ArrayBuffer }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const rendererRef = useRef<Renderer | null>(null);
-    const [isInitialized, setIsInitialized] = useState(false);
-    const [isLoading, setIsLoading] = useState(false);
+    const readyRef = useRef<Promise<Renderer> | null>(null);
+    const hasFramedRef = useRef(false);
+    const loadSeqRef = useRef(0);
+    const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    // @ts-ignore
-    const lastLoadedDataRef = useRef<string | null>(null);
     const ref = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -54,8 +59,8 @@ const SchematicRenderer = ({ schematic }: { schematic: Uint8Array | ArrayBuffer 
 
         try {
             // Convert to blob - create a copy to ensure we have a proper ArrayBuffer
-            const bytes = schematic instanceof Uint8Array 
-                ? schematic 
+            const bytes = schematic instanceof Uint8Array
+                ? schematic
                 : new Uint8Array(schematic);
             const blob = new Blob([new Uint8Array(bytes)], {
                 type: 'application/octet-stream'
@@ -77,140 +82,122 @@ const SchematicRenderer = ({ schematic }: { schematic: Uint8Array | ArrayBuffer 
         }
     }, [schematic]);
 
-    const initializeRenderer = useCallback(async () => {
-        if (!canvasRef.current) return;
-        if (isInitialized) return;
+    /** Coerce worker/cross-realm values into a standalone ArrayBuffer. */
+    const toArrayBuffer = (value: Uint8Array | ArrayBuffer): ArrayBuffer | null => {
+        if (value instanceof Uint8Array) return value.slice().buffer;
+        if (value instanceof ArrayBuffer) return value;
+        if (ArrayBuffer.isView(value)) {
+            const view = value as Uint8Array;
+            const buf = view.buffer as ArrayBuffer;
+            return buf.slice(view.byteOffset, view.byteOffset + view.byteLength);
+        }
+        if (value && typeof value === 'object' && 'byteLength' in (value as object)) {
+            // Cross-realm typed array — instanceof fails across worker boundaries
+            const arr = value as unknown as { buffer?: ArrayBuffer; byteLength: number; byteOffset?: number; [index: number]: number };
+            if (arr.buffer) {
+                return arr.buffer.slice(arr.byteOffset || 0, (arr.byteOffset || 0) + arr.byteLength);
+            }
+            const temp = new Uint8Array(arr.byteLength);
+            for (let i = 0; i < arr.byteLength; i++) temp[i] = arr[i];
+            return temp.buffer;
+        }
+        return null;
+    };
 
-        try {
-            setIsLoading(true);
-            setError(null);
+    // Create the viewport renderer ONCE per mount, on the shared context.
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        let cancelled = false;
 
-            const renderer = new Renderer(canvasRef.current, {}, {
-                vanillaPack: async () => {
-                    const response = await fetch("/pack.zip");
-                    const buffer = await response.arrayBuffer();
-                    return new Blob([buffer], { type: "application/zip" });
-                },
-            }, {
+        readyRef.current = (async () => {
+            const context = await getSharedRendererContext();
+            if (cancelled) throw new Error('cancelled');
+
+            let resolveInit!: () => void;
+            const initialized = new Promise<void>((res) => (resolveInit = res));
+            const renderer = new Renderer(canvas, {}, /* packs come from the context */ {}, {
+                context,
                 singleSchematicMode: true,
                 backgroundColor: '#1a1a1a',
                 showCameraPathVisualization: false,
                 enableInteraction: true,
+                enableDragAndDrop: false,
                 showGrid: true,
                 callbacks: {
-                    onRendererInitialized: () => {
-                        console.log('🎨 SchematicRenderer initialized (Callback)');
-                        rendererRef.current = renderer;
-                        setIsInitialized(true);
-                        setIsLoading(false);
-                    },
-                    onSchematicLoaded: (schematicName: string) => {
-                        console.log(`📦 Schematic loaded: ${schematicName}`);
-                        setIsLoading(false);
-                        console.log('Renderer state after load:', {
-                            schematics: renderer.schematicManager?.getFirstSchematic()?.schematicWrapper.debug_info(),
-                        });
-                    },
+                    onRendererInitialized: () => resolveInit(),
                 },
             });
-
-
-        } catch (err) {
-            setError('Failed to initialize schematic renderer.');
-            console.error(err);
-            setIsLoading(false);
-        }
-    }, [isInitialized]);
-
-    const loadSchematics = useCallback(async () => {
-        const renderer = rendererRef.current;
-
-        if (!isInitialized || !renderer || !schematic) {
-            console.log('📦 Not ready to load:', { isInitialized, hasRenderer: !!renderer, hasSchematic: !!schematic });
-            return;
-        }
-
-        if (!renderer.schematicManager) {
-            console.log('📦 SchematicManager not ready yet, will retry...');
-            return;
-        }
-
-        console.log('📦 Loading new schematic');
-        setIsLoading(true);
-        setError(null);
-
-        let dataToLoad: ArrayBuffer;
-
-        // Handle cross-realm issues - instanceof can fail for data from workers
-        // Check for Uint8Array-like objects that have buffer property
-        if (schematic instanceof Uint8Array) {
-            dataToLoad = schematic.slice().buffer;
-        } else if (schematic instanceof ArrayBuffer) {
-            dataToLoad = schematic;
-        } else if (ArrayBuffer.isView(schematic)) {
-            // Handle TypedArrays from different realms
-            const view = schematic as Uint8Array;
-            const buf = view.buffer as ArrayBuffer;
-            dataToLoad = buf.slice(view.byteOffset, view.byteOffset + view.byteLength);
-        } else if (schematic && typeof schematic === 'object' && 'byteLength' in schematic) {
-            // Cross-realm typed array - convert to Uint8Array
-            // This handles cases where instanceof fails due to realm differences
-            const arr = schematic as unknown as { buffer?: ArrayBuffer; byteLength: number; byteOffset?: number; [index: number]: number };
-            if (arr.buffer) {
-                dataToLoad = arr.buffer.slice(arr.byteOffset || 0, (arr.byteOffset || 0) + arr.byteLength);
-            } else {
-                // Manually copy the data
-                const temp = new Uint8Array(arr.byteLength);
-                for (let i = 0; i < arr.byteLength; i++) {
-                    temp[i] = arr[i];
-                }
-                dataToLoad = temp.buffer;
+            await initialized;
+            if (cancelled) {
+                try { renderer.dispose(); } catch { /* ignore */ }
+                throw new Error('cancelled');
             }
-        } else {
-            console.error('Invalid schematic format:', typeof schematic, schematic);
-            setError('Invalid schematic format');
-            setIsLoading(false);
-            return;
-        }
+            rendererRef.current = renderer;
+            return renderer;
+        })();
+        readyRef.current.catch(() => { /* handled per-load */ });
 
-        // Use a stable ID to allow replacement/updating
-        const schematicId = 'viewed-schematic';
+        return () => {
+            cancelled = true;
+            readyRef.current = null;
+            hasFramedRef.current = false;
+            const renderer = rendererRef.current;
+            rendererRef.current = null;
+            if (renderer) {
+                try { renderer.dispose(); } catch { /* ignore */ }
+            }
+        };
+    }, []);
 
-        try {
-          
+    // Swap the schematic whenever the data changes — no renderer re-init.
+    useEffect(() => {
+        if (!schematic) return;
+        const seq = ++loadSeqRef.current;
 
-            await renderer.schematicManager.loadSchematic(schematicId, dataToLoad, {
-                focused: false,
-            });
-            console.log('✅ Schematic loaded successfully');
-            setIsLoading(false);
-        } catch (loadError) {
-            console.error('❌ Failed to load schematic:', loadError);
-            setError('Failed to load schematic');
-            setIsLoading(false);
-        }
-    }, [isInitialized, schematic]);
+        (async () => {
+            const ready = readyRef.current;
+            if (!ready) return;
+            setIsLoading(true);
+            setError(null);
+            try {
+                const renderer = await ready;
+                if (seq !== loadSeqRef.current) return; // newer data superseded this load
+
+                const data = toArrayBuffer(schematic);
+                if (!data) {
+                    setError('Invalid schematic format');
+                    return;
+                }
+
+                await renderer.schematicManager?.removeAllSchematics?.();
+                await renderer.schematicManager?.loadSchematic('viewed-schematic', data);
+                if (seq !== loadSeqRef.current) return;
+
+                // Frame the first load; afterwards keep the user's camera so
+                // re-runs don't yank the view around.
+                if (!hasFramedRef.current) {
+                    hasFramedRef.current = true;
+                    await renderer.cameraManager?.focusOnSchematics?.({
+                        animationDuration: 0,
+                        useTightBounds: true,
+                        preserveCamera: false,
+                    });
+                }
+            } catch (err) {
+                if ((err as Error).message !== 'cancelled' && seq === loadSeqRef.current) {
+                    console.error('❌ Failed to load schematic:', err);
+                    setError('Failed to load schematic');
+                }
+            } finally {
+                if (seq === loadSeqRef.current) setIsLoading(false);
+            }
+        })();
+    }, [schematic]);
 
     const handleResize = useCallback(() => {
         rendererRef.current?.renderManager?.updateCanvasSize();
     }, []);
-
-    useEffect(() => {
-        console.log('Initializing SchematicRenderer...');
-        const timer = setTimeout(initializeRenderer, 100);
-        return () => clearTimeout(timer);
-    }, [initializeRenderer]);
-
-    useEffect(() => {
-        if (!schematic) return;
-        if (!isInitialized) return;
-
-        const timer = setTimeout(() => {
-            loadSchematics();
-        }, 10);
-
-        return () => clearTimeout(timer);
-    }, [schematic, isInitialized, loadSchematics]);
 
     useEffect(() => {
         const resizeObserver = new ResizeObserver(handleResize);
