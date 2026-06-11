@@ -22,6 +22,7 @@ import {
 import { useFlowStore, type FlowNode } from '../../store/flowStore';
 import { ModuleBrowser } from './ModuleBrowser';
 import { DEFAULT_BLOCK_SOURCE, DEFAULT_BLOCK_CONTRACT, contractToIO } from '../../lib/block/io-compat';
+import { EXAMPLE_BLOCKS, EXAMPLE_BLOCK_CONTRACTS } from '../../lib/block/examples';
 
 interface NodeTemplate {
   type: string;
@@ -128,6 +129,25 @@ const nodeCategories: { name: string; nodes: NodeTemplate[] }[] = [
         border: 'border-cyan-500/20',
       },
     ],
+  },
+  {
+    // Every example block, droppable as a ready-made node with typed ports.
+    name: 'Examples',
+    nodes: EXAMPLE_BLOCKS.map((example) => ({
+      type: 'code',
+      label: example.name,
+      Icon: Zap,
+      description: example.description,
+      color: 'text-emerald-400',
+      bg: 'bg-emerald-500/10',
+      border: 'border-emerald-500/20',
+      config: {
+        label: example.name,
+        code: example.source,
+        contract: EXAMPLE_BLOCK_CONTRACTS[example.id],
+        io: contractToIO(EXAMPLE_BLOCK_CONTRACTS[example.id]),
+      },
+    })),
   },
 ];
 

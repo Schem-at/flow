@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { compileBlock } from '@flow/core';
-import { EXAMPLE_BLOCKS } from './examples';
+import { EXAMPLE_BLOCKS, EXAMPLE_BLOCK_CONTRACTS } from './examples';
 import { parseBlockSource } from './parser';
 
 describe('EXAMPLE_BLOCKS', () => {
@@ -51,6 +51,12 @@ describe('EXAMPLE_BLOCKS', () => {
 
   for (const example of EXAMPLE_BLOCKS) {
     describe(example.name, () => {
+      it('static contract registry matches the parser', async () => {
+        const parsed = await parseBlockSource(example.source);
+        expect(EXAMPLE_BLOCK_CONTRACTS[example.id]).toBeDefined();
+        expect(parsed.contract).toEqual(EXAMPLE_BLOCK_CONTRACTS[example.id]);
+      });
+
       it('parses cleanly with no warnings', async () => {
         const parsed = await parseBlockSource(example.source);
         expect(parsed.warnings).toEqual([]);

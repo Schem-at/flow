@@ -4,6 +4,8 @@
  * exports — the runtime context (Schematic, Noise, …) is ambient.
  */
 
+import type { BlockContract } from '@flow/core';
+
 export interface ExampleBlock {
   id: string;
   name: string;
@@ -533,3 +535,98 @@ export const EXAMPLE_BLOCKS: ExampleBlock[] = [
     source: LOGIC_LAB,
   },
 ];
+
+/**
+ * Static contracts for every example block, so they can be dropped into the
+ * node editor with typed ports immediately (no parse round-trip). Drift is
+ * guarded by tests asserting these equal what the parser derives.
+ */
+export const EXAMPLE_BLOCK_CONTRACTS: Record<string, BlockContract> = {
+  'redstone-bus': {
+    inputs: {
+      length: { kind: 'number', widget: 'slider', min: 1, max: 128, default: 16 },
+      material: { kind: 'block', default: 'minecraft:gray_concrete' },
+    },
+    outputs: { schematic: { kind: 'schematic' } },
+  },
+  'parametric-terrain': {
+    inputs: {
+      width: { kind: 'number', widget: 'slider', min: 8, max: 256, default: 64 },
+      depth: { kind: 'number', widget: 'slider', min: 8, max: 256, default: 64 },
+      amplitude: { kind: 'number', widget: 'slider', min: 1, max: 64, default: 16 },
+      scale: { kind: 'number', widget: 'slider', min: 0.01, max: 0.2, step: 0.01, default: 0.05 },
+      seed: { kind: 'number' },
+      surface: { kind: 'block', default: 'minecraft:grass_block' },
+    },
+    outputs: { terrain: { kind: 'schematic' } },
+  },
+  'parametric-building': {
+    inputs: {
+      width: { kind: 'number', widget: 'slider', min: 4, max: 64, default: 12 },
+      depth: { kind: 'number', widget: 'slider', min: 4, max: 64, default: 10 },
+      floors: { kind: 'number', widget: 'slider', min: 1, max: 32, default: 4 },
+      wall: { kind: 'block', default: 'minecraft:bricks' },
+      glass: { kind: 'block', default: 'minecraft:glass' },
+      roof: { kind: 'enum', options: ['flat', 'gable', 'pyramid'] },
+    },
+    outputs: { building: { kind: 'schematic' } },
+  },
+  'build-analysis': {
+    inputs: { schematic: { kind: 'schematic' } },
+    outputs: {
+      dimensions: { kind: 'vec3' },
+      blockCounts: {
+        kind: 'list',
+        of: { kind: 'object', fields: { block: { kind: 'block' }, count: { kind: 'number' } } },
+      },
+      heatmap: { kind: 'image' },
+    },
+  },
+  'julia-grid': {
+    inputs: {
+      cols: { kind: 'number', widget: 'slider', min: 1, max: 8, default: 4 },
+      rows: { kind: 'number', widget: 'slider', min: 1, max: 6, default: 3 },
+      tile: { kind: 'number', widget: 'slider', min: 8, max: 32, default: 16 },
+      iterations: { kind: 'number', widget: 'slider', min: 8, max: 64, default: 32 },
+    },
+    outputs: { tiles: { kind: 'list', of: { kind: 'list', of: { kind: 'schematic' } } } },
+  },
+  'block-census': {
+    inputs: { schematic: { kind: 'schematic' } },
+    outputs: {
+      csv: { kind: 'string' },
+      rows: {
+        kind: 'list',
+        of: {
+          kind: 'object',
+          fields: {
+            block: { kind: 'block' },
+            count: { kind: 'number' },
+            percent: { kind: 'number' },
+          },
+        },
+      },
+    },
+  },
+  'hologram-mcfunction': {
+    inputs: {
+      schematic: { kind: 'schematic' },
+      scale: { kind: 'number', widget: 'slider', min: 0.05, max: 0.5, step: 0.05, default: 0.125 },
+      tag: { kind: 'string' },
+    },
+    outputs: { mcfunction: { kind: 'string' }, commands: { kind: 'number' } },
+  },
+  'logic-lab': {
+    inputs: { gate: { kind: 'enum', options: ['and', 'nand', 'or', 'not'] } },
+    outputs: {
+      circuit: { kind: 'schematic' },
+      truthTable: {
+        kind: 'list',
+        of: {
+          kind: 'object',
+          fields: { a: { kind: 'boolean' }, b: { kind: 'boolean' }, out: { kind: 'boolean' } },
+        },
+      },
+    },
+  },
+};
