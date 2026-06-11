@@ -1,0 +1,60 @@
+import { describe, it, expect } from 'vitest';
+import { compileBlock } from '@flow/core';
+import { EXAMPLE_BLOCKS } from './examples';
+import { parseBlockSource } from './parser';
+
+describe('EXAMPLE_BLOCKS', () => {
+  it('contains the four built-in examples', () => {
+    expect(EXAMPLE_BLOCKS.map((b) => b.id)).toEqual([
+      'redstone-bus',
+      'parametric-terrain',
+      'parametric-building',
+      'build-analysis',
+    ]);
+  });
+
+  for (const example of EXAMPLE_BLOCKS) {
+    describe(example.name, () => {
+      it('parses cleanly with no warnings', async () => {
+        const parsed = await parseBlockSource(example.source);
+        expect(parsed.warnings).toEqual([]);
+        expect(Object.keys(parsed.contract.inputs).length).toBeGreaterThan(0);
+        expect(Object.keys(parsed.contract.outputs).length).toBeGreaterThan(0);
+        expect(parsed.bodyText).toContain('function generate(inputs)');
+      });
+
+      it('compiles with the core compile pipeline', () => {
+        expect(() => compileBlock(example.source)).not.toThrow();
+      });
+    });
+  }
+
+  it('redstone-bus exposes the expected contract', async () => {
+    const parsed = await parseBlockSource(EXAMPLE_BLOCKS[0].source);
+    expect(parsed.contract).toEqual({
+      inputs: {
+        length: { kind: 'number', widget: 'slider', min: 1, max: 128, default: 16 },
+        material: { kind: 'block', default: 'minecraft:gray_concrete' },
+      },
+      outputs: { schematic: { kind: 'schematic' } },
+    });
+  });
+
+  it('build-analysis exposes the expected contract', async () => {
+    const parsed = await parseBlockSource(EXAMPLE_BLOCKS[3].source);
+    expect(parsed.contract).toEqual({
+      inputs: { schematic: { kind: 'schematic' } },
+      outputs: {
+        dimensions: { kind: 'vec3' },
+        blockCounts: {
+          kind: 'list',
+          of: {
+            kind: 'object',
+            fields: { block: { kind: 'block' }, count: { kind: 'number' } },
+          },
+        },
+        heatmap: { kind: 'image' },
+      },
+    });
+  });
+});

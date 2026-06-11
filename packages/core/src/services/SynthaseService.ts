@@ -6,6 +6,7 @@
 import type { ExecutionResult, IODefinition } from '../types/index.js';
 import { EXECUTION_LIMITS } from '../utils/constants.js';
 import { processInputSchematics } from '../utils/schematic.js';
+import { compileBlock, isBlockSource } from '../compile/index.js';
 
 export interface SynthaseOptions {
   timeout?: number;
@@ -80,6 +81,20 @@ export class SynthaseService {
   }
 
   /**
+   * Prepare source for execution: v2 blocks (`function generate(inputs)`, ambient
+   * context) are compiled (type-strip + wrap); anything else passes through.
+   */
+  private prepareSource(scriptContent: string): string {
+    if (!isBlockSource(scriptContent)) {
+      return scriptContent;
+    }
+    const compiled = compileBlock(scriptContent, {
+      contextKeys: Object.keys(this.contextProviders),
+    });
+    return compiled.moduleCode;
+  }
+
+  /**
    * Execute a synthase script with given inputs
    * @param scriptContent - The script code
    * @param inputs - Input parameters
@@ -105,7 +120,7 @@ export class SynthaseService {
 
       const synthase = await this.getSynthase();
 
-      const result = await synthase.execute(scriptContent, processedInputs, {
+      const result = await synthase.execute(this.prepareSource(scriptContent), processedInputs, {
         contextProviders: this.contextProviders,
         limits: {
           timeout,
@@ -158,8 +173,8 @@ export class SynthaseService {
   async validateScript(scriptContent: string): Promise<ValidationResult> {
     try {
       const synthase = await this.getSynthase();
-      
-      const validation = await synthase.validate(scriptContent, {
+
+      const validation = await synthase.validate(this.prepareSource(scriptContent), {
         contextProviders: this.contextProviders,
       });
       
@@ -185,7 +200,7 @@ export class SynthaseService {
     try {
       const synthase = await this.getSynthase();
       
-      const reusable = await synthase.createReusable(scriptContent, {
+      const reusable = await synthase.createReusable(this.prepareSource(scriptContent), {
         contextProviders: this.contextProviders,
       });
       

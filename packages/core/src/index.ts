@@ -20,6 +20,30 @@ export {
 // Types
 export * from './types/index.js';
 
+// Block compile pipeline (source → runnable JS)
+export {
+  compileBlock,
+  stripTypes,
+  isBlockSource,
+  BlockCompileError,
+  SYNTHASE_BASE_CONTEXT_KEYS,
+  type CompiledBlock,
+  type CompileOptions,
+} from './compile/index.js';
+
+// Runtime providers (pluggable endowments: nucleation, standard helpers)
+export {
+  ProviderRegistry,
+  createDefaultRegistry,
+  standardProvider,
+  nucleationProvider,
+  NUCLEATION_VERSION,
+  detectRuntimeEnvKind,
+  type RuntimeProvider,
+  type RuntimeEnv,
+  type ProgressReporter,
+} from './providers/index.js';
+
 // Utilities
 export {
   Calculator,

@@ -28,8 +28,11 @@ export function useScriptRunner() {
   }, []);
 
   useEffect(() => {
-    const worker = new Worker();
-    const client = new WorkerClient({ worker });
+    const client = new WorkerClient({
+      worker: new Worker(),
+      // Lets the client terminate + respawn on cancel/hard-timeout.
+      workerFactory: () => new Worker(),
+    } as ConstructorParameters<typeof WorkerClient>[0]);
     clientRef.current = client;
     setReady(true);
 
@@ -59,7 +62,25 @@ export function useScriptRunner() {
     [],
   );
 
+  /** Hard-kill the running execution (terminate + respawn the worker). */
+  const cancel = useCallback(async () => {
+    const client = clientRef.current;
+    if (!client) return;
+    try {
+      await client.cancelExecution();
+      pushLog('warn', 'Execution cancelled');
+    } catch (e) {
+      pushLog('error', `Cancel failed: ${(e as Error).message}`);
+    }
+  }, [pushLog]);
+
+  /** Resolve a worker data handle (e.g. resident schematic) to serialized data. */
+  const getData = useCallback(async (handleId: string) => {
+    if (!clientRef.current) throw new Error('Worker not ready');
+    return clientRef.current.getData(handleId);
+  }, []);
+
   const clearLogs = useCallback(() => setLogs([]), []);
 
-  return { run, logs, clearLogs, ready };
+  return { run, cancel, getData, logs, clearLogs, ready };
 }

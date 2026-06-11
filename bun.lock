@@ -68,6 +68,7 @@
       "version": "0.1.0",
       "dependencies": {
         "mitt": "^3.0.1",
+        "sucrase": "^3.35.1",
         "zod": "^3.24.4",
       },
       "devDependencies": {
@@ -88,6 +89,9 @@
     "packages/synthase": {
       "name": "@flow/synthase",
       "version": "1.0.3",
+      "dependencies": {
+        "ses": "^2.1.0",
+      },
       "devDependencies": {
         "@types/node": "^20.14.2",
         "bun-types": "latest",
@@ -95,6 +99,7 @@
         "prettier": "^3.3.2",
         "tsup": "^8.1.0",
         "typescript": "^5.4.5",
+        "vitest": "^3.2.4",
       },
     },
     "server": {
@@ -178,6 +183,12 @@
     "@csstools/css-tokenizer": ["@csstools/css-tokenizer@3.0.4", "", {}, "sha512-Vd/9EVDiu6PPJt9yAh6roZP6El1xHrdvIVGjyBsHR0RYwNHgL7FJPyIIW4fANJNG6FtyZfvlRPpFI4ZM/lubvw=="],
 
     "@drizzle-team/brocli": ["@drizzle-team/brocli@0.10.2", "", {}, "sha512-z33Il7l5dKjUgGULTqBsQBQwckHh5AbIuxhdsIxDDiZAzBOrZO6q9ogcWC65kU382AfynTfgNumVcNIjuIua6w=="],
+
+    "@endo/cache-map": ["@endo/cache-map@1.1.0", "", {}, "sha512-owFGshs/97PDw9oguZqU/px8Lv1d0KjAUtDUiPwKHNXRVUE/jyettEbRoTbNJR1OaI8biMn6bHr9kVJsOh6dXw=="],
+
+    "@endo/env-options": ["@endo/env-options@1.1.11", "", {}, "sha512-p9OnAPsdqoX4YJsE98e3NBVhIr2iW9gNZxHhAI2/Ul5TdRfoOViItzHzTqrgUVopw6XxA1u1uS6CykLMDUxarA=="],
+
+    "@endo/immutable-arraybuffer": ["@endo/immutable-arraybuffer@1.1.2", "", {}, "sha512-u+NaYB2aqEugQ3u7w3c5QNkPogf8q/xGgsPaqdY6pUiGWtYiTiFspKFcha6+oeZhWXWQ23rf0KrUq0kfuzqYyQ=="],
 
     "@esbuild-kit/core-utils": ["@esbuild-kit/core-utils@3.3.2", "", { "dependencies": { "esbuild": "~0.18.20", "source-map-support": "^0.5.21" } }, "sha512-sPRAnw9CdSsRmEtnsl2WXWdyquogVpB3yZ3dgwJfe8zrOzTsV7cJvmwrKVa+0ma5BoiGJ+BoqkMvawbayKUsqQ=="],
 
@@ -1334,6 +1345,8 @@
     "semver": ["semver@6.3.1", "", { "bin": { "semver": "bin/semver.js" } }, "sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA=="],
 
     "server": ["server@workspace:server"],
+
+    "ses": ["ses@2.1.0", "", { "dependencies": { "@endo/cache-map": "^1.1.0", "@endo/env-options": "^1.1.11", "@endo/immutable-arraybuffer": "^1.1.2" } }, "sha512-mM3s60n24C42W5Q14vTBM9h9l2lfcUEtvoFSFkHSF8hMjMSDjLFObn8COjNbDfsRRS2gePkMves3GR2LPAEMKQ=="],
 
     "setimmediate": ["setimmediate@1.0.5", "", {}, "sha512-MATJdZp8sLqDl/68LfQmbP8zKPLQNV6BIZoIgrscFDQ+RsvK/BxeDQOgyxKKoh0y/8h3BqVFnCqQ/gd+reiIXA=="],
 
