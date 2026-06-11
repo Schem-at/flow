@@ -38,7 +38,7 @@ function reseedValues(
 }
 
 export default function Workbench() {
-  const { run, cancel, getData, logs, clearLogs, ready } = useScriptRunner();
+  const { run, cancel, getData, logs, clearLogs, ready, progress } = useScriptRunner();
 
   const [source, setSource] = useState(EXAMPLE_BLOCKS[0].source);
   const [exampleId, setExampleId] = useState(EXAMPLE_BLOCKS[0].id);
@@ -234,6 +234,20 @@ export default function Workbench() {
           </button>
         )}
       </header>
+
+      {/* Run progress (Progress.report from the block) */}
+      {running && (
+        <div className="h-0.5 w-full bg-neutral-900">
+          {progress !== null ? (
+            <div
+              className="h-full bg-emerald-500 transition-[width] duration-200"
+              style={{ width: `${Math.max(2, Math.min(100, progress))}%` }}
+            />
+          ) : (
+            <div className="h-full w-1/3 animate-pulse bg-emerald-500/50" />
+          )}
+        </div>
+      )}
 
       {parseError && (
         <div className="border-b border-amber-900/50 bg-amber-500/10 px-4 py-1.5 text-xs text-amber-400">

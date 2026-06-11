@@ -51,6 +51,17 @@ export function contractToIO(contract: BlockContract): IODefinition {
   } as IODefinition;
 }
 
+/** Contract matching DEFAULT_BLOCK_SOURCE — new nodes get typed ports immediately. */
+export const DEFAULT_BLOCK_CONTRACT: BlockContract = {
+  inputs: {
+    size: { kind: 'number', widget: 'slider', min: 1, max: 64, default: 8 },
+    material: { kind: 'block', default: 'minecraft:stone' },
+  },
+  outputs: {
+    result: { kind: 'schematic' },
+  },
+};
+
 /** Default source for a freshly added code node — the v2 block format. */
 export const DEFAULT_BLOCK_SOURCE = `type Inputs = {
   size: Slider<{ min: 1; max: 64; default: 8 }>;

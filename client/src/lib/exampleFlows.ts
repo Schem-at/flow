@@ -48,6 +48,7 @@ function generate(inputs) {
       if (!tile || typeof tile.blocks !== 'function') continue;
       const dims = tile.get_dimensions();
       for (const b of tile.blocks()) {
+        if (b.name === 'minecraft:air') continue;
         stitched.set_block(offsetX + b.x, b.y, offsetZ + b.z, b.name);
       }
       offsetX += (dims[0] | 0) + spacing;
@@ -309,6 +310,7 @@ function generate(inputs) {
 
   const solved = new Schematic();
   for (const b of inputs.maze.blocks()) {
+    if (b.name === 'minecraft:air') continue;
     solved.set_block(b.x, b.y, b.z, b.name);
   }
 
@@ -524,6 +526,7 @@ type Outputs = {
 function generate(inputs) {
   const city = new Schematic();
   for (const b of inputs.ground.blocks()) {
+    if (b.name === 'minecraft:air') continue;
     city.set_block(b.x, b.y, b.z, b.name);
   }
 
@@ -715,6 +718,7 @@ function generate(inputs) {
   let maxX = 0;
   let maxZ = 0;
   for (const b of inputs.terrain.blocks()) {
+    if (b.name === 'minecraft:air') continue; // blocks() enumerates the full bounding box
     const key = b.x + ',' + b.z;
     const top = tops.get(key);
     if (!top || b.y > top.y) tops.set(key, { y: b.y, name: b.name });
@@ -738,6 +742,7 @@ function generate(inputs) {
   // Thermal erosion: steep slopes shed material onto their lowest neighbour.
   const talus = inputs.talus | 0 || 1;
   for (let it = 0; it < inputs.iterations; it++) {
+    if (it % 2 === 0) Progress.report((it / inputs.iterations) * 100, 'erosion pass ' + it + '/' + inputs.iterations);
     for (let x = 0; x < w; x++) {
       for (let z = 0; z < d; z++) {
         let lx = x;

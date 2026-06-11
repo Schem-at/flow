@@ -22,6 +22,8 @@ export function useScriptRunner() {
   const clientRef = useRef<WorkerClient | null>(null);
   const [ready, setReady] = useState(false);
   const [logs, setLogs] = useState<RunnerLog[]>([]);
+  /** Percent from the block's Progress.report() during the current run. */
+  const [progress, setProgress] = useState<number | null>(null);
 
   const pushLog = useCallback((level: RunnerLog['level'], message: string) => {
     setLogs((prev) => [...prev, { level, message }]);
@@ -44,6 +46,10 @@ export function useScriptRunner() {
 
     client.on('progress', (payload: any) => {
       if (!payload?.message) return;
+      if (typeof payload.percent === 'number') {
+        setProgress(payload.percent);
+        return; // progress ticks would flood the log
+      }
       const raw: string = payload.message.startsWith('Log: ')
         ? payload.message.slice(5)
         : payload.message;
@@ -63,7 +69,12 @@ export function useScriptRunner() {
   const run = useCallback(
     async (code: string, inputs: Record<string, unknown>): Promise<RunResult> => {
       if (!clientRef.current) throw new Error('Worker not ready');
-      return clientRef.current.executeScript(code, inputs, { timeout: 60000 });
+      setProgress(null);
+      try {
+        return await clientRef.current.executeScript(code, inputs, { timeout: 60000 });
+      } finally {
+        setProgress(null);
+      }
     },
     [],
   );
@@ -88,5 +99,5 @@ export function useScriptRunner() {
 
   const clearLogs = useCallback(() => setLogs([]), []);
 
-  return { run, cancel, getData, logs, clearLogs, ready };
+  return { run, cancel, getData, logs, clearLogs, ready, progress };
 }

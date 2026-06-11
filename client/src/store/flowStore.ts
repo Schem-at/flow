@@ -149,6 +149,17 @@ interface FlowState {
   isExecuting: boolean;
   executionLogs: string[];
   liveExecutionTimer: ReturnType<typeof setTimeout> | null;
+  /** Live progress for the currently executing node (from Progress.report). */
+  nodeProgress: Record<string, { percent?: number; message?: string } | undefined>;
+  /** A type-mismatched connection awaiting the user's decision. */
+  pendingConnection: {
+    source: string;
+    sourceHandle?: string | null;
+    target: string;
+    targetHandle?: string | null;
+    sourceType: FlowType;
+    targetType: FlowType;
+  } | null;
   
   // UI state
   selectedNodeId: string | null;
@@ -183,6 +194,8 @@ interface FlowState {
   setExecutingNodeId: (nodeId: string | null) => void;
   addExecutionLog: (log: string) => void;
   clearExecutionLogs: () => void;
+  setNodeProgress: (nodeId: string, progress: { percent?: number; message?: string } | undefined) => void;
+  setPendingConnection: (pending: FlowState['pendingConnection']) => void;
   
   // Debug
   setDebugMode: (enabled: boolean) => void;
@@ -292,6 +305,8 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   
   nodeCache: {},
   executingNodeId: null,
+  nodeProgress: {},
+  pendingConnection: null,
   selectedNodeId: null,
   isExecuting: false,
   executionLogs: [],
@@ -445,8 +460,20 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     const sourceType = portType(connection.source, connection.sourceHandle, 'source');
     const targetType = portType(connection.target, connection.targetHandle, 'target');
     if (sourceType && targetType && !isTypeCompatible(sourceType, targetType)) {
+      // Hand the decision to the user: adapt the target block's contract,
+      // force the connection, or cancel. The editor renders the prompt.
+      set({
+        pendingConnection: {
+          source: connection.source!,
+          sourceHandle: connection.sourceHandle,
+          target: connection.target!,
+          targetHandle: connection.targetHandle,
+          sourceType,
+          targetType,
+        },
+      });
       get().addExecutionLog(
-        `⛔ Incompatible connection: ${sourceType.kind} → ${targetType.kind} (${connection.sourceHandle} → ${connection.targetHandle})`
+        `⚠ Type mismatch: ${sourceType.kind} → ${targetType.kind} (${connection.sourceHandle} → ${connection.targetHandle})`
       );
       return;
     }
@@ -666,6 +693,11 @@ export const useFlowStore = create<FlowState>((set, get) => ({
 
   // Execution
   setIsExecuting: (isExecuting) => set({ isExecuting }),
+
+  setNodeProgress: (nodeId, progress) =>
+    set((state) => ({ nodeProgress: { ...state.nodeProgress, [nodeId]: progress } })),
+
+  setPendingConnection: (pending) => set({ pendingConnection: pending }),
   setExecutingNodeId: (nodeId) => set({ executingNodeId: nodeId }),
   
   addExecutionLog: (log) => {

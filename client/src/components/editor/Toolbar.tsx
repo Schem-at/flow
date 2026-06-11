@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { useFlowStore, type FlowNode } from '../../store/flowStore';
 import { ModuleBrowser } from './ModuleBrowser';
-import { DEFAULT_BLOCK_SOURCE } from '../../lib/block/io-compat';
+import { DEFAULT_BLOCK_SOURCE, DEFAULT_BLOCK_CONTRACT, contractToIO } from '../../lib/block/io-compat';
 
 interface NodeTemplate {
   type: string;
@@ -48,7 +48,11 @@ const nodeCategories: { name: string; nodes: NodeTemplate[] }[] = [
         color: 'text-green-400',
         bg: 'bg-green-500/10',
         border: 'border-green-500/20',
-        config: { code: DEFAULT_BLOCK_SOURCE },
+        config: {
+          code: DEFAULT_BLOCK_SOURCE,
+          contract: DEFAULT_BLOCK_CONTRACT,
+          io: contractToIO(DEFAULT_BLOCK_CONTRACT),
+        },
       },
       {
         type: 'viewer',

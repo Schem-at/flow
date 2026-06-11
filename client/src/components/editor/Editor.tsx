@@ -513,6 +513,84 @@ export function Editor() {
     return chains;
   }, []);
 
+  // ── type-mismatch connection prompt ──────────────────────────────────────
+  const pendingConnection = useFlowStore((state) => state.pendingConnection);
+
+  /** Extend the target block's contract with a matching input, then connect. */
+  const handleAdaptConnection = useCallback(async () => {
+    const state = useFlowStore.getState();
+    const pending = state.pendingConnection;
+    if (!pending) return;
+    const targetNode = state.nodes.find((n) => n.id === pending.target);
+    const sourceNode = state.nodes.find((n) => n.id === pending.source);
+    const code = targetNode?.data.code;
+    if (!targetNode || !code) {
+      state.setPendingConnection(null);
+      return;
+    }
+    try {
+      const { parseBlockSource } = await import('../../lib/block/parser');
+      const { composeBlockSource } = await import('../../lib/block/codegen');
+      const { contractToIO } = await import('../../lib/block/io-compat');
+      const parsed = await parseBlockSource(code);
+
+      const baseName =
+        (sourceNode?.type === 'input' && sourceNode.data.label) ||
+        pending.sourceHandle ||
+        pending.sourceType.kind;
+      let name = String(baseName);
+      let suffix = 2;
+      while (name in parsed.contract.inputs) name = `${baseName}${suffix++}`;
+
+      const newContract = {
+        ...parsed.contract,
+        inputs: { ...parsed.contract.inputs, [name]: pending.sourceType },
+      };
+      const newSource = composeBlockSource(newContract, parsed.bodyText);
+      state.updateNodeData(targetNode.id, {
+        code: newSource,
+        contract: newContract,
+        io: contractToIO(newContract),
+      });
+      state.setEdges([
+        ...useFlowStore.getState().edges,
+        {
+          id: `edge-${pending.source}-${targetNode.id}-${name}`,
+          source: pending.source,
+          sourceHandle: pending.sourceHandle ?? undefined,
+          target: targetNode.id,
+          targetHandle: name,
+          type: 'data',
+        },
+      ]);
+      state.addExecutionLog(
+        `[OK] Added input '${name}: ${pending.sourceType.kind}' to "${targetNode.data.label || 'Code'}" and connected`
+      );
+    } catch (e) {
+      state.addExecutionLog(`[ERROR] Could not adapt contract: ${(e as Error).message}`);
+    }
+    useFlowStore.getState().setPendingConnection(null);
+  }, []);
+
+  /** Connect despite the mismatch — the user knows better. */
+  const handleForceConnection = useCallback(() => {
+    const state = useFlowStore.getState();
+    const pending = state.pendingConnection;
+    if (!pending) return;
+    state.setEdges([
+      ...state.edges,
+      {
+        id: `edge-${pending.source}-${pending.target}-${pending.targetHandle}`,
+        source: pending.source,
+        sourceHandle: pending.sourceHandle ?? undefined,
+        target: pending.target,
+        targetHandle: pending.targetHandle ?? undefined,
+        type: 'data',
+      },
+    ]);
+    state.setPendingConnection(null);
+  }, []);
+
   const handleQuickRun = useCallback(async () => {
     setIsExecuting(true);
     clearExecutionLogs();
@@ -783,6 +861,7 @@ export function Editor() {
           const startTime = Date.now();
           const result = await executeScript(code, inputValues, { returnHandles });
           const executionTime = Date.now() - startTime;
+          useFlowStore.getState().setNodeProgress(node.id, undefined);
 
           if (result.success) {
             // Build final result - always store handles
@@ -1222,6 +1301,7 @@ export function Editor() {
           const startTime = Date.now();
           const result = await executeScript(code, inputValues, { returnHandles });
           const executionTime = Date.now() - startTime;
+          useFlowStore.getState().setNodeProgress(node.id, undefined);
 
           if (result.success) {
             let finalResult: Record<string, unknown> = {};
@@ -1902,6 +1982,39 @@ export function Editor() {
         isOpen={showCommandPalette}
         onClose={() => setShowCommandPalette(false)}
       />
+
+      {/* Type-mismatch connection prompt */}
+      {pendingConnection && (
+        <div className="fixed bottom-6 left-1/2 z-[60] w-[460px] -translate-x-1/2 rounded-xl border border-amber-600/40 bg-neutral-900/95 p-4 shadow-2xl shadow-black/50 backdrop-blur">
+          <p className="text-xs text-neutral-300">
+            <span className="font-mono text-amber-300">{pendingConnection.sourceHandle || 'output'}</span>
+            <span className="text-neutral-500"> ({pendingConnection.sourceType.kind})</span>
+            {' '}doesn&apos;t fit input{' '}
+            <span className="font-mono text-amber-300">{pendingConnection.targetHandle}</span>
+            <span className="text-neutral-500"> ({pendingConnection.targetType.kind})</span>.
+          </p>
+          <div className="mt-3 flex items-center gap-2">
+            <button
+              onClick={handleAdaptConnection}
+              className="flex-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-emerald-500"
+            >
+              Add a {pendingConnection.sourceType.kind} input & connect
+            </button>
+            <button
+              onClick={handleForceConnection}
+              className="rounded-lg border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 transition hover:border-neutral-500"
+            >
+              Connect anyway
+            </button>
+            <button
+              onClick={() => useFlowStore.getState().setPendingConnection(null)}
+              className="rounded-lg px-3 py-1.5 text-xs text-neutral-500 transition hover:text-neutral-300"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -58,6 +58,7 @@ function sampleNoise(x, z, scale, seed) {
 function generate(inputs) {
   const terrain = new Schematic();
   for (let x = 0; x < inputs.width; x++) {
+    if (x % 8 === 0) Progress.report((x / inputs.width) * 100, 'terrain column ' + x + '/' + inputs.width);
     for (let z = 0; z < inputs.depth; z++) {
       const n = sampleNoise(x, z, inputs.scale, inputs.seed);
       const height = Math.floor((n * 0.5 + 0.5) * inputs.amplitude);
@@ -184,6 +185,7 @@ function generate(inputs) {
   for (const block of schematic.blocks()) {
     const name = block && (block.name || block.block || block.id);
     if (!name) continue;
+    if (name === 'minecraft:air') continue; // blocks() enumerates the full bounding box
     counts.set(name, (counts.get(name) || 0) + 1);
     const key = (block.x | 0) + ',' + (block.z | 0);
     columnDensity.set(key, (columnDensity.get(key) || 0) + 1);
@@ -285,6 +287,7 @@ function generate(inputs) {
   const RE_MIN = -2.0, RE_MAX = 0.6, IM_MIN = -1.2, IM_MAX = 1.2;
   const tiles = [];
   for (let r = 0; r < inputs.rows; r++) {
+    Progress.report((r / inputs.rows) * 100, 'julia row ' + (r + 1) + '/' + inputs.rows);
     const row = [];
     for (let c = 0; c < inputs.cols; c++) {
       const cRe = RE_MIN + (inputs.cols > 1 ? c / (inputs.cols - 1) : 0.5) * (RE_MAX - RE_MIN);

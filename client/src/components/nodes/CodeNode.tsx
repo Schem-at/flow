@@ -4,10 +4,11 @@
 
 import { memo, useCallback, useState } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import { Zap, Code, CheckCircle, Loader2, AlertCircle, Clock, Package } from 'lucide-react';
+import { Zap, Code, CheckCircle, Loader2, AlertCircle, Clock, Package, PlusCircle } from 'lucide-react';
 import type { IODefinition, BlockContract } from '@flow/core';
 import { useFlowStore, type NodeExecutionStatus } from '../../store/flowStore';
 import { useShallow } from 'zustand/react/shallow';
+import { createInputNodesForNode, missingWidgetableInputs } from '../../lib/createInputNodes';
 
 interface ModuleRef {
   id: string;
@@ -93,6 +94,16 @@ const CodeNode = memo(({ id, data, selected }: NodeProps & { data: CodeNodeData 
   const [isHovered, setIsHovered] = useState(false);
 
   const status = cache?.status || 'idle';
+  const progress = useFlowStore(useShallow((state) => state.nodeProgress[id]));
+  const missingInputs = missingWidgetableInputs(data.contract, connectedInputs);
+
+  const handleCreateInputs = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      createInputNodesForNode(id);
+    },
+    [id]
+  );
 
   // Ports derive from the v2 contract when present; legacy io is the fallback.
   const toPorts = (
@@ -186,6 +197,20 @@ const CodeNode = memo(({ id, data, selected }: NodeProps & { data: CodeNodeData 
           </div>
           <StatusIndicator status={status} />
         </div>
+
+        {/* Live progress while executing (Progress.report from the block) */}
+        {isExecuting && (
+          <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-neutral-800">
+            {progress?.percent !== undefined ? (
+              <div
+                className="h-full rounded-full bg-amber-400 transition-[width] duration-200"
+                style={{ width: `${Math.max(2, Math.min(100, progress.percent))}%` }}
+              />
+            ) : (
+              <div className="h-full w-1/3 animate-pulse rounded-full bg-amber-400/60" />
+            )}
+          </div>
+        )}
       </div>
 
       {/* Content with IO sections */}
@@ -277,6 +302,16 @@ const CodeNode = memo(({ id, data, selected }: NodeProps & { data: CodeNodeData 
           {/* IO Summary & Status */}
           <div className="mt-2 flex items-center justify-between">
             <div className="flex gap-2 text-[10px]">
+              {missingInputs.length > 0 && (
+                <button
+                  onClick={handleCreateInputs}
+                  className="flex items-center gap-1 rounded border border-purple-500/30 bg-purple-500/10 px-2 py-0.5 text-purple-300 transition hover:bg-purple-500/20"
+                  title={`Create input nodes for: ${missingInputs.map(([n]) => n).join(', ')}`}
+                >
+                  <PlusCircle className="h-3 w-3" />
+                  {missingInputs.length} input{missingInputs.length > 1 ? 's' : ''}
+                </button>
+              )}
               {inputHandles.length > 0 && (
                 <span className="px-2 py-0.5 bg-blue-500/10 text-blue-400 rounded border border-blue-500/20">
                   {inputHandles.length} in

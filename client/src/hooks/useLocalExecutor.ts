@@ -43,6 +43,18 @@ export function useLocalExecutor() {
   useEffect(() => {
     const onProgress = (payload: any) => {
       if (!payload?.message) return;
+
+      // Route Progress.report() percentages to the executing node's bar.
+      if (typeof payload.percent === 'number') {
+        const { executingNodeId, setNodeProgress } = useFlowStore.getState();
+        if (executingNodeId) {
+          setNodeProgress(executingNodeId, {
+            percent: payload.percent,
+            message: payload.message,
+          });
+        }
+        return; // progress ticks would flood the execution log
+      }
       // Clean up log prefix if present
       const message = payload.message.startsWith('Log: ')
         ? payload.message.substring(5)
