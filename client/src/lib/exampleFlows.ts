@@ -1126,6 +1126,144 @@ export const BUILD_REPORT_FLOW: FlowData = {
   ],
 };
 
+// ─── Worldgen Studio ────────────────────────────────────────────────────────
+// A real procedural-worldgen graph where RAW HEIGHTFIELDS (number[][]) flow
+// between nodes: fBm noise minus a Voronoi field (eroded ridges) → exponent/
+// terrace shaping → combined with a second noise field as moisture to paint
+// biomes and raise the final world. Every stage exposes a preview image.
+
+const WG = (id: string) => ({
+  code: EXAMPLE_BLOCKS.find((b) => b.id === id)!.source,
+  contract: EXAMPLE_BLOCK_CONTRACTS[id],
+  io: contractToIO(EXAMPLE_BLOCK_CONTRACTS[id]),
+});
+
+export const WORLDGEN_FLOW: FlowData = {
+  id: 'example-worldgen',
+  name: 'Worldgen Studio',
+  version: '1.0.0',
+  createdAt: 0,
+  nodes: [
+    {
+      id: 'wg-seed',
+      type: 'input',
+      position: { x: 0, y: 40 },
+      data: { label: 'seed', value: 11, dataType: 'number', widgetType: 'number' },
+    },
+    {
+      id: 'wg-water',
+      type: 'input',
+      position: { x: 0, y: 200 },
+      data: {
+        label: 'waterLevel',
+        value: 0.35,
+        dataType: 'number',
+        widgetType: 'slider',
+        min: 0,
+        max: 1,
+        step: 0.05,
+      },
+    },
+    {
+      id: 'wg-perlin',
+      type: 'code',
+      position: { x: 300, y: -160 },
+      data: { label: 'Elevation Noise', ...WG('noise-field') },
+    },
+    {
+      id: 'wg-voronoi',
+      type: 'code',
+      position: { x: 300, y: 220 },
+      data: { label: 'Voronoi Cells', ...WG('voronoi-field') },
+    },
+    {
+      id: 'wg-moisture',
+      type: 'code',
+      position: { x: 300, y: 600 },
+      data: { label: 'Moisture Noise', ...WG('noise-field') },
+    },
+    {
+      id: 'wg-combine',
+      type: 'code',
+      position: { x: 800, y: 0 },
+      data: { label: 'Perlin − Voronoi', ...WG('combine-fields') },
+    },
+    {
+      id: 'wg-shape',
+      type: 'code',
+      position: { x: 1300, y: 60 },
+      data: { label: 'Shape (peaks)', ...WG('shape-field') },
+    },
+    {
+      id: 'wg-build',
+      type: 'code',
+      position: { x: 1800, y: 260 },
+      data: { label: 'Biome World', ...WG('field-to-terrain') },
+    },
+    {
+      id: 'wg-v-perlin',
+      type: 'viewer',
+      position: { x: 800, y: -360 },
+      data: { label: 'elevation field' },
+    },
+    {
+      id: 'wg-v-voronoi',
+      type: 'viewer',
+      position: { x: 800, y: 420 },
+      data: { label: 'voronoi field' },
+    },
+    {
+      id: 'wg-v-combined',
+      type: 'viewer',
+      position: { x: 1300, y: -300 },
+      data: { label: 'ridged field' },
+    },
+    {
+      id: 'wg-v-shaped',
+      type: 'viewer',
+      position: { x: 1800, y: -240 },
+      data: { label: 'shaped field' },
+    },
+    {
+      id: 'wg-v-biomes',
+      type: 'viewer',
+      position: { x: 2300, y: 480 },
+      data: { label: 'biome map' },
+    },
+    {
+      id: 'wg-v-world',
+      type: 'viewer',
+      position: { x: 2300, y: 0 },
+      data: { label: 'world', isResizable: true },
+    },
+    {
+      id: 'wg-out',
+      type: 'output',
+      position: { x: 2300, y: 840 },
+      data: { label: 'world' },
+    },
+  ],
+  edges: [
+    { id: 'wg-e1', source: 'wg-seed', target: 'wg-perlin', sourceHandle: 'output', targetHandle: 'seed' },
+    { id: 'wg-e2', source: 'wg-seed', target: 'wg-voronoi', sourceHandle: 'output', targetHandle: 'seed' },
+    { id: 'wg-e3', source: 'wg-seed', target: 'wg-moisture', sourceHandle: 'output', targetHandle: 'seed' },
+    { id: 'wg-e4', source: 'wg-seed', target: 'wg-build', sourceHandle: 'output', targetHandle: 'seed' },
+    { id: 'wg-e5', source: 'wg-perlin', target: 'wg-combine', sourceHandle: 'field', targetHandle: 'a' },
+    { id: 'wg-e6', source: 'wg-voronoi', target: 'wg-combine', sourceHandle: 'field', targetHandle: 'b' },
+    { id: 'wg-e7', source: 'wg-combine', target: 'wg-shape', sourceHandle: 'field', targetHandle: 'field' },
+    { id: 'wg-e8', source: 'wg-shape', target: 'wg-build', sourceHandle: 'field', targetHandle: 'elevation' },
+    { id: 'wg-e9', source: 'wg-moisture', target: 'wg-build', sourceHandle: 'field', targetHandle: 'moisture' },
+    { id: 'wg-e10', source: 'wg-water', target: 'wg-build', sourceHandle: 'output', targetHandle: 'waterLevel' },
+    { id: 'wg-v1', source: 'wg-perlin', target: 'wg-v-perlin', sourceHandle: 'preview', targetHandle: 'input' },
+    { id: 'wg-v2', source: 'wg-voronoi', target: 'wg-v-voronoi', sourceHandle: 'preview', targetHandle: 'input' },
+    { id: 'wg-v3', source: 'wg-combine', target: 'wg-v-combined', sourceHandle: 'preview', targetHandle: 'input' },
+    { id: 'wg-v4', source: 'wg-shape', target: 'wg-v-shaped', sourceHandle: 'preview', targetHandle: 'input' },
+    { id: 'wg-v5', source: 'wg-build', target: 'wg-v-biomes', sourceHandle: 'biomes', targetHandle: 'input' },
+    { id: 'wg-v6', source: 'wg-build', target: 'wg-v-world', sourceHandle: 'terrain', targetHandle: 'input' },
+    { id: 'wg-o1', source: 'wg-build', target: 'wg-out', sourceHandle: 'terrain', targetHandle: 'input' },
+  ],
+};
+
 export const EXAMPLE_FLOWS: FlowData[] = [
   JULIA_STITCH_FLOW,
   MAZE_FLOW,
@@ -1133,4 +1271,5 @@ export const EXAMPLE_FLOWS: FlowData[] = [
   TERRAIN_PIPELINE_FLOW,
   LOGIC_LAB_FLOW,
   BUILD_REPORT_FLOW,
+  WORLDGEN_FLOW,
 ];

@@ -641,9 +641,11 @@ const ViewerNode = memo(({ id, data, selected, width, height }: NodeProps & { da
           : null;
       return (
         <div
-          className={`nowheel nodrag overflow-auto pr-1 ${
-            isResized ? 'h-full' : 'max-h-[360px]'
-          }`}
+          className={`nowheel nodrag pb-3 pr-1 ${
+            upstreamType.kind === 'image'
+              ? 'overflow-hidden' // images scale with the node — no scrollbars over the grabber
+              : 'overflow-auto'
+          } ${isResized ? 'h-full' : 'max-h-[360px]'}`}
         >
           {stringFile && (
             <button
@@ -714,16 +716,17 @@ const ViewerNode = memo(({ id, data, selected, width, height }: NodeProps & { da
 
   return (
     <>
-      {/* Always-available bottom-right resize grabber */}
+      {/* Always-available bottom-right resize grabber — kept above the
+          content's scroll area so scrollbars can't swallow the hit target. */}
       <NodeResizeControl
         minWidth={180}
         minHeight={120}
         onResize={() => updateNodeInternals(id)}
         onResizeEnd={handleResizeEnd}
-        style={{ background: 'transparent', border: 'none' }}
+        style={{ background: 'transparent', border: 'none', zIndex: 30, width: 18, height: 18 }}
       >
         <div
-          className={`pointer-events-none absolute bottom-1 right-1 h-3 w-3 rounded-br border-b-2 border-r-2 transition-colors ${
+          className={`pointer-events-none absolute bottom-1 right-1 h-3.5 w-3.5 rounded-br border-b-2 border-r-2 transition-colors ${
             selected || isHovered ? 'border-pink-400' : 'border-neutral-600'
           }`}
         />

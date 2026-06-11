@@ -12,6 +12,7 @@ describe('EXAMPLE_FLOWS', () => {
       'example-terrain-pipeline',
       'example-logic-lab',
       'example-build-report',
+      'example-worldgen',
     ]);
   });
 

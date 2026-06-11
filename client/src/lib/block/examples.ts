@@ -477,6 +477,388 @@ function generate(inputs) {
 }
 `;
 
+const NOISE_FIELD = `type Inputs = {
+  size: Slider<{ min: 32; max: 256; default: 96 }>;
+  scale: Slider<{ min: 0.005; max: 0.1; step: 0.005; default: 0.02 }>;
+  octaves: Slider<{ min: 1; max: 6; default: 4 }>;
+  seed: number;
+};
+
+type Outputs = {
+  field: number[][];
+  preview: Image;
+};
+
+function hash2(ix, iz, seed) {
+  let h = ((ix * 374761393) ^ (iz * 668265263) ^ Math.imul(seed | 0, 974711)) >>> 0;
+  h = (h ^ (h >>> 13)) >>> 0;
+  h = Math.imul(h, 1274126177) >>> 0;
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+
+function smooth(t) {
+  return t * t * (3 - 2 * t);
+}
+
+function valueNoise(x, z, seed) {
+  const ix = Math.floor(x);
+  const iz = Math.floor(z);
+  const fx = x - ix;
+  const fz = z - iz;
+  const a = hash2(ix, iz, seed);
+  const b = hash2(ix + 1, iz, seed);
+  const c = hash2(ix, iz + 1, seed);
+  const d = hash2(ix + 1, iz + 1, seed);
+  const u = smooth(fx);
+  const v = smooth(fz);
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+}
+
+function fieldToImage(field) {
+  const size = field.length;
+  const data = new Uint8ClampedArray(size * size * 4);
+  for (let z = 0; z < size; z++) {
+    for (let x = 0; x < size; x++) {
+      const v = Math.round(field[x][z] * 255);
+      const i = (z * size + x) * 4;
+      data[i] = v;
+      data[i + 1] = v;
+      data[i + 2] = v;
+      data[i + 3] = 255;
+    }
+  }
+  return { width: size, height: size, data: data };
+}
+
+function generate(inputs) {
+  const size = inputs.size | 0;
+  const field = [];
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (let x = 0; x < size; x++) {
+    if (x % 16 === 0) Progress.report((x / size) * 100, 'noise column ' + x);
+    const col = [];
+    for (let z = 0; z < size; z++) {
+      // fBm: stacked octaves of smoothed value noise.
+      let amp = 1;
+      let freq = inputs.scale;
+      let sum = 0;
+      let norm = 0;
+      for (let o = 0; o < inputs.octaves; o++) {
+        sum += amp * valueNoise(x * freq, z * freq, (inputs.seed | 0) + o * 101);
+        norm += amp;
+        amp *= 0.5;
+        freq *= 2;
+      }
+      const v = sum / norm;
+      if (v < lo) lo = v;
+      if (v > hi) hi = v;
+      col.push(v);
+    }
+    field.push(col);
+  }
+  // Normalize to the full 0..1 range.
+  const span = hi - lo || 1;
+  for (let x = 0; x < size; x++) {
+    for (let z = 0; z < size; z++) {
+      field[x][z] = (field[x][z] - lo) / span;
+    }
+  }
+  return { field, preview: fieldToImage(field) };
+}
+`;
+
+const VORONOI_FIELD = `type Inputs = {
+  size: Slider<{ min: 32; max: 256; default: 96 }>;
+  cells: Slider<{ min: 2; max: 24; default: 7 }>;
+  seed: number;
+};
+
+type Outputs = {
+  field: number[][];
+  preview: Image;
+};
+
+function hash2(ix, iz, seed) {
+  let h = ((ix * 374761393) ^ (iz * 668265263) ^ Math.imul(seed | 0, 974711)) >>> 0;
+  h = (h ^ (h >>> 13)) >>> 0;
+  h = Math.imul(h, 1274126177) >>> 0;
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+
+function fieldToImage(field) {
+  const size = field.length;
+  const data = new Uint8ClampedArray(size * size * 4);
+  for (let z = 0; z < size; z++) {
+    for (let x = 0; x < size; x++) {
+      const v = Math.round(field[x][z] * 255);
+      const i = (z * size + x) * 4;
+      data[i] = v;
+      data[i + 1] = v;
+      data[i + 2] = v;
+      data[i + 3] = 255;
+    }
+  }
+  return { width: size, height: size, data: data };
+}
+
+function generate(inputs) {
+  const size = inputs.size | 0;
+  const cells = inputs.cells | 0;
+  const cellSize = size / cells;
+
+  // One jittered feature point per grid cell.
+  const points = [];
+  for (let cx = 0; cx < cells; cx++) {
+    for (let cz = 0; cz < cells; cz++) {
+      points.push([
+        (cx + hash2(cx, cz, inputs.seed | 0)) * cellSize,
+        (cz + hash2(cx, cz, (inputs.seed | 0) + 7777)) * cellSize,
+      ]);
+    }
+  }
+
+  // F1 Worley noise: distance to the nearest feature point.
+  const field = [];
+  let hi = 0;
+  for (let x = 0; x < size; x++) {
+    if (x % 16 === 0) Progress.report((x / size) * 100, 'voronoi column ' + x);
+    const col = [];
+    for (let z = 0; z < size; z++) {
+      let best = Infinity;
+      for (const p of points) {
+        const dx = p[0] - x;
+        const dz = p[1] - z;
+        const d = dx * dx + dz * dz;
+        if (d < best) best = d;
+      }
+      const v = Math.sqrt(best);
+      if (v > hi) hi = v;
+      col.push(v);
+    }
+    field.push(col);
+  }
+  for (let x = 0; x < size; x++) {
+    for (let z = 0; z < size; z++) {
+      field[x][z] = field[x][z] / (hi || 1);
+    }
+  }
+  return { field, preview: fieldToImage(field) };
+}
+`;
+
+const COMBINE_FIELDS = `type Inputs = {
+  a: number[][];
+  b: number[][];
+  op: 'subtract' | 'add' | 'multiply' | 'min' | 'max' | 'average';
+  strength: Slider<{ min: 0; max: 1; step: 0.05; default: 1 }>;
+};
+
+type Outputs = {
+  field: number[][];
+  preview: Image;
+};
+
+function fieldToImage(field) {
+  const size = field.length;
+  const data = new Uint8ClampedArray(size * size * 4);
+  for (let z = 0; z < size; z++) {
+    for (let x = 0; x < size; x++) {
+      const v = Math.round(field[x][z] * 255);
+      const i = (z * size + x) * 4;
+      data[i] = v;
+      data[i + 1] = v;
+      data[i + 2] = v;
+      data[i + 3] = 255;
+    }
+  }
+  return { width: size, height: size, data: data };
+}
+
+function generate(inputs) {
+  const a = inputs.a || [];
+  const b = inputs.b || [];
+  const size = Math.min(a.length, b.length);
+  if (!size) return { field: [], preview: { width: 1, height: 1, data: new Uint8ClampedArray(4) } };
+
+  const k = inputs.strength;
+  const field = [];
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (let x = 0; x < size; x++) {
+    const col = [];
+    for (let z = 0; z < size; z++) {
+      const va = a[x][z];
+      const vb = b[x][z] * k;
+      let v;
+      if (inputs.op === 'add') v = va + vb;
+      else if (inputs.op === 'multiply') v = va * (1 - k + vb);
+      else if (inputs.op === 'min') v = Math.min(va, vb);
+      else if (inputs.op === 'max') v = Math.max(va, vb);
+      else if (inputs.op === 'average') v = (va + vb) / 2;
+      else v = va - vb; // subtract (perlin minus voronoi = eroded ridges)
+      if (v < lo) lo = v;
+      if (v > hi) hi = v;
+      col.push(v);
+    }
+    field.push(col);
+  }
+  const span = hi - lo || 1;
+  for (let x = 0; x < size; x++) {
+    for (let z = 0; z < size; z++) {
+      field[x][z] = (field[x][z] - lo) / span;
+    }
+  }
+  return { field, preview: fieldToImage(field) };
+}
+`;
+
+const SHAPE_FIELD = `type Inputs = {
+  field: number[][];
+  exponent: Slider<{ min: 0.3; max: 3; step: 0.1; default: 1.6 }>;
+  terraces: Slider<{ min: 0; max: 12; default: 0 }>;
+};
+
+type Outputs = {
+  field: number[][];
+  preview: Image;
+};
+
+function fieldToImage(field) {
+  const size = field.length;
+  const data = new Uint8ClampedArray(size * size * 4);
+  for (let z = 0; z < size; z++) {
+    for (let x = 0; x < size; x++) {
+      const v = Math.round(field[x][z] * 255);
+      const i = (z * size + x) * 4;
+      data[i] = v;
+      data[i + 1] = v;
+      data[i + 2] = v;
+      data[i + 3] = 255;
+    }
+  }
+  return { width: size, height: size, data: data };
+}
+
+function generate(inputs) {
+  const src = inputs.field || [];
+  const size = src.length;
+  if (!size) return { field: [], preview: { width: 1, height: 1, data: new Uint8ClampedArray(4) } };
+
+  const steps = inputs.terraces | 0;
+  const out = [];
+  for (let x = 0; x < size; x++) {
+    const col = [];
+    for (let z = 0; z < size; z++) {
+      // Redistribution: exponent > 1 flattens valleys and sharpens peaks.
+      let v = Math.pow(src[x][z], inputs.exponent);
+      if (steps > 0) v = Math.round(v * steps) / steps;
+      col.push(v);
+    }
+    out.push(col);
+  }
+  return { field: out, preview: fieldToImage(out) };
+}
+`;
+
+const FIELD_TO_TERRAIN = `type Inputs = {
+  elevation: number[][];
+  moisture: number[][];
+  amplitude: Slider<{ min: 4; max: 64; default: 30 }>;
+  waterLevel: Slider<{ min: 0; max: 1; step: 0.05; default: 0.35 }>;
+  seed: number;
+};
+
+type Outputs = {
+  terrain: Schematic;
+  biomes: Image;
+};
+
+function hash2(ix, iz, seed) {
+  let h = ((ix * 374761393) ^ (iz * 668265263) ^ Math.imul(seed | 0, 974711)) >>> 0;
+  h = (h ^ (h >>> 13)) >>> 0;
+  h = Math.imul(h, 1274126177) >>> 0;
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+
+const BIOMES = {
+  water:    { color: [56, 108, 215],  top: 'minecraft:blue_stained_glass' },
+  beach:    { color: [222, 206, 153], top: 'minecraft:sand' },
+  plains:   { color: [120, 176, 84],  top: 'minecraft:grass_block' },
+  forest:   { color: [52, 116, 56],   top: 'minecraft:grass_block' },
+  mountain: { color: [136, 136, 136], top: 'minecraft:stone' },
+  snow:     { color: [240, 244, 248], top: 'minecraft:snow_block' },
+};
+
+function classify(e, m, waterLevel) {
+  if (e <= waterLevel) return 'water';
+  if (e <= waterLevel + 0.04) return 'beach';
+  if (e > 0.85) return 'snow';
+  if (e > 0.68) return 'mountain';
+  return m > 0.5 ? 'forest' : 'plains';
+}
+
+function plantTree(terrain, x, y, z) {
+  for (let i = 0; i < 4; i++) terrain.set_block(x, y + i, z, 'minecraft:oak_log');
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dz = -1; dz <= 1; dz++) {
+      for (let dy = 3; dy <= 5; dy++) {
+        if (dy === 5 && (dx !== 0 || dz !== 0)) continue;
+        if (dx === 0 && dz === 0 && dy < 5) continue;
+        terrain.set_block(x + dx, y + dy, z + dz, 'minecraft:oak_leaves');
+      }
+    }
+  }
+}
+
+function generate(inputs) {
+  const elevation = inputs.elevation || [];
+  const moisture = inputs.moisture || [];
+  const size = elevation.length;
+  const terrain = new Schematic();
+  const data = new Uint8ClampedArray(Math.max(1, size * size * 4));
+  if (!size) return { terrain, biomes: { width: 1, height: 1, data: data } };
+
+  const amplitude = inputs.amplitude;
+  const waterY = Math.max(1, Math.floor(inputs.waterLevel * amplitude));
+
+  for (let x = 0; x < size; x++) {
+    if (x % 8 === 0) Progress.report((x / size) * 100, 'building column ' + x);
+    for (let z = 0; z < size; z++) {
+      const e = elevation[x][z];
+      const m = moisture[x] && moisture[x][z] !== undefined ? moisture[x][z] : 0.5;
+      const biome = classify(e, m, inputs.waterLevel);
+      const spec = BIOMES[biome];
+
+      const i = (z * size + x) * 4;
+      data[i] = spec.color[0];
+      data[i + 1] = spec.color[1];
+      data[i + 2] = spec.color[2];
+      data[i + 3] = 255;
+
+      const height = Math.max(1, Math.floor(e * amplitude));
+      for (let y = 0; y < height - 1; y++) {
+        terrain.set_block(x, y, z, y < height - 4 ? 'minecraft:stone' : 'minecraft:dirt');
+      }
+      if (biome === 'water') {
+        terrain.set_block(x, height - 1, z, 'minecraft:gravel');
+        for (let y = height; y <= waterY; y++) {
+          terrain.set_block(x, y, z, spec.top);
+        }
+      } else {
+        terrain.set_block(x, height - 1, z, spec.top);
+        if (biome === 'forest' && x > 1 && z > 1 && x < size - 2 && z < size - 2 &&
+            hash2(x, z, (inputs.seed | 0) + 31) < 0.025) {
+          plantTree(terrain, x, height, z);
+        }
+      }
+    }
+  }
+
+  return { terrain, biomes: { width: size, height: size, data: data } };
+}
+`;
+
 export const EXAMPLE_BLOCKS: ExampleBlock[] = [
   {
     id: 'redstone-bus',
@@ -534,7 +916,48 @@ export const EXAMPLE_BLOCKS: ExampleBlock[] = [
       'Builds a real redstone gate (AND/NAND/OR/NOT), simulates it with MCHPRS, and returns the live circuit plus its measured truth table.',
     source: LOGIC_LAB,
   },
+  {
+    id: 'noise-field',
+    name: 'Noise Field (fBm)',
+    description:
+      'Multi-octave value-noise heightfield (number[][]), normalized 0..1, with a grayscale preview.',
+    source: NOISE_FIELD,
+  },
+  {
+    id: 'voronoi-field',
+    name: 'Voronoi Field',
+    description:
+      'F1 Worley/cellular distance field from jittered grid points — subtract it from noise for eroded ridges.',
+    source: VORONOI_FIELD,
+  },
+  {
+    id: 'combine-fields',
+    name: 'Combine Fields',
+    description:
+      'Combines two heightfields (subtract/add/multiply/min/max/average) with a strength dial, renormalized.',
+    source: COMBINE_FIELDS,
+  },
+  {
+    id: 'shape-field',
+    name: 'Shape Field',
+    description:
+      'Curve a heightfield: exponent redistribution (sharpen peaks) and optional terracing.',
+    source: SHAPE_FIELD,
+  },
+  {
+    id: 'field-to-terrain',
+    name: 'Field → Terrain',
+    description:
+      'Turns elevation + moisture fields into a biome-painted world (water/beach/plains/forest/mountain/snow, trees included) plus a colored biome map.',
+    source: FIELD_TO_TERRAIN,
+  },
 ];
+
+/** number[][] — the heightfield currency of the worldgen blocks. */
+const FIELD_TYPE = {
+  kind: 'list',
+  of: { kind: 'list', of: { kind: 'number' } },
+} as const;
 
 /**
  * Static contracts for every example block, so they can be dropped into the
@@ -628,5 +1051,49 @@ export const EXAMPLE_BLOCK_CONTRACTS: Record<string, BlockContract> = {
         },
       },
     },
+  },
+  'noise-field': {
+    inputs: {
+      size: { kind: 'number', widget: 'slider', min: 32, max: 256, default: 96 },
+      scale: { kind: 'number', widget: 'slider', min: 0.005, max: 0.1, step: 0.005, default: 0.02 },
+      octaves: { kind: 'number', widget: 'slider', min: 1, max: 6, default: 4 },
+      seed: { kind: 'number' },
+    },
+    outputs: { field: FIELD_TYPE, preview: { kind: 'image' } },
+  },
+  'voronoi-field': {
+    inputs: {
+      size: { kind: 'number', widget: 'slider', min: 32, max: 256, default: 96 },
+      cells: { kind: 'number', widget: 'slider', min: 2, max: 24, default: 7 },
+      seed: { kind: 'number' },
+    },
+    outputs: { field: FIELD_TYPE, preview: { kind: 'image' } },
+  },
+  'combine-fields': {
+    inputs: {
+      a: FIELD_TYPE,
+      b: FIELD_TYPE,
+      op: { kind: 'enum', options: ['subtract', 'add', 'multiply', 'min', 'max', 'average'] },
+      strength: { kind: 'number', widget: 'slider', min: 0, max: 1, step: 0.05, default: 1 },
+    },
+    outputs: { field: FIELD_TYPE, preview: { kind: 'image' } },
+  },
+  'shape-field': {
+    inputs: {
+      field: FIELD_TYPE,
+      exponent: { kind: 'number', widget: 'slider', min: 0.3, max: 3, step: 0.1, default: 1.6 },
+      terraces: { kind: 'number', widget: 'slider', min: 0, max: 12, default: 0 },
+    },
+    outputs: { field: FIELD_TYPE, preview: { kind: 'image' } },
+  },
+  'field-to-terrain': {
+    inputs: {
+      elevation: FIELD_TYPE,
+      moisture: FIELD_TYPE,
+      amplitude: { kind: 'number', widget: 'slider', min: 4, max: 64, default: 30 },
+      waterLevel: { kind: 'number', widget: 'slider', min: 0, max: 1, step: 0.05, default: 0.35 },
+      seed: { kind: 'number' },
+    },
+    outputs: { terrain: { kind: 'schematic' }, biomes: { kind: 'image' } },
   },
 };

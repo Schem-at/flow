@@ -14,6 +14,11 @@ describe('EXAMPLE_BLOCKS', () => {
       'block-census',
       'hologram-mcfunction',
       'logic-lab',
+      'noise-field',
+      'voronoi-field',
+      'combine-fields',
+      'shape-field',
+      'field-to-terrain',
     ]);
   });
 
