@@ -1,0 +1,59 @@
+{
+	"name": "@flow/synthase",
+	"version": "1.0.3",
+	"author": "Nano112 (https://github.com/Nano112)",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/Nano112/synthase.git"
+	},
+	"main": "./dist/index.cjs",
+	"module": "./dist/index.js",
+	"devDependencies": {
+		"@types/node": "^20.14.2",
+		"bun-types": "latest",
+		"eslint": "^8.57.0",
+		"prettier": "^3.3.2",
+		"tsup": "^8.1.0",
+		"typescript": "^5.4.5"
+	},
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js",
+			"require": "./dist/index.cjs"
+		}
+	},
+	"bugs": {
+		"url": "https://github.com/Nano112/synthase/issues"
+	},
+	"description": "A secure, sandboxed, and extensible JavaScript execution engine built with TypeScript.",
+	"files": [
+		"dist",
+		"README.md",
+		"LICENSE"
+	],
+	"homepage": "https://github.com/Nano112/synthase#readme",
+	"keywords": [
+		"sandbox",
+		"javascript",
+		"typescript",
+		"execution engine",
+		"eval",
+		"secure",
+		"sandboxed",
+		"scripting",
+		"runtime",
+		"vm",
+		"interpreter"
+	],
+	"license": "AGPL-3.0-only",
+	"scripts": {
+		"build": "tsup src/index.ts --format cjs,esm --dts --clean",
+		"test": "bun test",
+		"lint": "eslint . --ext .ts",
+		"format": "prettier --write .",
+		"prepublishOnly": "npm run build"
+	},
+	"type": "module",
+	"types": "./dist/index.d.ts"
+}

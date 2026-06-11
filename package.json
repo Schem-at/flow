@@ -1,0 +1,19 @@
+{
+  "name": "flow",
+  "private": true,
+  "packageManager": "bun@1.2.4",
+  "workspaces": [
+    "./client",
+    "./server",
+    "./shared",
+    "./packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo dev --filter=client",
+    "build": "turbo build",
+    "deploy": "turbo build && cp -r client/dist/ ../public/flow/"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.5"
+  }
+}

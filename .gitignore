@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+**/dist/
+.turbo/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+bun-debug.log*
+
+# OS
+.DS_Store
+
+# Local AI/agent tooling — not part of the project
+CLAUDE.md
+**/CLAUDE.md
+.claude/
+docs/superpowers/
+**/superpowers/
