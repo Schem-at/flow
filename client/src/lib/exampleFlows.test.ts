@@ -10,6 +10,7 @@ describe('EXAMPLE_FLOWS', () => {
       'example-maze-solver',
       'example-city',
       'example-terrain-pipeline',
+      'example-logic-lab',
     ]);
   });
 

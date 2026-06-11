@@ -903,9 +903,95 @@ export const TERRAIN_PIPELINE_FLOW: FlowData = {
   ],
 };
 
+// ─── Redstone Logic Lab ─────────────────────────────────────────────────────
+// One block builds a REAL redstone gate and simulates it with MCHPRS (inside
+// nucleation): levers are toggled through every combination and the output is
+// probed each time. The viewer shows the measured truth table; the circuit
+// viewer shows the live world state.
+
+const LOGIC_LAB_SOURCE = EXAMPLE_BLOCKS.find((b) => b.id === 'logic-lab')!.source;
+
+const LOGIC_LAB_CONTRACT: BlockContract = {
+  inputs: {
+    gate: { kind: 'enum', options: ['and', 'nand', 'or', 'not'] },
+  },
+  outputs: {
+    circuit: { kind: 'schematic' },
+    truthTable: {
+      kind: 'list',
+      of: {
+        kind: 'object',
+        fields: {
+          a: { kind: 'boolean' },
+          b: { kind: 'boolean' },
+          out: { kind: 'boolean' },
+        },
+      },
+    },
+  },
+};
+
+export const LOGIC_LAB_FLOW: FlowData = {
+  id: 'example-logic-lab',
+  name: 'Redstone Logic Lab',
+  version: '1.0.0',
+  createdAt: 0,
+  nodes: [
+    {
+      id: 'gate-select',
+      type: 'input',
+      position: { x: 0, y: 60 },
+      data: {
+        label: 'gate',
+        value: 'and',
+        dataType: 'string',
+        widgetType: 'select',
+        options: ['and', 'nand', 'or', 'not'],
+        description: 'Which gate to build & simulate',
+      },
+    },
+    {
+      id: 'lab',
+      type: 'code',
+      position: { x: 300, y: 0 },
+      data: {
+        label: 'Logic Lab',
+        code: LOGIC_LAB_SOURCE,
+        contract: LOGIC_LAB_CONTRACT,
+        io: contractToIO(LOGIC_LAB_CONTRACT),
+      },
+    },
+    {
+      id: 'truth-view',
+      type: 'viewer',
+      position: { x: 800, y: 320 },
+      data: { label: 'Measured truth table' },
+    },
+    {
+      id: 'circuit-view',
+      type: 'viewer',
+      position: { x: 800, y: -40 },
+      data: { label: 'Live circuit' },
+    },
+    {
+      id: 'circuit-out',
+      type: 'output',
+      position: { x: 800, y: 620 },
+      data: { label: 'circuit' },
+    },
+  ],
+  edges: [
+    { id: 'll-g', source: 'gate-select', target: 'lab', sourceHandle: 'output', targetHandle: 'gate' },
+    { id: 'll-t', source: 'lab', target: 'truth-view', sourceHandle: 'truthTable', targetHandle: 'input' },
+    { id: 'll-c', source: 'lab', target: 'circuit-view', sourceHandle: 'circuit', targetHandle: 'input' },
+    { id: 'll-o', source: 'lab', target: 'circuit-out', sourceHandle: 'circuit', targetHandle: 'input' },
+  ],
+};
+
 export const EXAMPLE_FLOWS: FlowData[] = [
   JULIA_STITCH_FLOW,
   MAZE_FLOW,
   CITY_FLOW,
   TERRAIN_PIPELINE_FLOW,
+  LOGIC_LAB_FLOW,
 ];

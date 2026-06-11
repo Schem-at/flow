@@ -121,11 +121,12 @@ export function ImageViewer({ value }: ViewerProps) {
 
   const img = value as { width?: number; height?: number } | null;
   if (!img?.width) return <p className="text-xs text-neutral-500">No image data</p>;
+  // Scale with the container (resized viewer nodes included), keep aspect.
   return (
     <canvas
       ref={canvasRef}
-      className="max-h-64 w-auto rounded-md border border-neutral-800 [image-rendering:pixelated]"
-      style={{ maxWidth: '100%' }}
+      className="h-full max-h-full w-full rounded-md border border-neutral-800 object-contain [image-rendering:pixelated]"
+      style={{ minHeight: '8rem' }}
     />
   );
 }

@@ -11,7 +11,33 @@ describe('EXAMPLE_BLOCKS', () => {
       'parametric-building',
       'build-analysis',
       'julia-grid',
+      'block-census',
+      'hologram-mcfunction',
+      'logic-lab',
     ]);
+  });
+
+  it('logic-lab exposes the simulated truth table contract', async () => {
+    const parsed = await parseBlockSource(
+      EXAMPLE_BLOCKS.find((b) => b.id === 'logic-lab')!.source
+    );
+    expect(parsed.contract).toEqual({
+      inputs: { gate: { kind: 'enum', options: ['and', 'nand', 'or', 'not'] } },
+      outputs: {
+        circuit: { kind: 'schematic' },
+        truthTable: {
+          kind: 'list',
+          of: {
+            kind: 'object',
+            fields: {
+              a: { kind: 'boolean' },
+              b: { kind: 'boolean' },
+              out: { kind: 'boolean' },
+            },
+          },
+        },
+      },
+    });
   });
 
   it('julia-grid outputs a list of lists of schematics', async () => {
