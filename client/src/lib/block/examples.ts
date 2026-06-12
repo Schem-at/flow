@@ -916,6 +916,45 @@ async function generate(inputs) {
 }
 `;
 
+const SCHEMATI_UPLOAD = `type Inputs = {
+  schematic: Schematic;
+  name: string;
+  description: string;
+  tags: string;
+  isPublic: Toggle<{ default: true }>;
+};
+
+type Outputs = {
+  id: string;
+  url: string;
+  summary: string;
+};
+
+// Publishes a schematic to the schemati platform. In the browser you must be
+// signed in; on the server SCHEMATI_API_TOKEN is used. Tags are comma-separated
+// platform tag names. A top-down preview image is generated automatically.
+async function generate(inputs) {
+  if (!inputs.name) throw new Error('Give the upload a name');
+  const tags = inputs.tags
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean);
+
+  const uploaded = await Schemati.uploadSchematic(inputs.schematic, {
+    name: inputs.name,
+    description: inputs.description || undefined,
+    tags,
+    isPublic: inputs.isPublic,
+  });
+
+  return {
+    id: uploaded.shortId || uploaded.id,
+    url: uploaded.webUrl || '',
+    summary: 'Uploaded "' + uploaded.name + '" (' + (uploaded.shortId || uploaded.id) + ')',
+  };
+}
+`;
+
 export const EXAMPLE_BLOCKS: ExampleBlock[] = [
   {
     id: 'redstone-bus',
@@ -979,6 +1018,13 @@ export const EXAMPLE_BLOCKS: ExampleBlock[] = [
     description:
       'Downloads a schematic from the platform (by id, short id, or slug) as a live Schematic.',
     source: SCHEMATI_FETCH,
+  },
+  {
+    id: 'schemati-upload',
+    name: 'Schemati Upload',
+    description:
+      'Publishes a schematic to the platform with tags and an auto-generated preview — sign in required in the browser.',
+    source: SCHEMATI_UPLOAD,
   },
   {
     id: 'logic-lab',
@@ -1063,6 +1109,16 @@ export const EXAMPLE_BLOCK_CONTRACTS: Record<string, BlockContract> = {
   'schemati-fetch': {
     inputs: { id: { kind: 'string' } },
     outputs: { schematic: { kind: 'schematic' }, name: { kind: 'string' } },
+  },
+  'schemati-upload': {
+    inputs: {
+      schematic: { kind: 'schematic' },
+      name: { kind: 'string' },
+      description: { kind: 'string' },
+      tags: { kind: 'string' },
+      isPublic: { kind: 'boolean', default: true },
+    },
+    outputs: { id: { kind: 'string' }, url: { kind: 'string' }, summary: { kind: 'string' } },
   },
   'redstone-bus': {
     inputs: {

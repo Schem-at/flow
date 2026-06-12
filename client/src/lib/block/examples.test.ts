@@ -15,6 +15,7 @@ describe('EXAMPLE_BLOCKS', () => {
       'hologram-mcfunction',
       'schemati-search',
       'schemati-fetch',
+      'schemati-upload',
       'logic-lab',
       'noise-field',
       'voronoi-field',

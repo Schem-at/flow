@@ -131,3 +131,81 @@ describe('createSchematiClient', () => {
     expect(calls[0]).toContain('tag=4e10dc80-c001-441d-9da0-67effb9d9dc2');
   });
 });
+
+describe('uploadSchematic', () => {
+  const SCHEMATIC = {
+    to_schematic: () => new Uint8Array([7, 7, 7]),
+    blocks: () => [{ x: 0, y: 0, z: 0, name: 'minecraft:stone' }],
+  };
+
+  function stubUploadFetch(opts: { tokenStatus?: number; uploadStatus?: number; uploadBody?: unknown } = {}) {
+    stubFetch((url) => {
+      if (url.includes('/api/user/flow-token')) {
+        return opts.tokenStatus && opts.tokenStatus !== 200
+          ? new Response('{}', { status: opts.tokenStatus })
+          : Response.json({ token: 'minted-token', playerUuid: 'player-1' });
+      }
+      if (url.endsWith('/api/v1/schematics')) {
+        return Response.json(
+          (opts.uploadBody as object) ?? { data: { id: 'up-1', name: 'Uploaded', slug: 'uploaded', tags: [], authors: [] } },
+          { status: opts.uploadStatus ?? 201 }
+        );
+      }
+      return undefined;
+    });
+  }
+
+  it('browser: mints a session token and posts multipart with preview + tags', async () => {
+    stubUploadFetch();
+    const fetchSpy = globalThis.fetch as ReturnType<typeof vi.fn>;
+    const client = createSchematiClient(browserEnv, {});
+    const result = await client.uploadSchematic(SCHEMATIC, {
+      name: 'My Door',
+      tags: ['door'],
+      isPublic: false,
+    });
+    expect(result.id).toBe('up-1');
+
+    const uploadCall = fetchSpy.mock.calls.find(([u]) => String(u).endsWith('/api/v1/schematics'))!;
+    const init = uploadCall[1] as RequestInit;
+    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer minted-token');
+    const form = init.body as FormData;
+    expect(form.get('name')).toBe('My Door');
+    expect(form.get('author_id')).toBe('player-1');
+    expect(form.get('is_public')).toBe('0');
+    expect(form.getAll('tags[]')).toEqual(['tag-door-id']);
+    const file = form.get('schematic_file') as Blob;
+    expect(await file.bytes().then((b) => Array.from(b))).toEqual([7, 7, 7]);
+    const preview = form.get('preview_image') as Blob;
+    expect(preview.type).toBe('image/png');
+    expect((await preview.bytes())[1]).toBe(0x50); // 'P' of PNG signature
+  });
+
+  it('browser: signed-out users get a clear error', async () => {
+    stubUploadFetch({ tokenStatus: 401 });
+    const client = createSchematiClient(browserEnv, {});
+    await expect(client.uploadSchematic(SCHEMATIC, { name: 'x' })).rejects.toThrow(/signed in to schemati/);
+  });
+
+  it('node: uses SCHEMATI_API_TOKEN and its sub claim as author', async () => {
+    stubUploadFetch();
+    const payload = btoa(JSON.stringify({ sub: 'server-player' }));
+    const env: RuntimeEnv = {
+      kind: 'node',
+      schemati: { baseUrl: 'https://schemati.test', token: `h.${payload}.s` },
+    };
+    const fetchSpy = globalThis.fetch as ReturnType<typeof vi.fn>;
+    const client = createSchematiClient(env, {});
+    await client.uploadSchematic(SCHEMATIC, { name: 'Server Build' });
+    const uploadCall = fetchSpy.mock.calls.find(([u]) => String(u).includes('/api/v1/schematics'))!;
+    const form = (uploadCall[1] as RequestInit).body as FormData;
+    expect(form.get('author_id')).toBe('server-player');
+    expect(calls.some((u) => u.includes('/api/user/flow-token'))).toBe(false);
+  });
+
+  it('duplicate uploads surface the existing schematic', async () => {
+    stubUploadFetch({ uploadStatus: 409, uploadBody: { error: 'dup', existing: { id: 'old-1', name: 'Original' } } });
+    const client = createSchematiClient(browserEnv, {});
+    await expect(client.uploadSchematic(SCHEMATIC, { name: 'x' })).rejects.toThrow(/already exists.*Original.*old-1/);
+  });
+});

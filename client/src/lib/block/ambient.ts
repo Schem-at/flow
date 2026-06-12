@@ -78,6 +78,15 @@ declare const Schemati: {
   getSchematicData(idOrSlug: string, options?: { format?: string }): Promise<{ format: string; data: any; metadata: { name: string } }>;
   /** List all tag names on the platform. */
   getTags(): Promise<string[]>;
+  /**
+   * Upload a schematic to the platform (browser: needs a signed-in session;
+   * server: needs SCHEMATI_API_TOKEN). A top-down preview image is generated
+   * automatically. Tags accept names. Throws on exact-duplicate uploads.
+   */
+  uploadSchematic(schematic: Schematic, options: {
+    name: string; description?: string; tags?: string[];
+    isPublic?: boolean; format?: 'schem' | 'litematic' | 'schematic';
+  }): Promise<{ id: string; shortId: string; slug: string; name: string; webUrl: string | null }>;
 };
 `;
 

@@ -12,6 +12,7 @@
  */
 
 import type { RuntimeProvider, RuntimeEnv } from './types.js';
+import { schematicPreviewPng } from '../utils/schematic-preview.js';
 
 export interface SchematiSummary {
   id: string;
@@ -85,6 +86,7 @@ export function createSchematiClient(env: RuntimeEnv, context: Record<string, un
       getSchematic: unconfigured,
       getSchematicData: unconfigured,
       getTags: unconfigured,
+      uploadSchematic: unconfigured,
     };
   }
 
@@ -167,7 +169,101 @@ export function createSchematiClient(env: RuntimeEnv, context: Record<string, un
     return tagCache.map((t) => t.name);
   };
 
-  return { searchSchematics, getSchematic, getSchematicData, getTags };
+  /** Player JWT + uuid for write operations (upload needs `upload_schematic`). */
+  const writeCredentials = async (): Promise<{ token: string; playerUuid: string }> => {
+    if (!isNode) {
+      // Coupled mode: mint a short-lived scoped token from the session.
+      const res = await fetch(`${base}/api/user/flow-token`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { Accept: 'application/json' },
+      });
+      if (!res.ok) {
+        throw new Error(
+          res.status === 401
+            ? 'Uploading requires being signed in to schemati (with a linked player).'
+            : `Could not get an upload token (${res.status}).`
+        );
+      }
+      const json = (await res.json()) as { token: string; playerUuid: string };
+      return { token: json.token, playerUuid: json.playerUuid };
+    }
+    if (!token) {
+      throw new Error('Uploading from the server requires SCHEMATI_API_TOKEN (a player JWT with upload_schematic permission).');
+    }
+    // Player uuid comes from the JWT's sub claim.
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+      if (!payload.sub) throw new Error('no sub');
+      return { token, playerUuid: String(payload.sub) };
+    } catch {
+      throw new Error('SCHEMATI_API_TOKEN is not a decodable JWT (expected a player token with a sub claim).');
+    }
+  };
+
+  const uploadSchematic = async (
+    schematic: unknown,
+    options: {
+      name: string;
+      description?: string;
+      tags?: string[];
+      isPublic?: boolean;
+      format?: 'schem' | 'litematic' | 'schematic';
+    }
+  ): Promise<SchematiSummary> => {
+    if (!options?.name) throw new Error('uploadSchematic needs a name');
+    const source = schematic as {
+      to_schematic?: () => Uint8Array;
+      blocks?: () => Iterable<{ x: number; y: number; z: number; name: string }>;
+      data?: Uint8Array;
+    };
+    const bytes = source?.to_schematic?.() ?? source?.data;
+    if (!(bytes instanceof Uint8Array)) {
+      throw new Error('uploadSchematic expects a Schematic (or {data: Uint8Array}) as its first argument');
+    }
+    const format = options.format ?? 'schem';
+    const preview = source.blocks
+      ? schematicPreviewPng(source as { blocks(): Iterable<{ x: number; y: number; z: number; name: string }> })
+      : schematicPreviewPng({ blocks: () => [] });
+
+    const creds = await writeCredentials();
+    const form = new FormData();
+    form.set('name', options.name);
+    form.set('description', options.description || options.name);
+    form.set('author_id', creds.playerUuid);
+    form.set('is_public', options.isPublic === false ? '0' : '1');
+    form.set('format', format);
+    form.set(
+      'schematic_file',
+      new Blob([bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer]),
+      `${options.name}.${format}`
+    );
+    form.set('preview_image', new Blob([preview.buffer as ArrayBuffer], { type: 'image/png' }), 'preview.png');
+    for (const tag of options.tags ?? []) {
+      form.append('tags[]', await resolveTagId(tag));
+    }
+
+    const res = await fetch(`${base}/api/v1/schematics`, {
+      method: 'POST',
+      headers: { Accept: 'application/json', Authorization: `Bearer ${creds.token}` },
+      credentials: isNode ? undefined : 'include',
+      body: form,
+    });
+    const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (res.status === 409) {
+      const existing = json.existing as { id?: string; name?: string } | undefined;
+      throw new Error(
+        `Duplicate: this exact schematic already exists on the platform${existing ? ` as "${existing.name}" (${existing.id})` : ''}.`
+      );
+    }
+    if (!res.ok) {
+      const message = (json.message as string) || (json.error as string) || JSON.stringify(json).slice(0, 200);
+      throw new Error(`Upload failed (${res.status}): ${message}`);
+    }
+    return summarize((json.data as Record<string, unknown>) ?? json);
+  };
+
+  return { searchSchematics, getSchematic, getSchematicData, getTags, uploadSchematic };
 }
 
 export const schematiProvider: RuntimeProvider = {

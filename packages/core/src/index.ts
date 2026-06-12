@@ -45,6 +45,8 @@ export {
   type AssetNodeData,
 } from './utils/assets.js';
 export { bytesToBase64, base64ToBytes } from './utils/base64.js';
+export { encodePng } from './utils/png.js';
+export { schematicPreviewPng } from './utils/schematic-preview.js';
 
 // Runtime providers (pluggable endowments: nucleation, standard helpers)
 export {
