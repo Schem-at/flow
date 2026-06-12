@@ -189,7 +189,7 @@ const nodeCategories: { name: string; nodes: NodeTemplate[] }[] = [
 export function Toolbar() {
   const addNode = useFlowStore((state) => state.addNode);
 
-  const [expandedCategories, setExpandedCategories] = useState<string[]>(['Logic', 'Inputs', 'Outputs']);
+  const [expandedCategories, setExpandedCategories] = useState<string[]>(['Logic', 'Inputs', 'Outputs', 'Schemati']);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [activeTab, setActiveTab] = useState<'nodes' | 'modules'>('nodes');
 
