@@ -5,7 +5,7 @@
  */
 import { SCHEMATI_BROWSER_FLOW } from '../client/src/lib/exampleFlows';
 
-const API = 'http://localhost:3001';
+const API = process.env.FLOW_API ?? 'http://localhost:3001';
 
 let failures = 0;
 function check(label: string, ok: boolean, extra?: unknown) {
