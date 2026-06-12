@@ -266,12 +266,12 @@ export function TopBar({
           aria-label="Go to homepage"
         >
           <div className="relative w-7 h-7 flex items-center justify-center">
-            <div className="absolute inset-0 bg-green-500/20 blur-xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+            <div className="absolute inset-0 bg-brand-500/20 blur-xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
             <svg viewBox="0 0 100 100" fill="none" className="w-full h-full relative z-10">
               <rect x="24" y="24" width="16" height="16" rx="4" className="fill-neutral-800" />
               <rect x="24" y="48" width="16" height="16" rx="4" className="fill-neutral-800" />
               <rect x="48" y="24" width="16" height="16" rx="4" className="fill-neutral-800" />
-              <rect x="72" y="24" width="16" height="16" rx="4" className="fill-green-500/20 stroke-green-500" strokeWidth="1.5" />
+              <rect x="72" y="24" width="16" height="16" rx="4" className="fill-brand-500/20 stroke-brand-500" strokeWidth="1.5" />
               <path d="M40 32 H48 M64 32 H72 M40 56 H48 M32 40 V48" className="stroke-neutral-700" strokeWidth="2" />
             </svg>
           </div>
@@ -290,13 +290,13 @@ export function TopBar({
                 onChange={(e) => setTempName(e.target.value)}
                 onBlur={handleNameSubmit}
                 onKeyDown={(e) => e.key === 'Enter' && handleNameSubmit()}
-                className="bg-transparent text-sm font-medium text-white focus:outline-none border-b border-green-500 min-w-[150px]"
+                className="bg-transparent text-sm font-medium text-white focus:outline-none border-b border-brand-500 min-w-[150px]"
                 autoFocus
               />
             ) : (
               <button 
                 onClick={() => setIsEditingName(true)}
-                className="text-sm font-medium text-white hover:text-green-400 transition-colors text-left truncate max-w-[200px]"
+                className="text-sm font-medium text-white hover:text-brand-400 transition-colors text-left truncate max-w-[200px]"
               >
                 {flowName}
               </button>
@@ -411,6 +411,13 @@ export function TopBar({
               )}
             </div>
             
+            <button
+              onClick={() => window.dispatchEvent(new CustomEvent('flow:open-docs'))}
+              title="API Reference (⌘⇧D)"
+              className="px-3 py-1 text-xs font-medium text-neutral-400 hover:text-white hover:bg-white/5 rounded-md transition-colors"
+            >
+              Docs
+            </button>
             <button onClick={onShowShortcuts} className="px-3 py-1 text-xs font-medium text-neutral-400 hover:text-white hover:bg-white/5 rounded-md transition-colors">
               Help
             </button>

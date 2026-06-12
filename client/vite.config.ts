@@ -3,6 +3,7 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 import wasm from 'vite-plugin-wasm';
+import { nucleationDtsPlugin } from './nucleation-dts-plugin';
 
 export default defineConfig(({ mode }) => {
   // Load all env vars (no prefix filter) so infra settings can be plain or VITE_-prefixed.
@@ -18,7 +19,7 @@ export default defineConfig(({ mode }) => {
   const apiProxyTarget = env.VITE_API_PROXY_TARGET ?? 'http://localhost:3001';
 
   return {
-    plugins: [react(), tailwindcss(), wasm()],
+    plugins: [react(), tailwindcss(), wasm(), nucleationDtsPlugin()],
     build: {
       target: 'esnext',
     },

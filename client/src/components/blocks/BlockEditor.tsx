@@ -7,7 +7,7 @@
 
 import { useEffect, useRef } from 'react';
 import Editor, { type Monaco } from '@monaco-editor/react';
-import { AMBIENT_DTS } from '../../lib/block/ambient';
+import { setupAmbientMonaco } from '../../lib/block/ambient';
 
 export interface BlockEditorProps {
   /** Body source (helpers + generate) — NOT the full file. */
@@ -29,17 +29,7 @@ export default function BlockEditor({
 
   const setupMonaco = (monaco: Monaco) => {
     monacoRef.current = monaco;
-    const ts = monaco.languages.typescript.typescriptDefaults;
-    ts.setCompilerOptions({
-      ...ts.getCompilerOptions(),
-      allowNonTsExtensions: true,
-      noEmit: true,
-      allowJs: true,
-      checkJs: false,
-      strict: false,
-    });
-    ts.setDiagnosticsOptions({ noSemanticValidation: false, noSyntaxValidation: false });
-    ts.addExtraLib(AMBIENT_DTS, 'file:///flow-ambient.d.ts');
+    setupAmbientMonaco(monaco);
     syncContractLib(monaco, contractTypes);
   };
 

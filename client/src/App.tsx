@@ -11,6 +11,7 @@ import { Home } from './components/Home';
 import { FlowRunner } from './components/FlowRunner';
 import { ModuleManager } from './components/ModuleManager';
 import Workbench from './components/Workbench';
+import { DocsModal } from './components/editor/DocsModal';
 
 const queryClient = new QueryClient();
 
@@ -28,6 +29,8 @@ function App() {
 						<Route path="/run/:flowId" element={<FlowRunner />} />
 						<Route path="/flow/:flowId" element={<Editor />} />
 					</Routes>
+					{/* Global, event-driven (flow:open-docs / ⌘⇧D) API reference */}
+					<DocsModal />
 				</BrowserRouter>
 			</ReactFlowProvider>
 		</QueryClientProvider>

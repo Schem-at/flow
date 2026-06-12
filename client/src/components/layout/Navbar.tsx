@@ -20,19 +20,19 @@ export function Navbar() {
       <div className="flex items-center gap-4">
         <Link to="/" className="flex items-center gap-2 group focus:outline-none">
           <div className="relative w-7 h-7 flex items-center justify-center">
-            <div className="absolute inset-0 bg-green-500/20 blur-xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+            <div className="absolute inset-0 bg-brand-500/20 blur-xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
             <svg viewBox="0 0 100 100" fill="none" className="w-full h-full relative z-10">
               <rect x="24" y="24" width="16" height="16" rx="4" className="fill-neutral-800" />
               <rect x="24" y="48" width="16" height="16" rx="4" className="fill-neutral-800" />
               <rect x="48" y="24" width="16" height="16" rx="4" className="fill-neutral-800" />
-              <rect x="72" y="24" width="16" height="16" rx="4" className="fill-green-500/20 stroke-green-500" strokeWidth="1.5" />
+              <rect x="72" y="24" width="16" height="16" rx="4" className="fill-brand-500/20 stroke-brand-500" strokeWidth="1.5" />
               <path d="M40 32 H48 M64 32 H72 M40 56 H48 M32 40 V48" className="stroke-neutral-700" strokeWidth="2" />
             </svg>
           </div>
           <span className="text-sm font-medium transition-colors">
             <span className="text-neutral-500 group-hover:text-neutral-400">schemat.io</span>
             <span className="text-neutral-600 mx-0.5">/</span>
-            <span className="text-white group-hover:text-green-400">flow</span>
+            <span className="text-white group-hover:text-brand-400">flow</span>
           </span>
         </Link>
 
@@ -80,7 +80,7 @@ export function Navbar() {
       <div className="flex items-center gap-3">
         <Link
           to="/editor"
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-green-500/10 text-green-400 hover:bg-green-500/20 rounded-md transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-brand-500/10 text-brand-400 hover:bg-brand-500/20 rounded-md transition-colors"
         >
           <Plus className="w-3.5 h-3.5" />
           New Flow
@@ -100,7 +100,7 @@ export function Navbar() {
                 <img
                   src={user.avatar}
                   alt={user.username}
-                  className="w-6 h-6 rounded ring-1 ring-white/10 group-hover:ring-green-500/30 transition-all"
+                  className="w-6 h-6 rounded ring-1 ring-white/10 group-hover:ring-brand-500/30 transition-all"
                 />
               )}
               <span className="text-xs text-neutral-400 group-hover:text-white transition-colors hidden sm:block">

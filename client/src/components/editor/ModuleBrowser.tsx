@@ -102,7 +102,7 @@ export function ModuleBrowser() {
           pinned: false,
         },
         io,
-        contract,
+        contract: contract ?? undefined,
       },
     });
   }, [addNode, nodes]);

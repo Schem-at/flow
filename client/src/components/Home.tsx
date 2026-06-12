@@ -173,7 +173,7 @@ export function Home() {
       <div
         className="fixed inset-0 opacity-[0.03] pointer-events-none"
         style={{
-          backgroundImage: 'radial-gradient(circle, #22c55e 0.5px, transparent 0.5px)',
+          backgroundImage: 'radial-gradient(circle, #db45f0 0.5px, transparent 0.5px)',
           backgroundSize: '24px 24px',
         }}
       />
@@ -183,12 +183,11 @@ export function Home() {
 
         <div className="max-w-5xl mx-auto px-6 pt-8 pb-16">
           {/* Header */}
-          <div className="flex items-end justify-between mb-8">
+          <div className="relative bg-grid-pattern flex items-end justify-between mb-8">
             <div>
-              <div className="flex items-center gap-2 mb-1">
-                <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-                <span className="text-[10px] font-mono uppercase tracking-[0.2em] text-green-500/60">
-                  Workspace
+              <div className="mb-2">
+                <span className="inline-block rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[10px] font-medium uppercase tracking-[0.2em] text-neutral-400">
+                  Schemat.io · Flow
                 </span>
               </div>
               <h1 className="text-2xl font-semibold tracking-tight">
@@ -201,7 +200,7 @@ export function Home() {
             {isAuthenticated && (
               <button
                 onClick={() => navigate('/editor')}
-                className="group flex items-center gap-2 px-4 py-2.5 bg-green-500 hover:bg-green-400 text-black text-xs font-semibold rounded-lg transition-all hover:shadow-[0_0_20px_rgba(34,197,94,0.3)] active:scale-[0.98]"
+                className="group flex items-center gap-2 px-4 py-2.5 bg-brand-500 hover:bg-brand-400 text-white text-xs font-semibold rounded-lg transition-all hover:shadow-[0_0_20px_rgba(219,69,240,0.35)] active:scale-[0.98]"
               >
                 <Plus className="w-4 h-4 transition-transform group-hover:rotate-90" />
                 New Flow
@@ -218,7 +217,7 @@ export function Home() {
                 placeholder="Filter by name..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="w-full bg-[#0c0c10] border border-neutral-800/60 rounded-lg px-4 py-2.5 pl-10 text-sm text-white focus:outline-none focus:border-green-500/30 focus:shadow-[0_0_0_3px_rgba(34,197,94,0.05)] placeholder:text-neutral-700 font-light transition-all"
+                className="w-full bg-[#0c0c10] border border-neutral-800/60 rounded-lg px-4 py-2.5 pl-10 text-sm text-white focus:outline-none focus:border-brand-500/30 focus:shadow-[0_0_0_3px_rgba(219,69,240,0.05)] placeholder:text-neutral-700 font-light transition-all"
               />
             </div>
             {isAuthenticated && (
@@ -238,7 +237,7 @@ export function Home() {
                     }`}
                   >
                     {f.label}
-                    <span className={`font-mono text-[10px] ${filter === f.key ? 'text-green-400' : 'text-neutral-700'}`}>
+                    <span className={`font-mono text-[10px] ${filter === f.key ? 'text-brand-400' : 'text-neutral-700'}`}>
                       {f.count}
                     </span>
                   </button>
@@ -251,8 +250,8 @@ export function Home() {
           {isLoading && (
             <div className="flex flex-col items-center justify-center py-24 gap-3">
               <div className="relative">
-                <div className="w-10 h-10 rounded-xl bg-green-500/5 border border-green-500/10 flex items-center justify-center">
-                  <Loader2 className="w-5 h-5 text-green-500 animate-spin" />
+                <div className="w-10 h-10 rounded-xl bg-brand-500/5 border border-brand-500/10 flex items-center justify-center">
+                  <Loader2 className="w-5 h-5 text-brand-500 animate-spin" />
                 </div>
               </div>
               <span className="text-xs font-mono text-neutral-600">Loading flows...</span>
@@ -292,7 +291,7 @@ export function Home() {
               {!search && isAuthenticated && (
                 <button
                   onClick={() => navigate('/editor')}
-                  className="flex items-center gap-2 px-4 py-2 text-xs font-medium bg-green-500/10 text-green-400 hover:bg-green-500/15 border border-green-500/10 rounded-lg transition-all"
+                  className="flex items-center gap-2 px-4 py-2 text-xs font-medium bg-brand-500/10 text-brand-400 hover:bg-brand-500/15 border border-brand-500/10 rounded-lg transition-all"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   Create your first flow
@@ -308,7 +307,7 @@ export function Home() {
                 <div
                   key={flow.id}
                   onClick={() => navigate(`/editor/${flow.id}`)}
-                  className="group relative bg-[#0c0c10] border border-neutral-800/40 rounded-xl cursor-pointer hover:border-neutral-700/60 hover:bg-[#0e0e13] transition-all duration-200"
+                  className="group relative bg-[#0c0c10] border border-neutral-800/40 rounded-xl cursor-pointer hover:border-white/20 hover:bg-[#0e0e13] hover:-translate-y-[3px] hover:shadow-[0_8px_30px_rgba(219,69,240,0.12)] transition-all duration-200"
                   style={{ animationDelay: `${i * 30}ms` }}
                 >
                   {/* Card top accent line */}
@@ -322,8 +321,8 @@ export function Home() {
                     {/* Header row */}
                     <div className="flex items-start justify-between mb-3">
                       <div className="flex items-center gap-2.5 min-w-0">
-                        <div className="w-8 h-8 rounded-lg bg-green-500/[0.07] border border-green-500/10 flex items-center justify-center shrink-0 group-hover:border-green-500/20 group-hover:bg-green-500/10 transition-all">
-                          <Workflow className="w-4 h-4 text-green-500/60 group-hover:text-green-400 transition-colors" />
+                        <div className="w-8 h-8 rounded-lg bg-brand-500/[0.07] border border-brand-500/10 flex items-center justify-center shrink-0 group-hover:border-brand-500/20 group-hover:bg-brand-500/10 transition-all">
+                          <Workflow className="w-4 h-4 text-brand-500/60 group-hover:text-brand-400 transition-colors" />
                         </div>
                         <div className="min-w-0">
                           <h3 className="text-sm font-medium text-neutral-200 group-hover:text-white truncate transition-colors">
@@ -501,10 +500,10 @@ export function Home() {
               {isAuthenticated && (
                 <button
                   onClick={() => navigate('/editor')}
-                  className="group border border-dashed border-neutral-800/40 rounded-xl p-4 flex flex-col items-center justify-center gap-2 min-h-[140px] hover:border-green-500/20 hover:bg-green-500/[0.02] transition-all duration-200 cursor-pointer"
+                  className="group border border-dashed border-neutral-800/40 rounded-xl p-4 flex flex-col items-center justify-center gap-2 min-h-[140px] hover:border-brand-500/20 hover:bg-brand-500/[0.02] transition-all duration-200 cursor-pointer"
                 >
-                  <div className="w-8 h-8 rounded-lg border border-dashed border-neutral-700/50 flex items-center justify-center group-hover:border-green-500/30 transition-colors">
-                    <Plus className="w-4 h-4 text-neutral-700 group-hover:text-green-500/70 transition-colors" />
+                  <div className="w-8 h-8 rounded-lg border border-dashed border-neutral-700/50 flex items-center justify-center group-hover:border-brand-500/30 transition-colors">
+                    <Plus className="w-4 h-4 text-neutral-700 group-hover:text-brand-500/70 transition-colors" />
                   </div>
                   <span className="text-xs text-neutral-700 group-hover:text-neutral-500 transition-colors">New flow</span>
                 </button>

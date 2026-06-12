@@ -1601,9 +1601,9 @@ export function Editor() {
       } while (pendingLiveRunRef.current);
     };
 
-    window.addEventListener('polymerase:liveExecutionTrigger', handleLiveExecution as EventListener);
+    window.addEventListener('polymerase:liveExecutionTrigger', handleLiveExecution as unknown as EventListener);
     return () => {
-      window.removeEventListener('polymerase:liveExecutionTrigger', handleLiveExecution as EventListener);
+      window.removeEventListener('polymerase:liveExecutionTrigger', handleLiveExecution as unknown as EventListener);
     };
   }, [isExecuting, handleIncrementalRun]);
 

@@ -522,8 +522,8 @@ export function FlowRunner() {
             <div className="flex items-start justify-between">
               <div>
                 <div className="flex items-center gap-2 mb-2">
-                  <div className="w-8 h-8 rounded-lg bg-green-500/[0.07] border border-green-500/10 flex items-center justify-center">
-                    <Workflow className="w-4 h-4 text-green-500/60" />
+                  <div className="w-8 h-8 rounded-lg bg-brand-500/[0.07] border border-brand-500/10 flex items-center justify-center">
+                    <Workflow className="w-4 h-4 text-brand-500/60" />
                   </div>
                   <h1 className="text-xl font-semibold text-white">{data.name}</h1>
                   <span className="text-[10px] font-mono text-neutral-600">v{data.version}</span>
@@ -536,7 +536,7 @@ export function FlowRunner() {
                   </div>
                 )}
                 {data.metadata?.description && (
-                  <div className="ml-10 text-sm text-neutral-400 prose prose-sm prose-invert max-w-none prose-a:text-green-400 prose-code:text-green-300">
+                  <div className="ml-10 text-sm text-neutral-400 prose prose-sm prose-invert max-w-none prose-a:text-brand-400 prose-code:text-brand-300">
                     <Markdown>{data.metadata.description}</Markdown>
                   </div>
                 )}
