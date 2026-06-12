@@ -133,7 +133,8 @@ export function FlowManager({ isOpen, onClose }: FlowManagerProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name,
-          jsonContent: { nodes: [], edges: [] },
+          nodes: [],
+          edges: [],
         }),
       });
       const json = await res.json();
