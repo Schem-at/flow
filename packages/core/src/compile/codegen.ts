@@ -36,13 +36,15 @@ function emitType(type: FlowType): string {
   switch (type.kind) {
     case 'number':
       return emitNumber(type);
-    case 'string':
+    case 'string': {
+      const props: string[] = [];
+      if (type.default !== undefined) props.push(`default: ${quote(type.default)}`);
+      if (type.required) props.push('required: true');
       if (type.multiline) {
-        return type.default !== undefined
-          ? `Textarea<{ default: ${quote(type.default)} }>`
-          : 'Textarea';
+        return props.length > 0 ? `Textarea<{ ${props.join('; ')} }>` : 'Textarea';
       }
-      return 'string';
+      return props.length > 0 ? `TextField<{ ${props.join('; ')} }>` : 'string';
+    }
     case 'boolean':
       return type.default !== undefined ? `Toggle<{ default: ${type.default} }>` : 'boolean';
     case 'enum':

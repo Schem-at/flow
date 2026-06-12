@@ -16,6 +16,8 @@ describe('EXAMPLE_BLOCKS', () => {
       'schemati-search',
       'schemati-fetch',
       'schemati-upload',
+      'pick-item',
+      'stitch-grid',
       'logic-lab',
       'noise-field',
       'voronoi-field',

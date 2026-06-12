@@ -47,10 +47,8 @@ function generate(inputs) {
       const tile = row[c];
       if (!tile || typeof tile.blocks !== 'function') continue;
       const dims = tile.get_dimensions();
-      for (const b of tile.blocks()) {
-        if (b.name === 'minecraft:air') continue;
-        stitched.set_block(offsetX + b.x, b.y, offsetZ + b.z, b.name);
-      }
+      // paste() copies every (non-air) block at the offset in one call.
+      stitched.paste(tile, offsetX, 0, offsetZ);
       offsetX += (dims[0] | 0) + spacing;
       rowDepth = Math.max(rowDepth, dims[2] | 0);
     }

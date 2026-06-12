@@ -127,7 +127,7 @@ export function parseAmbientDts(
 let cache: ApiGroup[] | null = null;
 
 /** Curated display order for the most-used groups; the rest follow A→Z. */
-const PRIORITY = ['Schematic', 'Schemati', 'Noise', 'Vec3', 'Vec2', 'SchematicUtils', 'Progress', 'Easing', 'Calculator', 'Pathfinding', 'Logger', 'Image', 'MchprsWorldWrapper'];
+const PRIORITY = ['Schematic', 'Schemati', 'Field', 'Image', 'Random', 'Noise', 'Vec3', 'Vec2', 'SchematicUtils', 'Progress', 'Easing', 'Calculator', 'Pathfinding', 'Logger', 'Image', 'MchprsWorldWrapper'];
 
 export function getApiDocs(): ApiGroup[] {
   if (cache) return cache;

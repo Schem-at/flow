@@ -45,7 +45,12 @@ function ambientizeNucleationDts(raw: string): string {
  * The live schematic class available inside blocks — nucleation's
  * SchematicWrapper with builder/enum helpers attached as statics.
  */
-declare class Schematic extends SchematicWrapper {}
+declare class Schematic extends SchematicWrapper {
+  /** Solid blocks only by default; pass { includeAir: true } for the raw list. */
+  blocks(options?: { includeAir?: boolean }): Array<{ x: number; y: number; z: number; name: string }>;
+  /** Copy every block of \`other\` into this schematic at an offset. Returns this. */
+  paste(other: Schematic, dx?: number, dy?: number, dz?: number): this;
+}
 declare namespace Schematic {
   export import SchematicBuilder = SchematicBuilderWrapper;
   export import ExecutionMode = ExecutionModeWrapper;
@@ -66,7 +71,10 @@ declare type Slider<C extends { min?: number; max?: number; step?: number; defau
 declare type NumberField<C extends { min?: number; max?: number; step?: number; default?: number } = {}> = number;
 
 /** A string edited with a multiline textarea widget. */
-declare type Textarea<C extends { default?: string } = {}> = string;
+declare type Textarea<C extends { default?: string; required?: boolean } = {}> = string;
+
+/** A single-line string input; required: true blocks runs while empty. */
+declare type TextField<C extends { default?: string; required?: boolean } = {}> = string;
 
 /** A boolean edited with a toggle widget. */
 declare type Toggle<C extends { default?: boolean } = {}> = boolean;
@@ -79,15 +87,91 @@ declare type Vec3Tuple = [number, number, number];
 
 // ---- Ambient runtime context (provided by the engine) ----
 
+/** A heightfield: number[][] indexed [z][x] — the worldgen currency. */
+declare type Field = number[][];
+
+/** Built-in colormap names for Image.fromField / Field.toImage. */
+declare type FieldPalette = 'grayscale' | 'viridis' | 'terrain' | 'magma';
+
 /** A 2D RGBA image: width × height pixels, 4 bytes per pixel. */
 declare class Image {
-  constructor(...args: any[]);
+  constructor(width: number, height: number, data?: Uint8ClampedArray);
   width: number;
   height: number;
   /** Raw RGBA bytes (Uint8ClampedArray, length = width * height * 4). */
   data: Uint8ClampedArray;
-  [key: string]: any;
+  /** Blank transparent image. */
+  static create(width: number, height: number): Image;
+  /** Render a heightfield through a palette (auto-normalized). */
+  static fromField(field: Field, palette?: FieldPalette, options?: { normalize?: boolean }): Image;
+  static palettes(): FieldPalette[];
+  setPixel(x: number, y: number, r: number, g: number, b: number, a?: number): this;
+  getPixel(x: number, y: number): [number, number, number, number];
+  fill(r: number, g: number, b: number, a?: number): this;
 }
+
+/** Heightfield toolkit — create, transform, and materialize number[][] fields. */
+declare const Field: {
+  /** width×height field filled by fn(x, z) (or a constant). */
+  create(width: number, height: number, fn?: number | ((x: number, z: number) => number)): Field;
+  /** width×height fractal-noise field in [0, 1] (octaves/frequency/persistence/lacunarity). */
+  fromNoise(width: number, height: number, options?: { octaves?: number; frequency?: number; persistence?: number; lacunarity?: number }): Field;
+  stats(field: Field): { min: number; max: number; width: number; height: number };
+  map(field: Field, fn: (value: number, x: number, z: number) => number): Field;
+  /** Element-wise combine (default a - b). */
+  combine(a: Field, b: Field, fn?: (a: number, b: number) => number): Field;
+  add(a: Field, b: Field): Field;
+  subtract(a: Field, b: Field): Field;
+  multiply(a: Field, b: Field): Field;
+  /** Rescale into [lo, hi] (default [0, 1]). */
+  normalize(field: Field, lo?: number, hi?: number): Field;
+  clamp(field: Field, lo: number, hi: number): Field;
+  /** Blend a→b by t. */
+  lerp(a: Field, b: Field, t: number): Field;
+  /** Quantize into N flat steps (terracing). */
+  terrace(field: Field, steps: number): Field;
+  /** Bilinear sample at fractional coordinates. */
+  sample(field: Field, x: number, z: number): number;
+  resize(field: Field, width: number, height: number): Field;
+  /** Paint into a NEW schematic: fill columns capped with surface. */
+  toTerrain(field: Field, options?: { maxHeight?: number; surface?: string; fill?: string }): Schematic;
+  /** Render through a palette as an Image. */
+  toImage(field: Field, palette?: FieldPalette): Image;
+};
+
+/** Deterministic hashing + seeded RNG — same inputs, same outputs, every run. */
+declare const Random: {
+  /** Hash (x, z, seed) → [0, 1). */
+  hash2(x: number, z: number, seed?: number): number;
+  /** Hash (x, y, z, seed) → [0, 1). */
+  hash3(x: number, y: number, z: number, seed?: number): number;
+  /** Seeded PRNG: returns () => number in [0, 1). */
+  seeded(seed?: number | string): () => number;
+  int(min: number, max: number, rng?: () => number): number;
+  pick<T>(items: T[], rng?: () => number): T;
+  shuffle<T>(items: T[], rng?: () => number): T[];
+};
+
+/** Tabular helpers (viewers already export CSV/PNG from rows outputs). */
+declare const Table: {
+  toCsv(rows: Array<Record<string, unknown>>, columns?: string[]): string;
+  sortBy(rows: Array<Record<string, unknown>>, column: string, direction?: 'asc' | 'desc'): Array<Record<string, unknown>>;
+};
+
+/** Builder for .mcfunction files (setblock/fill/block_display holograms). */
+declare const Mcfunction: {
+  builder(): {
+    comment(text: string): any;
+    raw(command: string): any;
+    setblock(pos: [number, number, number] | { x: number; y: number; z: number }, block: string, relative?: boolean): any;
+    fill(from: [number, number, number], to: [number, number, number], block: string, relative?: boolean): any;
+    /** Miniature block hologram at a relative offset with uniform scale. */
+    summonBlockDisplay(pos: [number, number, number] | { x: number; y: number; z: number }, block: string, scale?: number, tag?: string): any;
+    killTagged(tag: string): any;
+    size(): number;
+    toString(): string;
+  };
+};
 
 /** Worker-side logger — lines stream into the editor's execution log. */
 declare const Logger: {
@@ -228,6 +312,10 @@ declare const Progress: {
   /** Convenience: report(current/total). */
   step(current: number, total: number, message?: string): void;
   log(message: string, data?: unknown): void;
+  /** step(i+1, total) sugar for loops. */
+  tick(index: number, total: number, message?: string): void;
+  /** Iterate items, reporting progress per element. */
+  wrap<T, R>(items: T[], fn: (item: T, index: number) => R, message?: string): R[];
 };
 
 /** A* pathfinding over schematic block space. */
@@ -314,7 +402,7 @@ export function setupAmbientMonaco(monaco: {
 }
 
 /** Type-reference names the parser maps to widget-configured primitives. */
-export const WIDGET_HELPER_NAMES = ['Slider', 'NumberField', 'Textarea', 'Toggle'] as const;
+export const WIDGET_HELPER_NAMES = ['Slider', 'NumberField', 'Textarea', 'TextField', 'Toggle'] as const;
 
 /** Type-reference names the parser maps to domain FlowType kinds. */
 export const DOMAIN_TYPE_NAMES = ['Schematic', 'Block', 'Image', 'Vec3'] as const;

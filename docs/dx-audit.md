@@ -3,7 +3,12 @@
 Compiled while building and verifying every example block and flow
 (`client/src/lib/block/examples.ts`, `client/src/lib/exampleFlows.ts`).
 Each item names the friction, where it bites, and the proposed fix.
-Status: **proposal list** — nothing here is implemented yet unless marked.
+Status: **largely implemented** (flow @ post-toolkit). Done: air-default
+`blocks()`, `paste()`, `Field`, `Image`, `Random`, `Table.toCsv`, `Mcfunction`
+builder, `Progress.tick/wrap`, `TextField<{required}>` contracts, Pick Item +
+Stitch Grid blocks. Remaining: upstream nucleation asks (§4), migrating the
+rest of the worldgen examples to `Field`, explicit `FileOut` type, and a
+dedicated Worldgen palette category.
 
 ## 1. Ambient API gaps (functions blocks keep reimplementing)
 

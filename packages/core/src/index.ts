@@ -48,6 +48,13 @@ export { bytesToBase64, base64ToBytes } from './utils/base64.js';
 export { encodePng } from './utils/png.js';
 export { schematicPreviewPng } from './utils/schematic-preview.js';
 
+// Toolkit ambients (Field/Image/Random/Table/Mcfunction — docs/dx-audit.md)
+export { FieldOps, type FieldData } from './utils/field.js';
+export { FlowImage, type PaletteName } from './utils/image.js';
+export { Random } from './utils/random.js';
+export { Table } from './utils/table.js';
+export { Mcfunction, McfunctionBuilder } from './utils/mcfunction.js';
+
 // Runtime providers (pluggable endowments: nucleation, standard helpers)
 export {
   ProviderRegistry,

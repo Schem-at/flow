@@ -9,6 +9,7 @@ import { detectRuntimeEnvKind } from './types.js';
 import { standardProvider } from './standard.js';
 import { nucleationProvider } from './nucleation.js';
 import { schematiProvider } from './schemati.js';
+import { toolkitProvider } from './toolkit.js';
 
 export class ProviderRegistry {
   private providers: RuntimeProvider[] = [];
@@ -65,6 +66,8 @@ export function createDefaultRegistry(): ProviderRegistry {
   return new ProviderRegistry()
     .register(standardProvider)
     .register(nucleationProvider)
+    // After standard + nucleation: Field.fromNoise/toTerrain build on them.
+    .register(toolkitProvider)
     // After nucleation: Schemati.getSchematic rehydrates via the Schematic class.
     .register(schematiProvider);
 }

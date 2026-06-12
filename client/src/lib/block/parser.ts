@@ -270,7 +270,16 @@ function mapTypeReference(
     }
     case 'Textarea': {
       const c = config();
-      return pruned({ kind: 'string', multiline: true, default: asString(c.default) });
+      return pruned({
+        kind: 'string',
+        multiline: true,
+        default: asString(c.default),
+        required: asBoolean(c.required),
+      });
+    }
+    case 'TextField': {
+      const c = config();
+      return pruned({ kind: 'string', default: asString(c.default), required: asBoolean(c.required) });
     }
     case 'Toggle': {
       const c = config();

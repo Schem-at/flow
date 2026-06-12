@@ -16,7 +16,7 @@ export type FlowType =
       default?: number;
       widget?: 'input' | 'slider';
     }
-  | { kind: 'string'; default?: string; multiline?: boolean }
+  | { kind: 'string'; default?: string; multiline?: boolean; required?: boolean }
   | { kind: 'boolean'; default?: boolean }
   | { kind: 'enum'; options: Array<string | number>; default?: string | number }
   | { kind: 'block'; default?: string } // domain: a minecraft block id

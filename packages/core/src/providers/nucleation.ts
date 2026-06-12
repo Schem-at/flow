@@ -29,6 +29,36 @@ export const nucleationProvider: RuntimeProvider = {
     wrapPrototypeMethods(nucleation.BlockPosition, 'Schematic.BlockPosition');
     wrapPrototypeMethods(nucleation.DefinitionRegionWrapper, 'Schematic.DefinitionRegion');
 
+    // ── DX wrappers (see docs/dx-audit.md) ────────────────────────────────
+    const proto = (SchematicClass as { prototype: Record<string, any> }).prototype;
+
+    // blocks() excludes air by default — the #1 example-block footgun (every
+    // census/analysis block had to filter it manually). Pass { includeAir:
+    // true } for the raw list.
+    const rawBlocks = proto.blocks;
+    proto.blocks = function (this: unknown, options?: { includeAir?: boolean }) {
+      const all = rawBlocks.call(this);
+      return options?.includeAir
+        ? all
+        : all.filter((b: { name: string }) => b.name !== 'minecraft:air');
+    };
+
+    // paste(other, dx, dy, dz): centralized JS copy loop until nucleation
+    // exposes a native offset paste (block properties ride along when the
+    // block name string carries them).
+    proto.paste = function (
+      this: { set_block(x: number, y: number, z: number, name: string): void },
+      other: { blocks(): Array<{ x: number; y: number; z: number; name: string }> },
+      dx = 0,
+      dy = 0,
+      dz = 0
+    ) {
+      for (const b of other.blocks()) {
+        this.set_block(b.x + dx, b.y + dy, b.z + dz, b.name);
+      }
+      return this;
+    };
+
     const Schematic = SchematicClass as Record<string, unknown> & typeof SchematicClass;
     (Schematic as Record<string, unknown>).SchematicBuilder = wrapWasmClass(
       nucleation.SchematicBuilderWrapper,
