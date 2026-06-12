@@ -13,6 +13,7 @@ describe('EXAMPLE_FLOWS', () => {
       'example-logic-lab',
       'example-build-report',
       'example-worldgen',
+      'example-schemati-browser',
     ]);
   });
 

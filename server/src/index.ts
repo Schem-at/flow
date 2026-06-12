@@ -12,6 +12,7 @@ import flowsRouter from './routes/flows.js';
 import modulesRouter from './routes/modules.js';
 import executeRouter from './routes/execute.js';
 import apiV1Router from './routes/api-v1.js';
+import schematiProxy from './routes/schemati-proxy.js';
 import { executionService } from './services/execution.js';
 
 // Initialize database
@@ -53,7 +54,12 @@ export const app = new Hono()
 	.route('/api/flows', flowsRouter)
 	.route('/api/modules', modulesRouter)
 	.route('/api/execute', executeRouter)
-	
+
+	// Schemati platform passthrough (standalone dev) — must precede /api/v1
+	// so schematic search/download reach Laravel, not the flow API.
+	.route('/api/v1/schematics', schematiProxy)
+	.route('/api/tags', schematiProxy)
+
 	// API v1 Routes (with auth, OpenAPI, run tracking)
 	.route('/api/v1', apiV1Router);
 

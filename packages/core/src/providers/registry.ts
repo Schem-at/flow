@@ -8,6 +8,7 @@ import type { RuntimeProvider, RuntimeEnv } from './types.js';
 import { detectRuntimeEnvKind } from './types.js';
 import { standardProvider } from './standard.js';
 import { nucleationProvider } from './nucleation.js';
+import { schematiProvider } from './schemati.js';
 
 export class ProviderRegistry {
   private providers: RuntimeProvider[] = [];
@@ -44,7 +45,8 @@ export class ProviderRegistry {
     const context: Record<string, unknown> = {};
     for (const provider of this.providers) {
       try {
-        Object.assign(context, await provider.create(env));
+        // Later providers receive (and may build on) earlier endowments.
+        Object.assign(context, await provider.create(env, context));
       } catch (error) {
         throw new Error(
           `Provider '${provider.name}@${provider.version}' failed to initialize: ${(error as Error).message}`
@@ -60,5 +62,9 @@ export class ProviderRegistry {
  * Adding a domain library = one provider module + one .register() line here.
  */
 export function createDefaultRegistry(): ProviderRegistry {
-  return new ProviderRegistry().register(standardProvider).register(nucleationProvider);
+  return new ProviderRegistry()
+    .register(standardProvider)
+    .register(nucleationProvider)
+    // After nucleation: Schemati.getSchematic rehydrates via the Schematic class.
+    .register(schematiProvider);
 }

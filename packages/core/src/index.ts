@@ -52,11 +52,14 @@ export {
   createDefaultRegistry,
   standardProvider,
   nucleationProvider,
+  schematiProvider,
+  createSchematiClient,
   NUCLEATION_VERSION,
   detectRuntimeEnvKind,
   type RuntimeProvider,
   type RuntimeEnv,
   type ProgressReporter,
+  type SchematiSummary,
 } from './providers/index.js';
 
 // Utilities

@@ -859,6 +859,63 @@ function generate(inputs) {
 }
 `;
 
+const SCHEMATI_SEARCH = `type Inputs = {
+  tag: string;
+  search: string;
+  limit: Slider<{ min: 1; max: 50; default: 10 }>;
+};
+
+type Outputs = {
+  results: { name: string; id: string; format: string; tags: string; authors: string }[];
+  firstId: string;
+  count: number;
+};
+
+// Searches the schemati platform. In the browser this rides your session;
+// on the server it uses SCHEMATI_URL / SCHEMATI_API_TOKEN.
+async function generate(inputs) {
+  const found = await Schemati.searchSchematics({
+    tag: inputs.tag || undefined,
+    search: inputs.search || undefined,
+    limit: inputs.limit,
+  });
+
+  const results = found.map((s) => ({
+    name: s.name,
+    id: s.shortId || s.id,
+    format: s.format,
+    tags: s.tags.join(', '),
+    authors: s.authors.join(', '),
+  }));
+
+  return {
+    results,
+    firstId: found.length ? (found[0].shortId || found[0].id) : '',
+    count: found.length,
+  };
+}
+`;
+
+const SCHEMATI_FETCH = `type Inputs = {
+  id: string;
+};
+
+type Outputs = {
+  schematic: Schematic;
+  name: string;
+};
+
+// Downloads a schematic from the platform by id, short id, or slug and
+// loads it as a live Schematic (one download, parsed locally).
+async function generate(inputs) {
+  if (!inputs.id) throw new Error('Provide a schematic id, short id, or slug');
+  const file = await Schemati.getSchematicData(inputs.id);
+  const schematic = new Schematic();
+  schematic.from_data(file.data);
+  return { schematic, name: file.metadata.name };
+}
+`;
+
 export const EXAMPLE_BLOCKS: ExampleBlock[] = [
   {
     id: 'redstone-bus',
@@ -908,6 +965,20 @@ export const EXAMPLE_BLOCKS: ExampleBlock[] = [
     description:
       'Turns a schematic into a tiny block_display hologram: an .mcfunction you can paste into a datapack.',
     source: HOLOGRAM_MCFUNCTION,
+  },
+  {
+    id: 'schemati-search',
+    name: 'Schemati Search',
+    description:
+      'Searches schematics on the schemati platform by tag or text — outputs a result table and the first match id.',
+    source: SCHEMATI_SEARCH,
+  },
+  {
+    id: 'schemati-fetch',
+    name: 'Schemati Fetch',
+    description:
+      'Downloads a schematic from the platform (by id, short id, or slug) as a live Schematic.',
+    source: SCHEMATI_FETCH,
   },
   {
     id: 'logic-lab',
@@ -965,6 +1036,34 @@ const FIELD_TYPE = {
  * guarded by tests asserting these equal what the parser derives.
  */
 export const EXAMPLE_BLOCK_CONTRACTS: Record<string, BlockContract> = {
+  'schemati-search': {
+    inputs: {
+      tag: { kind: 'string' },
+      search: { kind: 'string' },
+      limit: { kind: 'number', widget: 'slider', min: 1, max: 50, default: 10 },
+    },
+    outputs: {
+      results: {
+        kind: 'list',
+        of: {
+          kind: 'object',
+          fields: {
+            name: { kind: 'string' },
+            id: { kind: 'string' },
+            format: { kind: 'string' },
+            tags: { kind: 'string' },
+            authors: { kind: 'string' },
+          },
+        },
+      },
+      firstId: { kind: 'string' },
+      count: { kind: 'number' },
+    },
+  },
+  'schemati-fetch': {
+    inputs: { id: { kind: 'string' } },
+    outputs: { schematic: { kind: 'schematic' }, name: { kind: 'string' } },
+  },
   'redstone-bus': {
     inputs: {
       length: { kind: 'number', widget: 'slider', min: 1, max: 128, default: 16 },

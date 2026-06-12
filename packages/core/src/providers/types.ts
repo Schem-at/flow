@@ -16,6 +16,11 @@ export interface RuntimeEnv {
   progressCallback?: (message: string, percent?: number, data?: unknown) => void;
   /** Seed for deterministic providers (Noise). */
   seed?: string | number;
+  /**
+   * Schemati platform access (the Schemati ambient). Browser workers default
+   * to same-origin; node workers fall back to SCHEMATI_URL / SCHEMATI_API_TOKEN.
+   */
+  schemati?: { baseUrl?: string; token?: string };
 }
 
 export interface RuntimeProvider {
@@ -26,8 +31,10 @@ export interface RuntimeProvider {
   /**
    * Called once per worker; returns the endowments to inject (e.g. { Schematic, … }).
    * Heavy init (WASM) happens here, in trusted scope, and is cached by the registry.
+   * `context` holds the endowments assembled by earlier providers, so a later
+   * provider can build on them (e.g. Schemati.getSchematic uses Schematic).
    */
-  create(env: RuntimeEnv): Promise<Record<string, unknown>>;
+  create(env: RuntimeEnv, context?: Record<string, unknown>): Promise<Record<string, unknown>>;
 }
 
 export function detectRuntimeEnvKind(): RuntimeEnv['kind'] {

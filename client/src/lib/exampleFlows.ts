@@ -1264,6 +1264,100 @@ export const WORLDGEN_FLOW: FlowData = {
   ],
 };
 
+/**
+ * Schemati Browser — talks to the host platform: search schematics by tag,
+ * download the top hit, and inspect it. The Schemati ambient rides the page
+ * session in the browser and SCHEMATI_URL/SCHEMATI_API_TOKEN on the server,
+ * so the same flow works in the editor, tool mode, and the API.
+ */
+const SCHEMATI_SEARCH_SOURCE = EXAMPLE_BLOCKS.find((b) => b.id === 'schemati-search')!.source;
+const SCHEMATI_FETCH_SOURCE = EXAMPLE_BLOCKS.find((b) => b.id === 'schemati-fetch')!.source;
+const SCHEMATI_SEARCH_CONTRACT = EXAMPLE_BLOCK_CONTRACTS['schemati-search'];
+const SCHEMATI_FETCH_CONTRACT = EXAMPLE_BLOCK_CONTRACTS['schemati-fetch'];
+
+export const SCHEMATI_BROWSER_FLOW: FlowData = {
+  id: 'example-schemati-browser',
+  name: 'Schemati Browser',
+  version: '1.0.0',
+  createdAt: 0,
+  nodes: [
+    {
+      id: 'sb-tag',
+      type: 'input',
+      position: { x: 0, y: 0 },
+      data: {
+        label: 'tag',
+        value: 'door',
+        dataType: 'string',
+        widgetType: 'text',
+        description: 'Platform tag name to filter by',
+      },
+    },
+    {
+      id: 'sb-limit',
+      type: 'input',
+      position: { x: 0, y: 160 },
+      data: {
+        label: 'limit',
+        value: 10,
+        dataType: 'number',
+        widgetType: 'slider',
+        min: 1,
+        max: 50,
+        step: 1,
+      },
+    },
+    {
+      id: 'sb-search',
+      type: 'code',
+      position: { x: 320, y: 0 },
+      data: {
+        label: 'Schemati Search',
+        code: SCHEMATI_SEARCH_SOURCE,
+        contract: SCHEMATI_SEARCH_CONTRACT,
+        io: contractToIO(SCHEMATI_SEARCH_CONTRACT),
+      },
+    },
+    {
+      id: 'sb-results-viewer',
+      type: 'viewer',
+      position: { x: 800, y: 260 },
+      data: { label: 'Search results', isResizable: true },
+    },
+    {
+      id: 'sb-fetch',
+      type: 'code',
+      position: { x: 800, y: 0 },
+      data: {
+        label: 'Schemati Fetch',
+        code: SCHEMATI_FETCH_SOURCE,
+        contract: SCHEMATI_FETCH_CONTRACT,
+        io: contractToIO(SCHEMATI_FETCH_CONTRACT),
+      },
+    },
+    {
+      id: 'sb-preview',
+      type: 'viewer',
+      position: { x: 1260, y: 0 },
+      data: { label: 'Top match', isResizable: true },
+    },
+    {
+      id: 'sb-out',
+      type: 'output',
+      position: { x: 1260, y: 380 },
+      data: { label: 'schematic' },
+    },
+  ],
+  edges: [
+    { id: 'sb-e1', source: 'sb-tag', target: 'sb-search', sourceHandle: 'output', targetHandle: 'tag' },
+    { id: 'sb-e2', source: 'sb-limit', target: 'sb-search', sourceHandle: 'output', targetHandle: 'limit' },
+    { id: 'sb-e3', source: 'sb-search', target: 'sb-results-viewer', sourceHandle: 'results', targetHandle: 'input' },
+    { id: 'sb-e4', source: 'sb-search', target: 'sb-fetch', sourceHandle: 'firstId', targetHandle: 'id' },
+    { id: 'sb-e5', source: 'sb-fetch', target: 'sb-preview', sourceHandle: 'schematic', targetHandle: 'input' },
+    { id: 'sb-e6', source: 'sb-fetch', target: 'sb-out', sourceHandle: 'schematic', targetHandle: 'input' },
+  ],
+};
+
 export const EXAMPLE_FLOWS: FlowData[] = [
   JULIA_STITCH_FLOW,
   MAZE_FLOW,
@@ -1272,4 +1366,5 @@ export const EXAMPLE_FLOWS: FlowData[] = [
   LOGIC_LAB_FLOW,
   BUILD_REPORT_FLOW,
   WORLDGEN_FLOW,
+  SCHEMATI_BROWSER_FLOW,
 ];

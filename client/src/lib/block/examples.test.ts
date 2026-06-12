@@ -13,6 +13,8 @@ describe('EXAMPLE_BLOCKS', () => {
       'julia-grid',
       'block-census',
       'hologram-mcfunction',
+      'schemati-search',
+      'schemati-fetch',
       'logic-lab',
       'noise-field',
       'voronoi-field',
