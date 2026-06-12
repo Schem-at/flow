@@ -27,7 +27,14 @@ declare const self: Worker;
 
 export type ExecutionWorkerRequest =
   | { kind: 'script'; code: string; inputs: Record<string, unknown>; timeout: number }
-  | { kind: 'flow'; flow: FlowData; timeout: number }
+  | {
+      kind: 'flow';
+      flow: FlowData;
+      timeout: number;
+      /** Pre-compiled folded script (whole graph as one block) + overrides. */
+      folded?: { source: string; hash: string; nodeOrder: string[] };
+      inputs?: Record<string, unknown>;
+    }
   | { kind: 'validate'; code: string };
 
 export type ExecutionWorkerEventName =
@@ -205,6 +212,71 @@ async function handleFlow(
   });
 
   const engine = new PolymeraseEngine({ contextProviders, timeout: req.timeout });
+
+  // ── folded fast path: the whole graph as ONE script — no per-node engine
+  // walk, intermediates (incl. WASM schematics) stay as live locals.
+  if (req.folded) {
+    try {
+      emit('log', {
+        level: 'info',
+        message: `Executing folded flow ${req.folded.hash} (${req.folded.nodeOrder.length} blocks: ${req.folded.nodeOrder.join(' → ')})`,
+        timestamp: Date.now(),
+      });
+      const startTime = Date.now();
+      const scriptResult = await engine.executeScript(req.folded.source, req.inputs ?? {});
+      if (scriptResult.success) {
+        const outputs: FlowOutputEntry[] = [];
+        for (const [key, value] of Object.entries(scriptResult.result ?? {})) {
+          if (isSchematicWrapper(value)) {
+            const bytes = value.to_schematic();
+            outputs.push({
+              key,
+              kind: 'schem',
+              base64: Buffer.from(bytes).toString('base64'),
+              size: bytes.length,
+            });
+          } else if (value instanceof Uint8Array || ArrayBuffer.isView(value)) {
+            const bytes = toBytes(value as ArrayBufferView);
+            outputs.push({
+              key,
+              kind: 'binary',
+              base64: Buffer.from(bytes).toString('base64'),
+              size: bytes.length,
+            });
+          } else {
+            outputs.push({ key, kind: 'value', value: safeJson(value) });
+          }
+        }
+        engine.destroy();
+        return {
+          status: 'completed',
+          startTime,
+          endTime: Date.now(),
+          errorNode: null,
+          resultSnapshot: safeJson({
+            folded: true,
+            hash: req.folded.hash,
+            nodeOrder: req.folded.nodeOrder,
+            executionTime: scriptResult.executionTime,
+          }),
+          outputs,
+        };
+      }
+      // Folded run failed — fall through to the per-node engine so a folding
+      // bug can never break a flow that the engine would have run.
+      emit('log', {
+        level: 'warn',
+        message: `Folded execution failed (${scriptResult.error?.message}) — falling back to per-node engine`,
+        timestamp: Date.now(),
+      });
+    } catch (error) {
+      emit('log', {
+        level: 'warn',
+        message: `Folded execution threw (${(error as Error).message}) — falling back to per-node engine`,
+        timestamp: Date.now(),
+      });
+    }
+  }
 
   // Stream engine events back to the spawner (JSON-safe payloads only)
   engine.events.on('node:start', (e) => {

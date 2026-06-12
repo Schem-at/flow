@@ -15,6 +15,7 @@ import {
   type RunRecord,
 } from '../db/index.js';
 import type { FlowData } from '@flow/core';
+import { getFoldedFlow } from './flowFolding.js';
 import type {
   Run,
   RunStatus,
@@ -309,13 +310,45 @@ export class ExecutionService {
       let completedNodes = 0;
       const timeout = options.timeout || 60000;
 
+      // Fold the ORIGINAL flow (stable hash across requests; inputs are passed
+      // to the folded script by name) and reuse the compiled script per hash.
+      // Constant inputs keep their baked values — they can't be overridden.
+      const fold = getFoldedFlow(flow);
+      const constantLabels = new Set(
+        flow.nodes
+          .filter(
+            (n) =>
+              ['input', 'static_input', 'number_input', 'text_input', 'boolean_input', 'select_input'].includes(n.type) &&
+              n.data.config?.isConstant
+          )
+          .map((n) => n.data.label || n.id)
+      );
+      const foldedInputs = Object.fromEntries(
+        Object.entries(inputs).filter(([key]) => !constantLabels.has(key))
+      );
+      if (fold.folded) {
+        logs.push({
+          timestamp: Date.now(),
+          level: 'info',
+          message: `Folded flow ${fold.folded.hash} (${fold.cached ? 'cache hit' : 'compiled'}, ${fold.folded.nodeOrder.length} blocks)`,
+        });
+      }
+
       // Execute in a killable one-shot worker — user code never runs on the
       // main server thread. Events (logs, node progress) are streamed back.
       const startTime = Date.now();
       let result: FlowWorkerResult;
       try {
         result = await runInExecutionWorker<FlowWorkerResult>(
-          { kind: 'flow', flow: flowWithInputs, timeout },
+          {
+            kind: 'flow',
+            flow: flowWithInputs,
+            timeout,
+            folded: fold.folded
+              ? { source: fold.folded.source, hash: fold.folded.hash, nodeOrder: fold.folded.nodeOrder }
+              : undefined,
+            inputs: foldedInputs,
+          },
           {
             timeoutMs: timeout + EXECUTION_WORKER_GRACE_MS,
             registerKill: (kill) => this.activeKills.set(runId, kill),

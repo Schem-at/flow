@@ -10,6 +10,7 @@ import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
 import { db, flows, executions, schematics, type NewExecution, type NewSchematic } from '../db/index.js';
 import type { FlowData } from '@flow/core';
+import { getFoldedFlow } from '../services/flowFolding.js';
 import {
   runInExecutionWorker,
   EXECUTION_WORKER_GRACE_MS,
@@ -59,10 +60,33 @@ executeRouter.post('/', async (c) => {
     const timeout = 60000;
     const logs: string[] = [];
 
+    // Fold the graph into a single script (cached by content hash) — the
+    // worker falls back to the per-node engine if folding was skipped/fails.
+    const fold = getFoldedFlow(flow);
+    if (fold.folded) {
+      logs.push(
+        `⚡ Folded flow ${fold.folded.hash} (${fold.cached ? 'cache hit' : 'compiled'}, ${fold.folded.nodeOrder.length} blocks)`
+      );
+    } else if (fold.reason) {
+      logs.push(`ℹ Folding skipped: ${fold.reason} — using per-node engine`);
+    }
+
     let result: FlowWorkerResult;
     try {
       result = await runInExecutionWorker<FlowWorkerResult>(
-        { kind: 'flow', flow, timeout },
+        {
+          kind: 'flow',
+          flow,
+          timeout,
+          folded: fold.folded
+            ? {
+                source: fold.folded.source,
+                hash: fold.folded.hash,
+                nodeOrder: fold.folded.nodeOrder,
+              }
+            : undefined,
+          inputs: (body as { inputs?: Record<string, unknown> }).inputs,
+        },
         {
           timeoutMs: timeout + EXECUTION_WORKER_GRACE_MS,
           onEvent: (event) => {

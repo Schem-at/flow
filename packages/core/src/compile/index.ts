@@ -9,6 +9,14 @@
 
 import { transform } from 'sucrase';
 
+export {
+  compileFlow,
+  hashFlow,
+  FlowCompileError,
+  type CompiledFlow,
+  type FlowLike,
+} from './flow-compiler.js';
+
 export class BlockCompileError extends Error {
   constructor(message: string) {
     super(message);

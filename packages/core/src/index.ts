@@ -27,8 +27,13 @@ export {
   isBlockSource,
   BlockCompileError,
   SYNTHASE_BASE_CONTEXT_KEYS,
+  compileFlow,
+  hashFlow,
+  FlowCompileError,
   type CompiledBlock,
   type CompileOptions,
+  type CompiledFlow,
+  type FlowLike,
 } from './compile/index.js';
 
 // Runtime providers (pluggable endowments: nucleation, standard helpers)

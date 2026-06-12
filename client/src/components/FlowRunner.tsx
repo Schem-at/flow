@@ -8,9 +8,32 @@ import {
 import Markdown from 'react-markdown';
 import { Navbar } from './layout/Navbar';
 import { useLocalExecutor } from '../hooks/useLocalExecutor';
-import type { BlockContract } from '@flow/core';
-import { defaultInputsForContract } from '@flow/core';
+import type { BlockContract, CompiledFlow, FlowLike } from '@flow/core';
+import { defaultInputsForContract, compileFlow, hashFlow } from '@flow/core';
 import SchematicRenderer from './others/SchematicRenderer';
+
+/**
+ * Tool-mode flow folding: compile the whole graph into ONE script per content
+ * hash and run it in a single worker call — no per-node serialization
+ * round-trips. Falls back to the per-node walk when folding isn't possible
+ * (e.g. module-ref nodes whose code lives on the server).
+ */
+const foldCache = new Map<string, CompiledFlow>();
+function getFoldedFlowCached(flow: FlowLike | null): CompiledFlow | null {
+  if (!flow) return null;
+  try {
+    const hash = hashFlow(flow);
+    const hit = foldCache.get(hash);
+    if (hit) return hit;
+    const folded = compileFlow(flow);
+    foldCache.set(hash, folded);
+    if (foldCache.size > 20) foldCache.delete(foldCache.keys().next().value!);
+    return folded;
+  } catch (error) {
+    console.log('[FlowRunner] folding unavailable:', (error as Error).message);
+    return null;
+  }
+}
 import { cacheFile, getCachedFile } from '../lib/fileCache';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || '';
@@ -281,6 +304,21 @@ export function FlowRunner() {
       const preparedInputs = { ...inputs };
       for (const [key, val] of Object.entries(preparedInputs)) {
         preparedInputs[key] = await prepareFileInput(val);
+      }
+
+      // ── folded fast path: one worker call for the whole graph ────────────
+      const folded = getFoldedFlowCached(
+        data?.jsonContent ? ({ nodes: data.jsonContent.nodes, edges } as FlowLike) : null
+      );
+      if (folded) {
+        console.log(`[FlowRunner] folded run ${folded.hash}: ${folded.nodeOrder.join(' → ')}`);
+        const rawResult = await executeScript(folded.source, preparedInputs);
+        if (!rawResult.success) {
+          throw new Error(rawResult.error?.message || 'Flow execution failed');
+        }
+        setExecutionTime(performance.now() - start);
+        setOutputs(flattenResult(rawResult));
+        return;
       }
 
       const executionOrder = getExecutionOrder();
