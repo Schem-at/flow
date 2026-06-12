@@ -25,3 +25,9 @@ CLAUDE.md
 .claude/
 docs/superpowers/
 **/superpowers/
+
+# Local SQLite database (runtime state)
+server/data/*.db
+server/data/*.db-shm
+server/data/*.db-wal
+node-compile-cache/
