@@ -15,6 +15,7 @@ import type {
   ExecutionError,
 } from './types/index.js';
 import { defaultInputsForContract } from './types/index.js';
+import { assetNodeValue, isAssetNodeData } from './utils/assets.js';
 import { SynthaseService, type ContextProviders } from './services/SynthaseService.js';
 
 export interface EngineOptions {
@@ -305,6 +306,17 @@ export class PolymeraseEngine {
             success: true,
             result: { schematic: node.data.value, output: node.data.value },
           };
+          break;
+        }
+
+        case 'asset': {
+          // Bundled asset (base64 in node data) → runtime value
+          if (!isAssetNodeData(node.data)) {
+            result = { success: true, result: {} };
+            break;
+          }
+          const value = assetNodeValue(node.data);
+          result = { success: true, result: { output: value, default: value } };
           break;
         }
 

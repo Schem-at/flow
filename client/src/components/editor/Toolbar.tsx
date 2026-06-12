@@ -18,6 +18,7 @@ import {
   PanelLeftOpen,
   GripVertical,
   Package,
+  Archive,
 } from 'lucide-react';
 import { useFlowStore, type FlowNode } from '../../store/flowStore';
 import { ModuleBrowser } from './ModuleBrowser';
@@ -113,6 +114,15 @@ const nodeCategories: { name: string; nodes: NodeTemplate[] }[] = [
         color: 'text-orange-400',
         bg: 'bg-orange-500/10',
         border: 'border-orange-500/20',
+      },
+      {
+        type: 'asset',
+        label: 'Asset',
+        Icon: Archive,
+        description: 'Bundle a schematic/image inside the flow',
+        color: 'text-amber-400',
+        bg: 'bg-amber-500/10',
+        border: 'border-amber-500/20',
       },
     ],
   },

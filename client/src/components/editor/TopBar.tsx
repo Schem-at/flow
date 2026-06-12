@@ -21,6 +21,7 @@ import {
   Search,
   Settings,
   ExternalLink,
+  Package,
 } from 'lucide-react';
 import { useFlowStore } from '../../store/flowStore';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -178,6 +179,43 @@ export function TopBar({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [saveMutation]);
 
+  /**
+   * Fold the whole flow into a single typed block and publish it as a module
+   * — it then drops into other flows as one node with the flow's inputs as
+   * ports.
+   */
+  const [publishState, setPublishState] = useState<'idle' | 'publishing' | 'done' | 'error'>('idle');
+  const handlePublishAsModule = async () => {
+    setShowFileMenu(false);
+    setPublishState('publishing');
+    try {
+      const { compileFlow } = await import('@flow/core');
+      const { contractToIO } = await import('../../lib/block/io-compat');
+      const flowData = exportFlow();
+      const folded = compileFlow(flowData as Parameters<typeof compileFlow>[0]);
+      const res = await fetch(`${SERVER_URL}/api/modules`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          name: flowData.name || 'Folded flow',
+          code: folded.source,
+          io_schema: contractToIO(folded.contract),
+          description: `Folded flow (${folded.nodeOrder.length} blocks: ${folded.nodeOrder.join(' → ')})`,
+          visibility: 'private',
+        }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || 'Module creation failed');
+      setPublishState('done');
+      setTimeout(() => setPublishState('idle'), 2500);
+    } catch (error) {
+      console.error('Publish flow as module failed:', error);
+      setPublishState('error');
+      setTimeout(() => setPublishState('idle'), 4000);
+    }
+  };
+
   const handleExportToFile = () => {
     const flowData = exportFlow();
     const json = JSON.stringify(flowData, null, 2);
@@ -196,7 +234,21 @@ export function TopBar({
 
   return (
     <div className="h-14 border-b border-white/5 bg-[#0a0a0a] flex items-center justify-between px-4 z-50 relative select-none">
-      
+      {/* Publish-as-module status */}
+      {publishState !== 'idle' && (
+        <div
+          className={`absolute left-1/2 top-16 z-50 -translate-x-1/2 rounded-lg border px-3 py-1.5 text-xs shadow-lg ${
+            publishState === 'error'
+              ? 'border-red-500/40 bg-red-950/90 text-red-300'
+              : 'border-cyan-500/40 bg-neutral-900/95 text-cyan-300'
+          }`}
+        >
+          {publishState === 'publishing' && 'Folding flow & publishing module…'}
+          {publishState === 'done' && '✓ Published as module — find it in the Modules tab'}
+          {publishState === 'error' && 'Publishing failed — see console'}
+        </div>
+      )}
+
       {/* Left: Logo & Flow Info */}
       <div className="flex items-center gap-4">
         {isMobile && (
@@ -320,6 +372,13 @@ export function TopBar({
                     </button>
                     <button onClick={handleExportToFile} className="w-full text-left px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-800 hover:text-white flex items-center gap-2 transition-colors">
                       <Download className="w-4 h-4" /> Export JSON
+                    </button>
+                    <button
+                      onClick={handlePublishAsModule}
+                      className="w-full text-left px-3 py-2 text-sm text-cyan-300 hover:bg-neutral-800 hover:text-cyan-200 flex items-center gap-2 transition-colors"
+                      title="Fold the whole flow into one typed block and publish it as a reusable module"
+                    >
+                      <Package className="w-4 h-4" /> Publish flow as module
                     </button>
                   </div>
                 </>

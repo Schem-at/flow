@@ -18,7 +18,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import type { Edge } from '@xyflow/react';
 import type { BlockContract } from '@flow/core';
-import { defaultInputsForContract } from '@flow/core';
+import { defaultInputsForContract, isAssetNodeData, assetNodeValue } from '@flow/core';
 import { missingRequiredInputs, missingInputsMessage } from '../../lib/validateRequiredInputs';
 import { type FlowNode } from '../../store/flowStore';
 
@@ -652,10 +652,23 @@ export function Editor() {
           continue;
         }
 
+        // Bundled assets: decode the stored base64 to the runtime value
+        if (node.type === 'asset') {
+          if (isAssetNodeData(node.data)) {
+            const value = assetNodeValue(node.data);
+            const output = { output: value, default: value };
+            nodeOutputs.set(node.id, output);
+            setNodeExecutionStatus(node.id, 'completed', output);
+          } else {
+            setNodeExecutionStatus(node.id, 'error', undefined, createSimpleError('Asset node has no file — pick one'));
+          }
+          continue;
+        }
+
         // Handle code nodes - execute as chain if part of multi-node chain
         if (node.type === 'code') {
           const chainId = nodeToChain.get(node.id);
-          
+
           // Skip if we already executed this chain
           if (chainId && executedChains.has(chainId)) {
             continue;
@@ -692,7 +705,7 @@ export function Editor() {
               const incomingEdges = edges.filter(e => e.target === nodeId && !chainNodeSet.has(e.source));
               for (const edge of incomingEdges) {
                 const sourceNode = nodes.find(n => n.id === edge.source);
-                if (sourceNode && (sourceNode.type?.includes('input') || sourceNode.type === 'code')) {
+                if (sourceNode && (sourceNode.type?.includes('input') || sourceNode.type === 'code' || sourceNode.type === 'asset')) {
                   inputNodeIds.add(edge.source);
                 }
               }
@@ -1261,6 +1274,19 @@ export function Editor() {
 
           nodeOutputs.set(node.id, output);
           setNodeExecutionStatus(node.id, 'completed', output);
+          continue;
+        }
+
+        // Bundled assets: decode the stored base64 to the runtime value
+        if (node.type === 'asset') {
+          if (isAssetNodeData(node.data)) {
+            const value = assetNodeValue(node.data);
+            const output = { output: value, default: value };
+            nodeOutputs.set(node.id, output);
+            setNodeExecutionStatus(node.id, 'completed', output);
+          } else {
+            setNodeExecutionStatus(node.id, 'error', undefined, createSimpleError('Asset node has no file — pick one'));
+          }
           continue;
         }
 

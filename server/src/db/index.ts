@@ -68,6 +68,29 @@ export function initializeDatabase() {
       created_at INTEGER NOT NULL
     );
 
+    -- Modules table
+    CREATE TABLE IF NOT EXISTS modules (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      slug TEXT NOT NULL UNIQUE,
+      description TEXT,
+      visibility TEXT NOT NULL DEFAULT 'private',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER
+    );
+
+    -- Module Versions table
+    CREATE TABLE IF NOT EXISTS module_versions (
+      id TEXT PRIMARY KEY,
+      module_id TEXT NOT NULL REFERENCES modules(id),
+      version_number TEXT NOT NULL,
+      code TEXT NOT NULL,
+      io_schema TEXT,
+      change_note TEXT,
+      is_latest INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    );
+
     -- API Keys table
     CREATE TABLE IF NOT EXISTS api_keys (
       id TEXT PRIMARY KEY,
@@ -145,6 +168,8 @@ export function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS idx_executions_flow_id ON executions(flow_id);
     CREATE INDEX IF NOT EXISTS idx_schematics_flow_id ON schematics(flow_id);
     CREATE INDEX IF NOT EXISTS idx_schematics_execution_id ON schematics(execution_id);
+    CREATE INDEX IF NOT EXISTS idx_modules_slug ON modules(slug);
+    CREATE INDEX IF NOT EXISTS idx_module_versions_module_id ON module_versions(module_id);
     CREATE INDEX IF NOT EXISTS idx_api_keys_key_hash ON api_keys(key_hash);
     CREATE INDEX IF NOT EXISTS idx_api_keys_key_prefix ON api_keys(key_prefix);
     CREATE INDEX IF NOT EXISTS idx_flow_apis_flow_id ON flow_apis(flow_id);

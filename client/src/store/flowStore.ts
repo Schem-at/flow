@@ -454,6 +454,12 @@ export const useFlowStore = create<FlowState>((set, get) => ({
         if (dataType === 'boolean') return { kind: 'boolean' };
         if (dataType === 'string') return { kind: 'string' };
       }
+      if (node.type === 'asset' && direction === 'source') {
+        const assetKind = data.assetKind as string | undefined;
+        if (assetKind === 'image') return { kind: 'image' };
+        if (assetKind === 'schematic') return { kind: 'schematic' };
+        // unknown/binary payload — let it connect anywhere
+      }
       return null;
     };
 

@@ -36,6 +36,14 @@ export {
   type FlowLike,
 } from './compile/index.js';
 
+// Flow assets (binary payloads bundled inside flows via asset nodes)
+export {
+  assetNodeValue,
+  isAssetNodeData,
+  type AssetNodeData,
+} from './utils/assets.js';
+export { bytesToBase64, base64ToBytes } from './utils/base64.js';
+
 // Runtime providers (pluggable endowments: nucleation, standard helpers)
 export {
   ProviderRegistry,

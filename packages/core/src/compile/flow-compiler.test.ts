@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { compileFlow, hashFlow, FlowCompileError, type FlowLike } from './flow-compiler.js';
 import { compileBlock } from './index.js';
+import { bytesToBase64 } from '../utils/base64.js';
 
 /** Run a folded flow source through the real block pipeline. */
 async function runFolded(
@@ -128,6 +129,82 @@ describe('compileFlow', () => {
     expect(folded.outputs).toEqual(['sum']);
     const result = await runFolded(folded.source, {});
     expect(result).toEqual({ sum: 13 });
+  });
+
+  it('derives a publishable contract for the folded flow', () => {
+    const folded = compileFlow(chainFlow());
+    expect(folded.contract).toEqual({
+      inputs: { x: { kind: 'string', default: undefined } }, // input node has no dataType in this fixture
+      outputs: { result: { kind: 'number' } },
+    });
+
+    const typedFlow = chainFlow();
+    typedFlow.nodes[0].data = {
+      ...typedFlow.nodes[0].data,
+      dataType: 'number',
+      widgetType: 'slider',
+      min: 0,
+      max: 20,
+      step: 1,
+    };
+    const typedFolded = compileFlow(typedFlow);
+    expect(typedFolded.contract.inputs.x).toEqual({
+      kind: 'number',
+      widget: 'slider',
+      min: 0,
+      max: 20,
+      step: 1,
+      default: 5,
+    });
+  });
+
+  it('bakes bundled assets into the folded script (self-contained)', async () => {
+    const payload = new Uint8Array([1, 2, 3, 250, 251, 252, 7]);
+    const reader = `type Inputs = { blob: Schematic };
+type Outputs = { sum: number; len: number };
+function generate(inputs) {
+  let sum = 0;
+  for (const b of inputs.blob.data) sum += b;
+  return { sum, len: inputs.blob.data.length };
+}
+`;
+    const flow: FlowLike = {
+      nodes: [
+        {
+          id: 'the-asset',
+          type: 'asset',
+          data: {
+            label: 'base',
+            assetKind: 'binary',
+            format: 'bin',
+            base64: bytesToBase64(payload),
+            name: 'base.bin',
+          },
+        },
+        {
+          id: 'read',
+          type: 'code',
+          data: {
+            label: 'Reader',
+            code: reader,
+            contract: {
+              inputs: { blob: { kind: 'schematic' } },
+              outputs: { sum: { kind: 'number' }, len: { kind: 'number' } },
+            },
+          },
+        },
+      ],
+      edges: [{ source: 'the-asset', target: 'read', sourceHandle: 'output', targetHandle: 'blob' }],
+    };
+    const folded = compileFlow(flow);
+    expect(folded.source).toContain('__b64('); // decoder + baked payload
+    const result = await runFolded(folded.source, {});
+    expect(result).toEqual({ sum: 1 + 2 + 3 + 250 + 251 + 252 + 7, len: 7 });
+
+    // asset content participates in the hash
+    const changed = JSON.parse(JSON.stringify(flow)) as FlowLike;
+    changed.nodes[0].data.base64 = bytesToBase64(new Uint8Array([9, 9, 9]));
+    expect(hashFlow(changed)).not.toBe(hashFlow(flow));
   });
 
   it('rejects cycles', () => {

@@ -44,6 +44,33 @@ export const schematics = sqliteTable('schematics', {
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 });
 
+/**
+ * Modules table - reusable code modules published from the editor
+ */
+export const modules = sqliteTable('modules', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  slug: text('slug').notNull().unique(),
+  description: text('description'),
+  visibility: text('visibility').notNull().default('private'), // 'private' | 'public'
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }),
+});
+
+/**
+ * Module Versions table - versioned code + IO schema for modules
+ */
+export const moduleVersions = sqliteTable('module_versions', {
+  id: text('id').primaryKey(),
+  moduleId: text('module_id').notNull().references(() => modules.id),
+  versionNumber: text('version_number').notNull(),
+  code: text('code').notNull(),
+  ioSchema: text('io_schema'), // JSON { inputs, outputs }
+  changeNote: text('change_note'),
+  isLatest: integer('is_latest', { mode: 'boolean' }).notNull().default(false),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+});
+
 // ============================================================================
 // API Execution Tables
 // ============================================================================
@@ -157,6 +184,10 @@ export type Execution = typeof executions.$inferSelect;
 export type NewExecution = typeof executions.$inferInsert;
 export type Schematic = typeof schematics.$inferSelect;
 export type NewSchematic = typeof schematics.$inferInsert;
+export type Module = typeof modules.$inferSelect;
+export type NewModule = typeof modules.$inferInsert;
+export type ModuleVersion = typeof moduleVersions.$inferSelect;
+export type NewModuleVersion = typeof moduleVersions.$inferInsert;
 export type ApiKey = typeof apiKeys.$inferSelect;
 export type NewApiKey = typeof apiKeys.$inferInsert;
 export type FlowApiRecord = typeof flowApis.$inferSelect;

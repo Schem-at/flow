@@ -27,6 +27,8 @@ executeRouter.post('/', async (c) => {
   try {
     const body = await c.req.json();
     const { flowData, flowId } = body;
+    /** Escape hatch / benchmarking: `fold: false` forces the per-node engine. */
+    const foldEnabled = body.fold !== false;
 
     let flow: FlowData;
 
@@ -62,7 +64,9 @@ executeRouter.post('/', async (c) => {
 
     // Fold the graph into a single script (cached by content hash) — the
     // worker falls back to the per-node engine if folding was skipped/fails.
-    const fold = getFoldedFlow(flow);
+    const fold = foldEnabled
+      ? getFoldedFlow(flow)
+      : { folded: null, cached: false, reason: 'disabled by request' as const };
     if (fold.folded) {
       logs.push(
         `⚡ Folded flow ${fold.folded.hash} (${fold.cached ? 'cache hit' : 'compiled'}, ${fold.folded.nodeOrder.length} blocks)`

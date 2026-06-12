@@ -9,7 +9,7 @@ import Markdown from 'react-markdown';
 import { Navbar } from './layout/Navbar';
 import { useLocalExecutor } from '../hooks/useLocalExecutor';
 import type { BlockContract, CompiledFlow, FlowLike } from '@flow/core';
-import { defaultInputsForContract, compileFlow, hashFlow } from '@flow/core';
+import { defaultInputsForContract, compileFlow, hashFlow, isAssetNodeData, assetNodeValue } from '@flow/core';
 import SchematicRenderer from './others/SchematicRenderer';
 
 /**
@@ -222,6 +222,9 @@ export function FlowRunner() {
         // Input node — get from user inputs
         const label = sourceNode.data.label || sourceNode.id;
         resolved[handleName] = inputs[label];
+      } else if (sourceNode.type === 'asset' && isAssetNodeData(sourceNode.data)) {
+        // Bundled asset — decode from the flow itself, no user input needed
+        resolved[handleName] = assetNodeValue(sourceNode.data);
       } else if (sourceNode.type === 'code') {
         // Code node — get from its outputs
         const prevOutputs = nodeOutputs.get(sourceNode.id);
@@ -307,9 +310,13 @@ export function FlowRunner() {
       }
 
       // ── folded fast path: one worker call for the whole graph ────────────
-      const folded = getFoldedFlowCached(
-        data?.jsonContent ? ({ nodes: data.jsonContent.nodes, edges } as FlowLike) : null
-      );
+      // (?fold=0 forces the per-node walk, for comparison/debugging)
+      const foldDisabled = new URLSearchParams(window.location.search).get('fold') === '0';
+      const folded = foldDisabled
+        ? null
+        : getFoldedFlowCached(
+            data?.jsonContent ? ({ nodes: data.jsonContent.nodes, edges } as FlowLike) : null
+          );
       if (folded) {
         console.log(`[FlowRunner] folded run ${folded.hash}: ${folded.nodeOrder.join(' → ')}`);
         const rawResult = await executeScript(folded.source, preparedInputs);

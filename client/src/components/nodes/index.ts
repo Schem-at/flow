@@ -10,6 +10,7 @@ import ViewerNode from './ViewerNode';
 import FileInputNode from './FileInputNode';
 import FileOutputNode from './FileOutputNode';
 import SubflowNode from './SubflowNode';
+import AssetNode from './AssetNode';
 
 export const nodeTypes = {
   // Core nodes
@@ -24,6 +25,9 @@ export const nodeTypes = {
   
   // Viewer node - accepts any input
   viewer: ViewerNode,
+
+  // Bundled binary asset (saved inside the flow)
+  asset: AssetNode,
   
   // Subflow node - embedded reusable flows
   subflow: SubflowNode,
@@ -44,4 +48,4 @@ export const nodeTypes = {
   schematic_viewer: SchematicNode,
 };
 
-export { CodeNode, InputNode, OutputNode, SchematicNode, ViewerNode, FileInputNode, FileOutputNode, SubflowNode };
+export { CodeNode, InputNode, OutputNode, SchematicNode, ViewerNode, FileInputNode, FileOutputNode, SubflowNode, AssetNode };

@@ -9,6 +9,7 @@ import { logger } from 'hono/logger';
 import type { ApiResponse } from 'shared/dist';
 import { initializeDatabase } from './db/index.js';
 import flowsRouter from './routes/flows.js';
+import modulesRouter from './routes/modules.js';
 import executeRouter from './routes/execute.js';
 import apiV1Router from './routes/api-v1.js';
 import { executionService } from './services/execution.js';
@@ -50,6 +51,7 @@ export const app = new Hono()
 
 	// API Routes
 	.route('/api/flows', flowsRouter)
+	.route('/api/modules', modulesRouter)
 	.route('/api/execute', executeRouter)
 	
 	// API v1 Routes (with auth, OpenAPI, run tracking)

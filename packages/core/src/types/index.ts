@@ -148,6 +148,7 @@ export type NodeType =
   | 'boolean_input'     // Toggle switch
   | 'select_input'      // Dropdown selection
   | 'input'             // Generic input (with dataType)
+  | 'asset'             // Bundled binary asset (base64 in node data)
   // Legacy schematic nodes (deprecated - use file_input/file_output)
   | 'schematic_input'   // @deprecated - Load schematic file
   | 'schematic_output'  // @deprecated - Export schematic file

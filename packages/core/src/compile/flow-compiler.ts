@@ -17,6 +17,8 @@
 import { stripTypes } from './index.js';
 import type { BlockContract, FlowType } from '../types/flow-type.js';
 import { defaultValueForType } from '../types/flow-type.js';
+import { BASE64_DECODER_SOURCE } from '../utils/base64.js';
+import { isAssetNodeData, type AssetNodeData } from '../utils/assets.js';
 
 export class FlowCompileError extends Error {
   constructor(message: string) {
@@ -61,6 +63,46 @@ export interface CompiledFlow {
   outputs: string[];
   /** Execution order of code nodes (labels), for diagnostics. */
   nodeOrder: string[];
+  /**
+   * FlowType contract for the folded flow — inputs derived from the input
+   * nodes' widgets, outputs from the producing ports. This is what makes a
+   * folded flow publishable as a MODULE (a reusable typed block).
+   */
+  contract: BlockContract;
+}
+
+/** Derive the FlowType of an input node from its widget configuration. */
+function inputNodeFlowType(node: FlowNodeLike): FlowType {
+  const data = node.data as {
+    dataType?: string;
+    widgetType?: string;
+    min?: number;
+    max?: number;
+    step?: number;
+    options?: string[];
+    value?: unknown;
+  };
+  if (data.dataType === 'number') {
+    return {
+      kind: 'number',
+      widget: data.widgetType === 'slider' ? 'slider' : 'input',
+      min: data.min,
+      max: data.max,
+      step: data.step,
+      default: typeof data.value === 'number' ? data.value : undefined,
+    };
+  }
+  if (data.dataType === 'boolean') {
+    return { kind: 'boolean', default: data.value === true ? true : undefined };
+  }
+  if (data.options && data.options.length) {
+    return {
+      kind: 'enum',
+      options: data.options,
+      default: typeof data.value === 'string' ? data.value : undefined,
+    };
+  }
+  return { kind: 'string', default: typeof data.value === 'string' ? data.value : undefined };
 }
 
 const INPUT_TYPES = new Set([
@@ -85,6 +127,10 @@ export function hashFlow(flow: FlowLike): string {
         label: n.data.label ?? null,
         contract: n.data.contract ?? null,
         passthrough: n.data.passthrough ?? false,
+        // bundled assets are execution-relevant content
+        asset: isAssetNodeData(n.data)
+          ? { kind: n.data.assetKind, format: n.data.format, base64: n.data.base64 }
+          : null,
       }))
       .sort((a, b) => (a.id < b.id ? -1 : 1)),
     edges: [...flow.edges]
@@ -118,6 +164,7 @@ export function compileFlow(flow: FlowLike): CompiledFlow {
   const nodes = new Map(flow.nodes.map((n) => [n.id, n]));
   const codeNodes = flow.nodes.filter((n) => n.type === 'code');
   const inputNodes = flow.nodes.filter((n) => INPUT_TYPES.has(n.type));
+  const assetNodes = flow.nodes.filter((n) => n.type === 'asset' && isAssetNodeData(n.data));
   const outputNodes = flow.nodes.filter((n) => OUTPUT_TYPES.has(n.type));
   const viewerNodes = new Set(
     flow.nodes.filter((n) => n.type === 'viewer').map((n) => n.id)
@@ -181,6 +228,10 @@ export function compileFlow(flow: FlowLike): CompiledFlow {
     blockVar.set(id, `__block_${sanitizeId(id, used)}`);
     resultVar.set(id, `__r_${sanitizeId(id, used)}`);
   }
+  const assetVar = new Map<string, string>(); // asset node id → baked const
+  for (const node of assetNodes) {
+    assetVar.set(node.id, `__asset_${sanitizeId(node.id, used)}`);
+  }
   const inputVar = new Map<string, string>(); // input node id → local var
   const flowInputs: Record<string, unknown> = {};
   const usedInputNames = new Set<string>();
@@ -194,6 +245,28 @@ export function compileFlow(flow: FlowLike): CompiledFlow {
     (node as FlowNodeLike & { __flowInputName?: string }).__flowInputName = name;
   }
 
+  /** FlowType of the value flowing out of `sourceId.sourceHandle`. */
+  const sourceType = (sourceId: string, sourceHandle: string | null | undefined): FlowType => {
+    const real = resolveThroughViewers(sourceId);
+    const node = real ? nodes.get(real) : undefined;
+    if (!node) return { kind: 'unknown' };
+    if (INPUT_TYPES.has(node.type)) return inputNodeFlowType(node);
+    if (node.type === 'asset' && isAssetNodeData(node.data)) {
+      return node.data.assetKind === 'image'
+        ? { kind: 'image' }
+        : node.data.assetKind === 'schematic'
+          ? { kind: 'schematic' }
+          : { kind: 'unknown' };
+    }
+    if (node.type === 'code') {
+      const outputs = node.data.contract!.outputs;
+      const keys = Object.keys(outputs);
+      const key = sourceHandle && keys.includes(sourceHandle) ? sourceHandle : keys.length === 1 ? keys[0] : sourceHandle;
+      return (key && outputs[key]) || { kind: 'unknown' };
+    }
+    return { kind: 'unknown' };
+  };
+
   /** Expression that yields the value flowing out of `sourceId.sourceHandle`. */
   const sourceExpression = (sourceId: string, sourceHandle: string | null | undefined): string => {
     const real = resolveThroughViewers(sourceId);
@@ -203,6 +276,11 @@ export function compileFlow(flow: FlowLike): CompiledFlow {
 
     if (INPUT_TYPES.has(node.type)) {
       return inputVar.get(real)!;
+    }
+    if (node.type === 'asset') {
+      const name = assetVar.get(real);
+      if (!name) throw new FlowCompileError(`Asset node "${node.data.label || real}" has no data`);
+      return name;
     }
     if (node.type === 'code') {
       const contract = node.data.contract!;
@@ -228,6 +306,32 @@ export function compileFlow(flow: FlowLike): CompiledFlow {
   lines.push('// Folded flow — compiled from the node graph. Each block keeps its own');
   lines.push('// scope via an IIFE; edges are plain variables (no serialization).');
   lines.push('');
+
+  // ── bundled assets, baked as self-contained literals ────────────────────
+  if (assetNodes.length) {
+    lines.push(BASE64_DECODER_SOURCE);
+    lines.push('');
+    for (const node of assetNodes) {
+      const asset = node.data as unknown as AssetNodeData;
+      lines.push(`// ── asset: ${node.data.label || asset.name || node.id} ──`);
+      if (asset.assetKind === 'image') {
+        lines.push(
+          `const ${assetVar.get(node.id)} = (function () { const b = __b64(${literal(asset.base64)}); return { width: ${literal(asset.width)}, height: ${literal(asset.height)}, data: new Uint8ClampedArray(b.buffer, b.byteOffset, b.byteLength) }; })();`
+        );
+      } else if (asset.assetKind === 'schematic') {
+        // Rehydrate to a live wrapper using the ambient Schematic class —
+        // baked consts never pass through processInputSchematics.
+        lines.push(
+          `const ${assetVar.get(node.id)} = (function () { const s = new Schematic(); s.from_data(__b64(${literal(asset.base64)})); return s; })();`
+        );
+      } else {
+        lines.push(
+          `const ${assetVar.get(node.id)} = { format: ${literal(asset.format)}, data: __b64(${literal(asset.base64)}), metadata: { name: ${literal(asset.name ?? node.data.label ?? 'asset')} } };`
+        );
+      }
+      lines.push('');
+    }
+  }
 
   for (const id of order) {
     const node = nodes.get(id)!;
@@ -311,11 +415,36 @@ export function compileFlow(flow: FlowLike): CompiledFlow {
   lines.push(`  return { ${outputEntries.join(', ')} };`);
   lines.push('}');
 
+  // ── contract for the folded flow (publishable as a module) ──────────────
+  const contract: BlockContract = { inputs: {}, outputs: {} };
+  for (const node of inputNodes) {
+    const name = (node as FlowNodeLike & { __flowInputName?: string }).__flowInputName!;
+    contract.inputs[name] = inputNodeFlowType(node);
+  }
+  for (const node of outputNodes) {
+    const edge = flow.edges.find((e) => e.target === node.id);
+    if (!edge) continue;
+    const name = outputs.find(
+      (n) => n === (node.data.label || 'output') || n.startsWith(`${node.data.label || 'output'}_`)
+    );
+    if (name) contract.outputs[name] = sourceType(edge.source, edge.sourceHandle);
+  }
+  if (Object.keys(contract.outputs).length === 0) {
+    const terminals = order.filter((id) => !(downstream.get(id) ?? []).length);
+    for (const id of terminals) {
+      const node = nodes.get(id)!;
+      for (const [key, type] of Object.entries(node.data.contract!.outputs)) {
+        if (outputs.includes(key)) contract.outputs[key] = type;
+      }
+    }
+  }
+
   return {
     source: lines.join('\n'),
     hash: hashFlow(flow),
     inputs: flowInputs,
     outputs,
     nodeOrder: order.map((id) => nodes.get(id)!.data.label || id),
+    contract,
   };
 }
