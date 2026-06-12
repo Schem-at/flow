@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@flow/core": "workspace:*",
+    "@flow/synthase": "workspace:*",
     "@radix-ui/react-dialog": "^1.1.7",
     "@radix-ui/react-dropdown-menu": "^2.1.7",
     "@radix-ui/react-slot": "^1.2.3",
