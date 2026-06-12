@@ -51,6 +51,47 @@ export function contractToIO(contract: BlockContract): IODefinition {
   } as IODefinition;
 }
 
+/** Best-effort inverse: legacy port → FlowType (widget info is lossy). */
+export function legacyPortToFlowType(port: IOPort): FlowType {
+  switch (port.type) {
+    case 'number':
+      return {
+        kind: 'number',
+        min: port.min,
+        max: port.max,
+        step: port.step,
+        default: port.default as number | undefined,
+        // A bounded number renders best as a slider; bare numbers stay plain.
+        widget: port.min !== undefined && port.max !== undefined ? 'slider' : undefined,
+      };
+    case 'string':
+      if (port.options?.length) {
+        return { kind: 'enum', options: port.options, default: port.default as string | undefined };
+      }
+      return { kind: 'string', default: port.default as string | undefined };
+    case 'boolean':
+      return { kind: 'boolean', default: port.default as boolean | undefined };
+    case 'schematic':
+      return { kind: 'schematic' };
+    case 'array':
+      return { kind: 'list', of: { kind: 'unknown' } };
+    default:
+      return { kind: 'unknown' };
+  }
+}
+
+/**
+ * Legacy IODefinition → BlockContract, for module records published before
+ * folded sources carried type declarations. Prefer parsing the code itself.
+ */
+export function ioToContract(io: IODefinition): BlockContract {
+  const map = (record: Record<string, IOPort> | undefined) =>
+    Object.fromEntries(
+      Object.entries(record ?? {}).map(([k, p]) => [k, legacyPortToFlowType(p)])
+    );
+  return { inputs: map(io.inputs), outputs: map(io.outputs) };
+}
+
 /** Contract matching DEFAULT_BLOCK_SOURCE — new nodes get typed ports immediately. */
 export const DEFAULT_BLOCK_CONTRACT: BlockContract = {
   inputs: {

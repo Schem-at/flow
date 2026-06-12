@@ -131,6 +131,23 @@ describe('compileFlow', () => {
     expect(result).toEqual({ sum: 13 });
   });
 
+  it('emits type declarations so the folded source is a parseable v2 block', () => {
+    const typedFlow = chainFlow();
+    typedFlow.nodes[0].data = {
+      ...typedFlow.nodes[0].data,
+      dataType: 'number',
+      widgetType: 'slider',
+      min: 0,
+      max: 20,
+      step: 1,
+    };
+    const folded = compileFlow(typedFlow);
+    // Contract is embedded as real type syntax — widgets, bounds, defaults.
+    expect(folded.source).toMatch(/^type Inputs = \{/);
+    expect(folded.source).toContain('x: Slider<{ min: 0; max: 20; step: 1; default: 5 }>;');
+    expect(folded.source).toContain('type Outputs = {\n  result: number;\n};');
+  });
+
   it('derives a publishable contract for the folded flow', () => {
     const folded = compileFlow(chainFlow());
     expect(folded.contract).toEqual({

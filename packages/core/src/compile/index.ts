@@ -17,6 +17,8 @@ export {
   type FlowLike,
 } from './flow-compiler.js';
 
+export { contractToTypeScript, composeBlockSource } from './codegen.js';
+
 export class BlockCompileError extends Error {
   constructor(message: string) {
     super(message);

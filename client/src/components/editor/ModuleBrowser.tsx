@@ -10,6 +10,8 @@ import {
   GripVertical
 } from 'lucide-react';
 import { useFlowStore } from '../../store/flowStore';
+import { parseBlockSource } from '../../lib/block/parser';
+import { ioToContract } from '../../lib/block/io-compat';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL ?? '';
 
@@ -59,14 +61,26 @@ export function ModuleBrowser() {
   });
 
   const handleInsertModule = useCallback(async (module: ModuleItem) => {
-    // Fetch IO schema from the module
+    // Fetch IO schema + contract from the module. The code is the source of
+    // truth (folded sources carry type declarations); legacy modules without
+    // parseable types fall back to the stored io schema.
     let io = null;
+    let contract = null;
     try {
       const res = await fetch(`${SERVER_URL}/api/modules/${module.id}/resolve`, { credentials: 'include' });
       const json = await res.json();
       if (json.success && json.ioSchema) {
         io = json.ioSchema;
       }
+      if (json.success && json.code) {
+        try {
+          const parsed = await parseBlockSource(json.code);
+          if (Object.keys(parsed.contract.inputs).length || Object.keys(parsed.contract.outputs).length) {
+            contract = parsed.contract;
+          }
+        } catch {}
+      }
+      if (!contract && io) contract = ioToContract(io);
     } catch {}
 
     const maxX = nodes.reduce((max, n) => Math.max(max, (n.position?.x || 0)), 0);
@@ -88,6 +102,7 @@ export function ModuleBrowser() {
           pinned: false,
         },
         io,
+        contract,
       },
     });
   }, [addNode, nodes]);

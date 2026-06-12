@@ -384,6 +384,49 @@ export function Editor() {
     return () => window.removeEventListener('module-updated', handler);
   }, []);
 
+  // Heal module nodes that lost their ports (older flows, or contracts wiped
+  // by pre-fix versions): re-derive contract+io from the resolved module code,
+  // falling back to the module's stored io schema for typeless legacy sources.
+  const healedModuleNodesRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    for (const node of nodes) {
+      const data = node.data as Record<string, unknown>;
+      const ref = data.moduleRef as { id: string; version?: string; pinned?: boolean } | undefined;
+      if (!ref?.id || healedModuleNodesRef.current.has(node.id)) continue;
+      const contract = data.contract as { inputs?: object; outputs?: object } | undefined;
+      const hasPorts = !!(
+        contract &&
+        (Object.keys(contract.inputs ?? {}).length || Object.keys(contract.outputs ?? {}).length)
+      );
+      if (hasPorts) continue;
+      healedModuleNodesRef.current.add(node.id);
+
+      const SERVER_URL = import.meta.env.VITE_SERVER_URL || '';
+      const vParam = ref.pinned && ref.version ? `?version=${encodeURIComponent(ref.version)}` : '';
+      fetch(`${SERVER_URL}/api/modules/${ref.id}/resolve${vParam}`, { credentials: 'include' })
+        .then((r) => r.json())
+        .then(async (json) => {
+          if (!json.success) return;
+          const { parseBlockSource } = await import('../../lib/block/parser');
+          const { ioToContract, contractToIO } = await import('../../lib/block/io-compat');
+          let healed = null;
+          if (json.code) {
+            try {
+              const parsed = await parseBlockSource(json.code);
+              if (Object.keys(parsed.contract.inputs).length || Object.keys(parsed.contract.outputs).length) {
+                healed = parsed.contract;
+              }
+            } catch { /* legacy source without type declarations */ }
+          }
+          if (!healed && json.ioSchema) healed = ioToContract(json.ioSchema);
+          if (healed) {
+            useFlowStore.getState().updateNodeData(node.id, { contract: healed, io: contractToIO(healed) });
+          }
+        })
+        .catch(() => healedModuleNodesRef.current.delete(node.id));
+    }
+  }, [nodes]);
+
   /**
    * Get nodes in topological order for execution
    * Returns nodes from inputs → code → viewers

@@ -30,6 +30,8 @@ export {
   compileFlow,
   hashFlow,
   FlowCompileError,
+  contractToTypeScript,
+  composeBlockSource,
   type CompiledBlock,
   type CompileOptions,
   type CompiledFlow,

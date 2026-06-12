@@ -227,6 +227,20 @@ export function CodePanel({ nodeId, onClose, isFullscreen, onToggleFullscreen }:
       const contract = parsedBlock.contract;
       const io = contractToIO(contract);
       setValidation({ status: 'valid', io, contract });
+
+      // Legacy module sources have no type declarations, so the parse yields
+      // an empty contract — don't let that wipe the ports the node already has.
+      const current = useFlowStore.getState().nodes.find((n) => n.id === nodeId);
+      const parsedEmpty =
+        Object.keys(contract.inputs).length === 0 && Object.keys(contract.outputs).length === 0;
+      const hasExistingPorts = !!(
+        current?.data?.contract &&
+        (Object.keys(current.data.contract.inputs ?? {}).length ||
+          Object.keys(current.data.contract.outputs ?? {}).length)
+      ) || !!(current?.data as { io?: { inputs?: object } } | undefined)?.io?.inputs &&
+        Object.keys((current?.data as { io?: { inputs?: object } }).io?.inputs ?? {}).length > 0;
+      if (current?.data?.moduleRef && parsedEmpty && hasExistingPorts) return;
+
       updateNodeData(nodeId, { io, contract });
     } catch (error) {
       const err = error as Error;

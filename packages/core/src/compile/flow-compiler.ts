@@ -15,6 +15,7 @@
  */
 
 import { stripTypes } from './index.js';
+import { contractToTypeScript } from './codegen.js';
 import type { BlockContract, FlowType } from '../types/flow-type.js';
 import { defaultValueForType } from '../types/flow-type.js';
 import { BASE64_DECODER_SOURCE } from '../utils/base64.js';
@@ -440,7 +441,10 @@ export function compileFlow(flow: FlowLike): CompiledFlow {
   }
 
   return {
-    source: lines.join('\n'),
+    // Type declarations first: the folded source is a canonical v2 block, so
+    // the parser (and therefore module insertion / the workbench) can derive
+    // the full contract — widgets, defaults and all — from the code alone.
+    source: `${contractToTypeScript(contract)}\n\n${lines.join('\n')}`,
     hash: hashFlow(flow),
     inputs: flowInputs,
     outputs,
