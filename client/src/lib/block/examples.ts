@@ -11,6 +11,8 @@ export interface ExampleBlock {
   name: string;
   description: string;
   source: string;
+  /** 'platform' blocks surface in their own palette category (Schemati). */
+  category?: 'platform';
 }
 
 const REDSTONE_BUS = `type Inputs = {
@@ -1007,24 +1009,27 @@ export const EXAMPLE_BLOCKS: ExampleBlock[] = [
   },
   {
     id: 'schemati-search',
-    name: 'Schemati Search',
+    name: 'Search',
     description:
       'Searches schematics on the schemati platform by tag or text — outputs a result table and the first match id.',
     source: SCHEMATI_SEARCH,
+    category: 'platform',
   },
   {
     id: 'schemati-fetch',
-    name: 'Schemati Fetch',
+    name: 'Fetch',
     description:
       'Downloads a schematic from the platform (by id, short id, or slug) as a live Schematic.',
     source: SCHEMATI_FETCH,
+    category: 'platform',
   },
   {
     id: 'schemati-upload',
-    name: 'Schemati Upload',
+    name: 'Upload',
     description:
       'Publishes a schematic to the platform with tags and an auto-generated preview — sign in required in the browser.',
     source: SCHEMATI_UPLOAD,
+    category: 'platform',
   },
   {
     id: 'logic-lab',

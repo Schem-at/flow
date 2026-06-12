@@ -55,6 +55,7 @@ import { CommandPalette } from '../ui/CommandPalette';
 import { MobileNodeDrawer } from './MobileNodeDrawer';
 import { useLocalExecutor } from '../../hooks/useLocalExecutor';
 import { parseExecutionError, createSimpleError } from '../../lib/utils';
+import { hashExecutionInputs } from '../../lib/inputHash';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL ?? '';
 
@@ -347,6 +348,13 @@ export function Editor() {
   }, [undo, redo, canUndo, canRedo, handleDuplicateNode, handleCopyNodes, handlePasteNodes, handleZoomToFit]);
   
   const { executeScript, executeSubflow, workerClient } = useLocalExecutor();
+
+  // Live-mode value cache: skip re-executing a node when its code AND resolved
+  // input VALUES are unchanged, even if upstream re-ran. Invalidation is
+  // graph-based (any change marks all downstream stale), so without this a
+  // tag tweak re-downloads and re-renders an identical fetched schematic on
+  // every keystroke — the main-thread rehydrate+remesh is what freezes the UI.
+  const liveValueCacheRef = useRef<Map<string, { hash: string; output: Record<string, unknown> }>>(new Map());
 
   // Module code resolution cache + helper
   const moduleCodeCacheRef = useRef<Map<string, string>>(new Map());
@@ -1386,6 +1394,18 @@ export function Editor() {
             continue;
           }
 
+          // Same code + same resolved input values → reuse the previous result
+          // instead of re-executing (and re-downloading / re-rendering).
+          const liveHash = hashExecutionInputs(code, inputValues);
+          const cachedByValue = liveValueCacheRef.current.get(node.id);
+          if (cachedByValue && cachedByValue.hash === liveHash) {
+            nodeOutputs.set(node.id, cachedByValue.output);
+            setNodeExecutionStatus(node.id, 'completed', cachedByValue.output);
+            markNodeCached(node.id);
+            addExecutionLog(`"${nodeLabel}": inputs unchanged — reused previous result`);
+            continue;
+          }
+
           // Mark as running
           setExecutingNodeId(node.id);
           setNodeExecutionStatus(node.id, 'running');
@@ -1426,10 +1446,11 @@ export function Editor() {
             }
 
             nodeOutputs.set(node.id, finalResult);
+            liveValueCacheRef.current.set(node.id, { hash: liveHash, output: finalResult });
             setNodeExecutionStatus(node.id, 'completed', finalResult, undefined, executionTime);
             addExecutionLog(`[OK] "${nodeLabel}" completed in ${executionTime}ms`);
           } else {
-            const executionError = result.error 
+            const executionError = result.error
               ? parseExecutionError(result.error, node.data.code)
               : createSimpleError('Unknown execution error');
             setNodeExecutionStatus(node.id, 'error', undefined, executionError);
@@ -1563,14 +1584,21 @@ export function Editor() {
     }
   }, [nodes, edges, nodeCache, setIsExecuting, clearExecutionLogs, addExecutionLog, setNodeExecutionStatus, setExecutingNodeId, executeScript, getExecutionOrder, findCodeChains, getNodesToExecute, markNodeCached, workerClient]);
 
-  // Listen for live execution triggers (when execution mode is 'live')
+  // Listen for live execution triggers (when execution mode is 'live').
+  // Triggers that land mid-run are NOT dropped: they set a pending flag and
+  // re-run once the current pass finishes, so the final tweak always lands.
+  const pendingLiveRunRef = useRef(false);
   useEffect(() => {
-    const handleLiveExecution = (event: CustomEvent) => {
+    const handleLiveExecution = async (event: CustomEvent) => {
       console.log('[Live] Execution triggered by:', event.detail);
-      // Use incremental run for live execution
-      if (!isExecuting) {
-        handleIncrementalRun();
+      if (isExecuting) {
+        pendingLiveRunRef.current = true;
+        return;
       }
+      do {
+        pendingLiveRunRef.current = false;
+        await handleIncrementalRun();
+      } while (pendingLiveRunRef.current);
     };
 
     window.addEventListener('polymerase:liveExecutionTrigger', handleLiveExecution as EventListener);

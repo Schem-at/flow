@@ -19,6 +19,7 @@ import {
   GripVertical,
   Package,
   Archive,
+  Globe,
 } from 'lucide-react';
 import { useFlowStore, type FlowNode } from '../../store/flowStore';
 import { ModuleBrowser } from './ModuleBrowser';
@@ -141,9 +142,29 @@ const nodeCategories: { name: string; nodes: NodeTemplate[] }[] = [
     ],
   },
   {
+    // Platform primitives: ready-made blocks that talk to schemati
+    // (search / fetch / upload), droppable like any other node.
+    name: 'Schemati',
+    nodes: EXAMPLE_BLOCKS.filter((b) => b.category === 'platform').map((example) => ({
+      type: 'code',
+      label: example.name,
+      Icon: Globe,
+      description: example.description,
+      color: 'text-sky-400',
+      bg: 'bg-sky-500/10',
+      border: 'border-sky-500/20',
+      config: {
+        label: `Schemati ${example.name}`,
+        code: example.source,
+        contract: EXAMPLE_BLOCK_CONTRACTS[example.id],
+        io: contractToIO(EXAMPLE_BLOCK_CONTRACTS[example.id]),
+      },
+    })),
+  },
+  {
     // Every example block, droppable as a ready-made node with typed ports.
     name: 'Examples',
-    nodes: EXAMPLE_BLOCKS.map((example) => ({
+    nodes: EXAMPLE_BLOCKS.filter((b) => !b.category).map((example) => ({
       type: 'code',
       label: example.name,
       Icon: Zap,
