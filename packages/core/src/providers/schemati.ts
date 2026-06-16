@@ -13,6 +13,7 @@
 
 import type { RuntimeProvider, RuntimeEnv } from './types.js';
 import { schematicPreviewPng } from '../utils/schematic-preview.js';
+import { PROVIDER_DECLARATIONS, PROVIDER_ENDOWMENT_KEYS } from '../runtime-types.js';
 
 export interface SchematiSummary {
   id: string;
@@ -263,12 +264,28 @@ export function createSchematiClient(env: RuntimeEnv, context: Record<string, un
     return summarize((json.data as Record<string, unknown>) ?? json);
   };
 
-  return { searchSchematics, getSchematic, getSchematicData, getTags, uploadSchematic };
+  /** Fetch + load a schematic in one step. */
+  const loadSchematic = async (idOrSlug: string): Promise<{ schematic: unknown; name: string }> => {
+    const data = await getSchematicData(idOrSlug);
+    const SchematicClass = context.Schematic as { fromData(d: Uint8Array): unknown } | undefined;
+    if (!SchematicClass?.fromData) {
+      throw new Error('Schemati.loadSchematic needs the nucleation provider (Schematic class).');
+    }
+    return { schematic: SchematicClass.fromData(data.data), name: data.metadata.name };
+  };
+
+  /** Prefer shortId, fall back to id — the display reference for any result. */
+  const displayId = (item: { shortId?: string; id?: string } | null | undefined): string =>
+    item?.shortId || item?.id || '';
+
+  return { searchSchematics, getSchematic, getSchematicData, getTags, uploadSchematic, loadSchematic, displayId };
 }
 
 export const schematiProvider: RuntimeProvider = {
   name: 'schemati',
   version: '1.0.0',
+  endowmentKeys: () => PROVIDER_ENDOWMENT_KEYS.schemati,
+  declarations: () => PROVIDER_DECLARATIONS.schemati,
 
   async create(env: RuntimeEnv, context: Record<string, unknown> = {}) {
     return { Schemati: createSchematiClient(env, context) };

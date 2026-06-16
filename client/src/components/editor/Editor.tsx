@@ -5,6 +5,7 @@ import { uuid } from '../../lib/uuid';
 
 import { useCallback, useRef, useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { layoutWithElk } from '../../lib/layout';
 import { useQuery } from '@tanstack/react-query';
 import {
   ReactFlow,
@@ -37,6 +38,7 @@ import {
   Eye,
   Home,
   Book,
+  Wand2,
 } from 'lucide-react';
 import { useFlowStore } from '../../store/flowStore';
 import { nodeTypes } from '../nodes';
@@ -49,6 +51,7 @@ import { NodePropertiesPanel } from './NodePropertiesPanel';
 import { FlowManager } from './FlowManager';
 import { ApiPanel } from './ApiPanel';
 import { FlowSettings } from './FlowSettings';
+import { features } from '../../config/features';
 import { Modal } from '../ui/Modal';
 import { ShortcutsModal } from '../ui/ShortcutsModal';
 import { CommandPalette } from '../ui/CommandPalette';
@@ -97,6 +100,25 @@ export function Editor() {
     getNodesToExecute,
     markNodeCached,
   } = useFlowStore();
+
+  // Auto-arrange the graph into a clean left-to-right layered layout (ELK).
+  const [layingOut, setLayingOut] = useState(false);
+  const handleTidyLayout = useCallback(async () => {
+    const { nodes: ns, edges: es, setNodes } = useFlowStore.getState();
+    if (ns.length === 0) return;
+    setLayingOut(true);
+    try {
+      const laid = await layoutWithElk(ns, es);
+      setNodes(laid);
+      requestAnimationFrame(() =>
+        reactFlowInstance.current?.fitView({ padding: 0.2, duration: 400 })
+      );
+    } catch (err) {
+      console.error('Layout failed', err);
+    } finally {
+      setLayingOut(false);
+    }
+  }, []);
 
   // Track whether we've already loaded the flow from the URL to prevent
   // re-triggering loadFlow (which would overwrite user edits with stale data)
@@ -432,6 +454,43 @@ export function Editor() {
           }
         })
         .catch(() => healedModuleNodesRef.current.delete(node.id));
+    }
+  }, [nodes]);
+
+  // Heal plain code nodes that lost their ports (stale saved flows / older
+  // contracts): re-derive contract+io by parsing the node's own source. Skips
+  // nodes that already have ports, so fresh examples are untouched.
+  const healedCodeNodesRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    for (const node of nodes) {
+      if (node.type !== 'code') continue;
+      const data = node.data as Record<string, unknown>;
+      if (data.moduleRef) continue; // module nodes handled above
+      const code = data.code as string | undefined;
+      if (!code || healedCodeNodesRef.current.has(node.id)) continue;
+      const contract = data.contract as { inputs?: object; outputs?: object } | undefined;
+      const hasPorts = !!(
+        contract &&
+        (Object.keys(contract.inputs ?? {}).length || Object.keys(contract.outputs ?? {}).length)
+      );
+      if (hasPorts) continue;
+      healedCodeNodesRef.current.add(node.id);
+
+      (async () => {
+        try {
+          const { parseBlockSource } = await import('../../lib/block/parser');
+          const { contractToIO } = await import('../../lib/block/io-compat');
+          const parsed = await parseBlockSource(code);
+          if (Object.keys(parsed.contract.inputs).length || Object.keys(parsed.contract.outputs).length) {
+            useFlowStore.getState().updateNodeData(node.id, {
+              contract: parsed.contract,
+              io: contractToIO(parsed.contract),
+            });
+          }
+        } catch {
+          healedCodeNodesRef.current.delete(node.id);
+        }
+      })();
     }
   }, [nodes]);
 
@@ -1945,6 +2004,19 @@ export function Editor() {
             />
           )}
           
+          {/* Tidy-layout button */}
+          <Panel position="top-left">
+            <button
+              onClick={handleTidyLayout}
+              disabled={layingOut}
+              title="Auto-arrange the node layout (ELK)"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-neutral-800/60 bg-[#0c0c10]/90 backdrop-blur-md px-3 py-2 text-xs font-medium text-neutral-300 shadow-2xl shadow-black/50 transition hover:border-emerald-600/60 hover:text-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Wand2 className={`w-3.5 h-3.5 ${layingOut ? 'animate-pulse' : ''}`} />
+              {layingOut ? 'Arranging…' : 'Tidy layout'}
+            </button>
+          </Panel>
+
           {/* Help Panel - Desktop only */}
           {!isMobile && (
             <Panel position="bottom-center">
@@ -2071,17 +2143,19 @@ export function Editor() {
       </Modal>
 
       {/* API Panel Modal */}
-      <Modal
-        isOpen={showApiPanel}
-        onClose={() => setShowApiPanel(false)}
-        title="Flow API"
-        subtitle="Publish and test as API"
-        icon={<Globe className="w-5 h-5" />}
-        iconColor="text-cyan-400"
-        size={isMobile ? 'full' : 'lg'}
-      >
-        <ApiPanel flowId={flowId || ''} flowName={flowName} onClose={() => setShowApiPanel(false)} />
-      </Modal>
+      {features.apiExecution && (
+        <Modal
+          isOpen={showApiPanel}
+          onClose={() => setShowApiPanel(false)}
+          title="Flow API"
+          subtitle="Publish and test as API"
+          icon={<Globe className="w-5 h-5" />}
+          iconColor="text-cyan-400"
+          size={isMobile ? 'full' : 'lg'}
+        >
+          <ApiPanel flowId={flowId || ''} flowName={flowName} onClose={() => setShowApiPanel(false)} />
+        </Modal>
+      )}
 
       {/* Flow Settings Modal */}
       <Modal

@@ -72,7 +72,9 @@ describe('EXAMPLE_BLOCKS', () => {
         expect(parsed.warnings).toEqual([]);
         expect(Object.keys(parsed.contract.inputs).length).toBeGreaterThan(0);
         expect(Object.keys(parsed.contract.outputs).length).toBeGreaterThan(0);
-        expect(parsed.bodyText).toContain('function generate(inputs)');
+        // Accepts every supported form: standalone `type Inputs`/`type Outputs`,
+        // inline object `generate(inputs: {…})`, and positional `generate(a, b)`.
+        expect(parsed.bodyText).toMatch(/function generate\s*\(/);
       });
 
       it('compiles with the core compile pipeline', () => {

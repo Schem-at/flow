@@ -23,7 +23,7 @@ export type FlowType =
   | { kind: 'schematic' } // domain: nucleation Schematic
   | { kind: 'image' } // domain
   | { kind: 'vec3'; default?: [number, number, number] }
-  | { kind: 'list'; of: FlowType; default?: unknown[] }
+  | { kind: 'list'; of: FlowType; default?: unknown[]; length?: number } // length set ⇒ fixed-size
   | { kind: 'object'; fields: Record<string, FlowType> }
   | { kind: 'unknown' }; // fallback → JSON editor / JSON tree
 

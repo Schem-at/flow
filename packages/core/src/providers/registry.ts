@@ -6,10 +6,11 @@
 
 import type { RuntimeProvider, RuntimeEnv } from './types.js';
 import { detectRuntimeEnvKind } from './types.js';
-import { standardProvider } from './standard.js';
+import { buildRuntimeDts } from '../runtime-types.js';
+import { flowlibProvider } from './flowlib.js';
+import { vendorProvider } from './vendor.js';
 import { nucleationProvider } from './nucleation.js';
 import { schematiProvider } from './schemati.js';
-import { toolkitProvider } from './toolkit.js';
 
 export class ProviderRegistry {
   private providers: RuntimeProvider[] = [];
@@ -23,6 +24,21 @@ export class ProviderRegistry {
 
   list(): Array<{ name: string; version: string }> {
     return this.providers.map(({ name, version }) => ({ name, version }));
+  }
+
+  /** Registered providers (for codegen / drift checks). */
+  getProviders(): readonly RuntimeProvider[] {
+    return this.providers;
+  }
+
+  /** Full generated `flow-runtime.d.ts` text, in registration order. */
+  runtimeDts(): string {
+    return buildRuntimeDts(this.providers.map((p) => p.declarations?.() ?? '').filter(Boolean));
+  }
+
+  /** Declared endowment keys per provider — the drift guard's expectation. */
+  endowmentManifest(): Array<{ name: string; version: string; keys: string[] }> {
+    return this.providers.map((p) => ({ name: p.name, version: p.version, keys: p.endowmentKeys?.() ?? [] }));
   }
 
   /**
@@ -64,10 +80,10 @@ export class ProviderRegistry {
  */
 export function createDefaultRegistry(): ProviderRegistry {
   return new ProviderRegistry()
-    .register(standardProvider)
+    // flowlib first (math/noise/fields) — Field.fromNoise reads context.Noise lazily.
+    .register(flowlibProvider)
+    .register(vendorProvider)
+    // After nucleation: Schemati.getSchematic / Field.toTerrain build on Schematic.
     .register(nucleationProvider)
-    // After standard + nucleation: Field.fromNoise/toTerrain build on them.
-    .register(toolkitProvider)
-    // After nucleation: Schemati.getSchematic rehydrates via the Schematic class.
     .register(schematiProvider);
 }

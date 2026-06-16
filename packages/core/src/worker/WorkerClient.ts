@@ -76,6 +76,12 @@ export class WorkerClient {
       this.worker = worker;
       this.setupWorkerEventHandlers();
       this.initPromise = this.initializeWorker();
+      // Init is kicked off fire-and-forget here. If we're destroyed before it
+      // resolves (e.g. React StrictMode's dev mount→unmount→remount), destroy()
+      // rejects the pending INITIALIZE message and this promise would surface as
+      // an unhandled rejection. Attach a benign catch; real awaiters
+      // (waitForReady) still observe the rejection independently.
+      this.initPromise.catch(() => {});
     }
   }
 

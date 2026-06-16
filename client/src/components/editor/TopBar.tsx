@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { useFlowStore } from '../../store/flowStore';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { features } from '../../config/features';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL ?? '';
 
@@ -373,13 +374,15 @@ export function TopBar({
                     <button onClick={handleExportToFile} className="w-full text-left px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-800 hover:text-white flex items-center gap-2 transition-colors">
                       <Download className="w-4 h-4" /> Export JSON
                     </button>
-                    <button
-                      onClick={handlePublishAsModule}
-                      className="w-full text-left px-3 py-2 text-sm text-cyan-300 hover:bg-neutral-800 hover:text-cyan-200 flex items-center gap-2 transition-colors"
-                      title="Fold the whole flow into one typed block and publish it as a reusable module"
-                    >
-                      <Package className="w-4 h-4" /> Publish flow as module
-                    </button>
+                    {features.modules && (
+                      <button
+                        onClick={handlePublishAsModule}
+                        className="w-full text-left px-3 py-2 text-sm text-cyan-300 hover:bg-neutral-800 hover:text-cyan-200 flex items-center gap-2 transition-colors"
+                        title="Fold the whole flow into one typed block and publish it as a reusable module"
+                      >
+                        <Package className="w-4 h-4" /> Publish flow as module
+                      </button>
+                    )}
                   </div>
                 </>
               )}
@@ -549,7 +552,7 @@ export function TopBar({
         </div>
 
         {/* API Button */}
-        {!isMobile && flowId && (
+        {features.apiExecution && !isMobile && flowId && (
           <button
             onClick={onShowApiPanel}
             className="p-2 text-neutral-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors"

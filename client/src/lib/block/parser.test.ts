@@ -289,3 +289,98 @@ function generate(inputs) { return { b: HELPER }; }`);
     );
   });
 });
+
+describe('parseBlockSource — inline I/O on the generate signature', () => {
+  const INLINE = `function generate(inputs: {
+  size: Slider<{ min: 32; max: 256; default: 96 }>;
+  scale: Slider<{ min: 0.005; max: 0.1; step: 0.005; default: 0.02 }>;
+  octaves: Slider<{ min: 1; max: 6; default: 4 }>;
+  seed: number;
+}): {
+  field: number[][];
+  preview: Image;
+} {
+  const size = inputs.size | 0;
+  return { field: [], preview: null };
+}`;
+
+  it('extracts Inputs from the parameter type and Outputs from the return type', async () => {
+    const parsed = await parseBlockSource(INLINE);
+    expect(Object.keys(parsed.contract.inputs)).toEqual(['size', 'scale', 'octaves', 'seed']);
+    expect(parsed.contract.inputs.size).toMatchObject({ kind: 'number', min: 32, max: 256, default: 96 });
+    expect(parsed.contract.inputs.seed).toMatchObject({ kind: 'number' });
+    expect(Object.keys(parsed.contract.outputs)).toEqual(['field', 'preview']);
+    expect(parsed.warnings).toEqual([]);
+  });
+
+  it('supports an arrow-function generate', async () => {
+    const parsed = await parseBlockSource(
+      `const generate = (inputs: { n: Slider<{ min: 0; max: 10; default: 3 }> }): { out: number } => ({ out: inputs.n });`
+    );
+    expect(parsed.contract.inputs.n).toMatchObject({ kind: 'number', min: 0, max: 10, default: 3 });
+    expect(parsed.contract.outputs).toEqual({ out: { kind: 'number' } });
+    expect(parsed.warnings).toEqual([]);
+  });
+
+  it('extracts inputs from a DESTRUCTURED parameter (bare-name access)', async () => {
+    const parsed = await parseBlockSource(
+      `function generate({ size, seed }: {
+        size: Slider<{ min: 32; max: 256; default: 96 }>;
+        seed: number;
+      }): { field: number[][] } {
+        return { field: [[size, seed]] };
+      }`
+    );
+    expect(Object.keys(parsed.contract.inputs)).toEqual(['size', 'seed']);
+    expect(parsed.contract.inputs.size).toMatchObject({ kind: 'number', min: 32, max: 256 });
+    expect(parsed.contract.outputs).toEqual({ field: { kind: 'list', of: { kind: 'list', of: { kind: 'number' } } } });
+    expect(parsed.warnings).toEqual([]);
+  });
+
+  it('extracts inputs from POSITIONAL parameters (no inputs object)', async () => {
+    const parsed = await parseBlockSource(
+      `function generate(
+        size: Slider<{ min: 32; max: 256; default: 96 }>,
+        scale: Slider<{ min: 0.005; max: 0.1; step: 0.005; default: 0.02 }>,
+        seed: number,
+      ): {
+        field: number[][];
+        preview: Image;
+      } {
+        return { field: [[size, scale, seed]], preview: null };
+      }`
+    );
+    expect(Object.keys(parsed.contract.inputs)).toEqual(['size', 'scale', 'seed']);
+    expect(parsed.contract.inputs.size).toMatchObject({ kind: 'number', min: 32, max: 256, default: 96 });
+    expect(parsed.contract.inputs.scale).toMatchObject({ kind: 'number', step: 0.005 });
+    expect(parsed.contract.inputs.seed).toMatchObject({ kind: 'number' });
+    expect(Object.keys(parsed.contract.outputs)).toEqual(['field', 'preview']);
+    expect(parsed.warnings).toEqual([]);
+  });
+
+  it('still prefers standalone type declarations when both are present', async () => {
+    const parsed = await parseBlockSource(
+      `type Inputs = { a: string };\ntype Outputs = { b: string };\nfunction generate(inputs: { ignored: number }): { ignored: number } { return { b: '' }; }`
+    );
+    expect(parsed.contract.inputs).toEqual({ a: { kind: 'string' } });
+    expect(parsed.contract.outputs).toEqual({ b: { kind: 'string' } });
+  });
+});
+
+describe('Matrix type', () => {
+  it('Matrix<{ rows; cols }> → fixed-size number matrix', async () => {
+    const parsed = await parseBlockSource(
+      `function generate(m: Matrix<{ rows: 3; cols: 3 }>): { out: number } { return { out: 0 }; }`
+    );
+    expect(parsed.contract.inputs.m).toEqual({
+      kind: 'list', length: 3, of: { kind: 'list', length: 3, of: { kind: 'number' } },
+    });
+  });
+
+  it('bare Matrix → arbitrary number matrix', async () => {
+    const parsed = await parseBlockSource(
+      `function generate(m: Matrix): { out: number } { return { out: 0 }; }`
+    );
+    expect(parsed.contract.inputs.m).toEqual({ kind: 'list', of: { kind: 'list', of: { kind: 'number' } } });
+  });
+});

@@ -14,6 +14,8 @@ import { FlowImage } from '../utils/image.js';
 import { Random } from '../utils/random.js';
 import { Table } from '../utils/table.js';
 import { Mcfunction, McfunctionBuilder } from '../utils/mcfunction.js';
+import { GridOps } from '../utils/grid.js';
+import { Combinatorics } from '../utils/combinatorics.js';
 
 interface NoiseLike {
   getFractal2D_01(x: number, y: number, options?: Record<string, unknown>): number;
@@ -85,6 +87,8 @@ export const toolkitProvider: RuntimeProvider = {
       Table,
       Mcfunction,
       McfunctionBuilder,
+      Grid: GridOps,
+      Combinatorics,
     };
   },
 };

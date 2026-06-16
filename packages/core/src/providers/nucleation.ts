@@ -9,12 +9,16 @@
 
 import type { RuntimeProvider } from './types.js';
 import { initializeSchematicProvider, SchematicUtils } from '../utils/schematic.js';
+import { installSchematicMethods } from '../utils/schematic-methods.js';
+import { PROVIDER_DECLARATIONS, PROVIDER_ENDOWMENT_KEYS } from '../runtime-types.js';
 
 export const NUCLEATION_VERSION = '0.2.13';
 
 export const nucleationProvider: RuntimeProvider = {
   name: 'nucleation',
   version: NUCLEATION_VERSION,
+  endowmentKeys: () => PROVIDER_ENDOWMENT_KEYS.nucleation,
+  declarations: () => PROVIDER_DECLARATIONS.nucleation,
 
   async create() {
     // Explicit init: import + default() happen inside initializeSchematicProvider,
@@ -43,21 +47,12 @@ export const nucleationProvider: RuntimeProvider = {
         : all.filter((b: { name: string }) => b.name !== 'minecraft:air');
     };
 
-    // paste(other, dx, dy, dz): centralized JS copy loop until nucleation
-    // exposes a native offset paste (block properties ride along when the
-    // block name string carries them).
-    proto.paste = function (
-      this: { set_block(x: number, y: number, z: number, name: string): void },
-      other: { blocks(): Array<{ x: number; y: number; z: number; name: string }> },
-      dx = 0,
-      dy = 0,
-      dz = 0
-    ) {
-      for (const b of other.blocks()) {
-        this.set_block(b.x + dx, b.y + dy, b.z + dz, b.name);
-      }
-      return this;
-    };
+    // Ergonomic build/copy/transform/query methods (fill, line, hollowBox,
+    // clone, merge, stack, mirror, rotate, heightmap, blockCounts, bounds) plus
+    // static factories (fromData, isSchematic, tileGrid). Installed after the
+    // blocks() wrapper so merge/clone/heightmap see the air-filtered list.
+    // See utils/schematic-methods.ts (unit-tested without WASM).
+    installSchematicMethods(SchematicClass as never);
 
     const Schematic = SchematicClass as Record<string, unknown> & typeof SchematicClass;
     (Schematic as Record<string, unknown>).SchematicBuilder = wrapWasmClass(

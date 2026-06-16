@@ -12,6 +12,7 @@ import { FlowRunner } from './components/FlowRunner';
 import { ModuleManager } from './components/ModuleManager';
 import Workbench from './components/Workbench';
 import { DocsModal } from './components/editor/DocsModal';
+import { features } from './config/features';
 
 const queryClient = new QueryClient();
 
@@ -23,7 +24,7 @@ function App() {
 					<Routes>
 						<Route path="/" element={<Home />} />
 						<Route path="/workbench" element={<Workbench />} />
-						<Route path="/modules" element={<ModuleManager />} />
+						{features.modules && <Route path="/modules" element={<ModuleManager />} />}
 						<Route path="/editor" element={<Editor />} />
 						<Route path="/editor/:flowId" element={<Editor />} />
 						<Route path="/run/:flowId" element={<FlowRunner />} />

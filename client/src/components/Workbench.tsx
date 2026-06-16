@@ -20,10 +20,10 @@ import { parseBlockSource, type ParsedBlock } from '../lib/block/parser';
 import { missingRequiredInputs, missingInputsMessage } from '../lib/validateRequiredInputs';
 import { contractToTypeScript } from '../lib/block/codegen';
 import { EXAMPLE_BLOCKS } from '../lib/block/examples';
-import ContractBuilder from './blocks/ContractBuilder';
-import BlockEditor from './blocks/BlockEditor';
-import InputForm from './blocks/InputForm';
+import InlineWidgetEditor from './blocks/InlineWidgetEditor';
+import InputControl, { defaultForType } from './blocks/InputControl';
 import OutputView from './blocks/OutputView';
+import { findInputDeclarations } from '../lib/block/widgets';
 
 /** Merge fresh contract defaults with values the user already set. */
 function reseedValues(
@@ -76,6 +76,15 @@ export default function Workbench() {
   }, [source]);
 
   const contract = parsed?.contract ?? { inputs: {}, outputs: {} };
+
+  // Inline controls are placed under each positional input declaration. Inputs
+  // that can't be located inline (object/destructure-form blocks) fall back to a
+  // recursive form docked under the editor.
+  const inlineNames = useMemo(() => new Set(findInputDeclarations(source).keys()), [source]);
+  const formInputs = useMemo(
+    () => Object.entries(contract.inputs).filter(([name]) => !inlineNames.has(name)),
+    [contract, inlineNames]
+  );
   const contractKey = JSON.stringify(contract);
 
   // Reseed input values whenever the contract shape changes.
@@ -120,7 +129,11 @@ export default function Workbench() {
       pendingLiveRun.current = true;
       return;
     }
-    const missing = missingRequiredInputs(parsed?.contract, values);
+    // Inline-widget model: start from the contract defaults, override with any
+    // runtime values the inline controls have set.
+    const defaults = parsed?.contract ? defaultInputsForContract(parsed.contract) : {};
+    const inputs = { ...defaults, ...values };
+    const missing = missingRequiredInputs(parsed?.contract, inputs);
     if (missing.length) {
       setError(missingInputsMessage(missing));
       return;
@@ -130,7 +143,7 @@ export default function Workbench() {
     setRunning(true);
     runningRef.current = true;
     try {
-      const res = await run(source, values);
+      const res = await run(source, inputs);
       setResult(res);
       if (!res.success) setError(res.error?.message ?? 'Execution failed');
     } catch (e) {
@@ -139,7 +152,7 @@ export default function Workbench() {
       setRunning(false);
       runningRef.current = false;
     }
-  }, [source, values, run, clearLogs]);
+  }, [source, parsed, values, run, clearLogs]);
 
   // Live mode: debounce-recompute whenever inputs or the source change.
   const handleRunRef = useRef(handleRun);
@@ -261,41 +274,43 @@ export default function Workbench() {
         </div>
       )}
 
-      {/* Body */}
+      {/* Body: the full source with inline input sliders; values live in the code. */}
       <div className="flex min-h-0 flex-1">
-        {codeView ? (
-          /* Opt-in: the full canonical .ts source, types included */
-          <div className="min-w-0 flex-1 border-r border-neutral-800">
-            <BlockEditor value={source} onChange={setSource} contractTypes="" height="100%" />
+        <div className="flex min-w-0 flex-1 flex-col border-r border-neutral-800">
+          <div className="min-h-0 flex-1">
+            <InlineWidgetEditor
+              value={source}
+              onChange={setSource}
+              contract={contract}
+              values={values}
+              onValueChange={(name, v) => setValues((prev) => ({ ...prev, [name]: v }))}
+              height="100%"
+            />
           </div>
-        ) : (
-          <>
-            {/* Contract builder (visual; raw types never shown) */}
-            <aside className="w-80 flex-none overflow-y-auto border-r border-neutral-800 p-3">
-              <ContractBuilder contract={contract} onChange={handleContractChange} />
-            </aside>
 
-            {/* Body editor */}
-            <div className="min-w-0 flex-1 border-r border-neutral-800">
-              <BlockEditor
-                value={parsed?.bodyText ?? ''}
-                onChange={handleBodyChange}
-                contractTypes={parsed?.contractText ?? ''}
-                height="100%"
-              />
+          {formInputs.length > 0 && (
+            <div className="max-h-[45%] shrink-0 overflow-y-auto border-t border-neutral-800 p-3">
+              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-500">Inputs</h2>
+              <div className="space-y-2.5">
+                {formInputs.map(([name, type]) => (
+                  <label key={name} className="block">
+                    <span className="mb-1 block text-[11px] text-neutral-400">
+                      {name} <span className="text-neutral-600">· {type.kind}</span>
+                    </span>
+                    <InputControl
+                      type={type}
+                      value={values[name] ?? defaultForType(type)}
+                      onChange={(v) => setValues((prev) => ({ ...prev, [name]: v }))}
+                    />
+                  </label>
+                ))}
+              </div>
             </div>
-          </>
-        )}
+          )}
+        </div>
 
-        {/* Run panel */}
+        {/* Output panel */}
         <div className="flex w-[400px] flex-none flex-col overflow-y-auto">
-          <section className="border-b border-neutral-800 p-3">
-            <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-500">
-              Inputs
-            </h2>
-            <InputForm contract={contract} values={values} onChange={setValues} />
-          </section>
-
           {error && (
             <section className="border-b border-neutral-800 bg-red-500/10 p-3">
               <p className="text-xs font-medium text-red-400">Error</p>

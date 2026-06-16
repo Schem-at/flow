@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { useFlowStore, type FlowNode } from '../../store/flowStore';
 import { ModuleBrowser } from './ModuleBrowser';
+import { features } from '../../config/features';
 import { DEFAULT_BLOCK_SOURCE, DEFAULT_BLOCK_CONTRACT, contractToIO } from '../../lib/block/io-compat';
 import { EXAMPLE_BLOCKS, EXAMPLE_BLOCK_CONTRACTS } from '../../lib/block/examples';
 
@@ -182,6 +183,11 @@ const nodeCategories: { name: string; nodes: NodeTemplate[] }[] = [
   },
 ];
 
+// Schemati palette category is gated behind the schematiNodes feature flag.
+const visibleCategories = features.schematiNodes
+  ? nodeCategories
+  : nodeCategories.filter((c) => c.name !== 'Schemati');
+
 // ============================================================================
 // Main Toolbar Component
 // ============================================================================
@@ -244,7 +250,7 @@ export function Toolbar() {
         </button>
         <div className="w-px flex-1 bg-neutral-800/30" />
         {/* Quick-add icons when collapsed */}
-        {nodeCategories.flatMap(c => c.nodes).slice(0, 5).map(node => (
+        {visibleCategories.flatMap(c => c.nodes).slice(0, 5).map(node => (
           <button
             key={node.type}
             onClick={() => handleAddNode(node)}
@@ -272,15 +278,17 @@ export function Toolbar() {
               <Zap className="w-3 h-3 text-green-400" />
               Nodes
             </button>
-            <button
-              onClick={() => setActiveTab('modules')}
-              className={`flex items-center gap-1.5 px-2 py-1 text-[10px] font-medium rounded transition-colors ${
-                activeTab === 'modules' ? 'bg-white/[0.07] text-white' : 'text-neutral-500 hover:text-neutral-300'
-              }`}
-            >
-              <Package className="w-3 h-3 text-cyan-400" />
-              Modules
-            </button>
+            {features.modules && (
+              <button
+                onClick={() => setActiveTab('modules')}
+                className={`flex items-center gap-1.5 px-2 py-1 text-[10px] font-medium rounded transition-colors ${
+                  activeTab === 'modules' ? 'bg-white/[0.07] text-white' : 'text-neutral-500 hover:text-neutral-300'
+                }`}
+              >
+                <Package className="w-3 h-3 text-cyan-400" />
+                Modules
+              </button>
+            )}
           </div>
           <button
             onClick={() => setIsCollapsed(true)}
@@ -291,13 +299,13 @@ export function Toolbar() {
           </button>
         </div>
 
-        {activeTab === 'modules' ? (
+        {features.modules && activeTab === 'modules' ? (
           <ModuleBrowser />
         ) : (
         /* Categories */
         <div className="p-2 space-y-0.5 flex-1 overflow-y-auto custom-scrollbar">
           {/* Built-in node categories */}
-          {nodeCategories.map((category) => (
+          {visibleCategories.map((category) => (
             <div key={category.name}>
               <button
                 onClick={() => toggleCategory(category.name)}

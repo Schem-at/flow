@@ -11,6 +11,15 @@ export interface NoiseProvider {
   getFractal3D: (x: number, y: number, z: number, options?: FractalNoiseOptions) => number;
   getFractal2D_01: (x: number, y: number, options?: FractalNoiseOptions) => number;
   getFractal3D_01: (x: number, y: number, z: number, options?: FractalNoiseOptions) => number;
+  /** F1 Worley/Voronoi noise in [0, 1] — distance to the nearest jittered feature point. */
+  worley: (x: number, y: number, options?: WorleyNoiseOptions) => number;
+}
+
+export interface WorleyNoiseOptions {
+  /** Cell frequency (higher = more, smaller cells). Default 1. */
+  frequency?: number;
+  /** How far feature points jitter inside their cell, 0..1. Default 1. */
+  jitter?: number;
 }
 
 export interface FractalNoiseOptions {
@@ -165,6 +174,9 @@ function createNoise3D(prng: () => number): (x: number, y: number, z: number) =>
 export function createNoiseProvider(seed?: string | number): NoiseProvider {
   const finalSeed = seed?.toString() ?? Math.random().toString();
   const prng = createPRNG(finalSeed);
+  // Integer seed for the Worley cell hash (string seed → 32-bit int).
+  let worleySeed = 0;
+  for (let i = 0; i < finalSeed.length; i++) worleySeed = (Math.imul(worleySeed, 31) + finalSeed.charCodeAt(i)) | 0;
   
   const noise2D = createNoise2D(prng);
   const noise3D = createNoise3D(prng);
@@ -236,6 +248,34 @@ export function createNoiseProvider(seed?: string | number): NoiseProvider {
     
     getFractal3D_01: (x: number, y: number, z: number, options?: FractalNoiseOptions) => {
       return (Noise.getFractal3D(x, y, z, options) + 1) / 2;
+    },
+
+    worley: (x: number, y: number, options: WorleyNoiseOptions = {}) => {
+      const { frequency = 1, jitter = 1 } = options;
+      const fx = x * frequency;
+      const fy = y * frequency;
+      const cx = Math.floor(fx);
+      const cy = Math.floor(fy);
+      let best = Infinity;
+      for (let oy = -1; oy <= 1; oy++) {
+        for (let ox = -1; ox <= 1; ox++) {
+          const gx = cx + ox;
+          const gy = cy + oy;
+          // Two deterministic [0,1) offsets per cell from an integer hash.
+          let h = Math.imul(gx | 0, 0x27d4eb2f) ^ Math.imul(gy | 0, 0x165667b1) ^ worleySeed;
+          h = Math.imul(h ^ (h >>> 15), 0x85ebca6b);
+          const a = ((h >>> 0) % 1024) / 1024;
+          h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+          const b = ((h >>> 0) % 1024) / 1024;
+          const px = gx + 0.5 + (a - 0.5) * jitter;
+          const py = gy + 0.5 + (b - 0.5) * jitter;
+          const dx = px - fx;
+          const dy = py - fy;
+          const d2 = dx * dx + dy * dy;
+          if (d2 < best) best = d2;
+        }
+      }
+      return Math.min(1, Math.sqrt(best));
     },
   };
 

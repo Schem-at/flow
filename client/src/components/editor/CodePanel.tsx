@@ -6,18 +6,16 @@
 import { useCallback, useEffect, useState, useRef } from 'react';
 import Editor, { type Monaco } from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
-import { Zap, Info, ArrowRight, CheckCircle, XCircle, Loader2, Plus, Save, AlertTriangle, ChevronDown, ChevronRight, Copy, Code, Package, Unplug, Pin, PinOff, Upload, Tag, Code2, LayoutPanelLeft, FlaskConical, Maximize2, Minimize2, Play, Square, BookOpen } from 'lucide-react';
+import { Zap, Info, ArrowRight, CheckCircle, XCircle, Loader2, Plus, Save, AlertTriangle, ChevronDown, ChevronRight, Copy, Code, Package, Unplug, Pin, PinOff, Upload, Tag, FlaskConical, Maximize2, Minimize2, Play, Square, BookOpen } from 'lucide-react';
 import { useFlowStore, type ExecutionError } from '../../store/flowStore';
 import type { IODefinition, BlockContract, ExecutionResult } from '@flow/core';
 import { defaultInputsForContract } from '@flow/core';
 import { parseBlockSource, type ParsedBlock } from '../../lib/block/parser';
-import { contractToTypeScript } from '../../lib/block/codegen';
 import { contractToIO } from '../../lib/block/io-compat';
-import ContractBuilder from '../blocks/ContractBuilder';
-import BlockEditor from '../blocks/BlockEditor';
-import { FieldWidget } from '../blocks/widgets';
+import InlineWidgetEditor from '../blocks/InlineWidgetEditor';
 import OutputView from '../blocks/OutputView';
 import { useLocalExecutor } from '../../hooks/useLocalExecutor';
+import { features } from '../../config/features';
 import { missingRequiredInputs, missingInputsMessage } from '../../lib/validateRequiredInputs';
 import { setupAmbientMonaco } from '../../lib/block/ambient';
 
@@ -30,18 +28,6 @@ interface CodePanelProps {
 }
 
 /** One-line description of a flow-provided value for the "from flow" chip. */
-function summarizeValue(value: unknown): string {
-  if (value === null || value === undefined) return 'empty';
-  if (Array.isArray(value)) return `array · ${value.length} item${value.length === 1 ? '' : 's'}`;
-  if (typeof value === 'object') {
-    const obj = value as Record<string, unknown>;
-    if ('_schematicHandle' in obj) return 'schematic (resident)';
-    if ('format' in obj && 'data' in obj) return `schematic (${String(obj.format)})`;
-    return 'object';
-  }
-  return String(value);
-}
-
 interface ValidationState {
   status: 'idle' | 'validating' | 'valid' | 'invalid';
   io?: IODefinition;
@@ -160,12 +146,10 @@ export function CodePanel({ nodeId, onClose, isFullscreen, onToggleFullscreen }:
   const [hasChanges, setHasChanges] = useState(false);
   const [validation, setValidation] = useState<ValidationState>({ status: 'idle' });
   const [parsed, setParsed] = useState<ParsedBlock | null>(null);
-  const [viewMode, setViewMode] = useState<'visual' | 'code'>('visual');
   // Standalone test bench: run this block in isolation, inputs prefilled from
   // the connected flow where available, manually editable everywhere.
   const [testMode, setTestMode] = useState(false);
   const [testValues, setTestValues] = useState<Record<string, unknown>>({});
-  const [flowFed, setFlowFed] = useState<Record<string, boolean>>({});
   const [testResult, setTestResult] = useState<ExecutionResult | null>(null);
   const [testError, setTestError] = useState<string | null>(null);
   const [testRunning, setTestRunning] = useState(false);
@@ -182,7 +166,9 @@ export function CodePanel({ nodeId, onClose, isFullscreen, onToggleFullscreen }:
   // Find the node - check both by ID and look for code nodes
   const node = nodeId ? nodes.find((n) => n.id === nodeId) : null;
   const moduleRef = (node?.data as Record<string, unknown>)?.moduleRef as { id: string; slug: string; version: string; pinned?: boolean } | undefined;
-  const isModuleNode = !!moduleRef;
+  // When the modules feature is off, treat a module-backed node as a plain code
+  // node: no module API calls, no version/release UI, just locally editable code.
+  const isModuleNode = features.modules && !!moduleRef;
   const isCodeNode = node?.type === 'code';
 
   // Debug logging if node not found
@@ -548,7 +534,6 @@ export function CodePanel({ nodeId, onClose, isFullscreen, onToggleFullscreen }:
     const contract = validation.contract;
     if (!contract) return;
     const values = defaultInputsForContract(contract);
-    const fed: Record<string, boolean> = {};
 
     for (const name of Object.keys(contract.inputs)) {
       const edge = edges.find((e) => e.target === nodeId && e.targetHandle === name);
@@ -570,12 +555,10 @@ export function CodePanel({ nodeId, onClose, isFullscreen, onToggleFullscreen }:
       if (val === undefined) val = sourceOutput;
       if (val !== undefined) {
         values[name] = val;
-        fed[name] = true;
       }
     }
 
     setTestValues(values);
-    setFlowFed(fed);
   }, [validation.contract, edges, nodeId, nodeCache]);
 
   const toggleTestMode = useCallback(() => {
@@ -584,6 +567,17 @@ export function CodePanel({ nodeId, onClose, isFullscreen, onToggleFullscreen }:
       return !on;
     });
   }, [seedTestValues]);
+
+  // Seed the inline controls from the flow (incoming connections) / defaults when
+  // the node or its input set changes — so they start populated, then stay local
+  // as you tweak. Keyed on the input names so editing a value doesn't re-seed.
+  const seededSigRef = useRef('');
+  useEffect(() => {
+    const sig = `${nodeId}:${Object.keys(validation.contract?.inputs ?? {}).sort().join(',')}`;
+    if (sig === seededSigRef.current) return;
+    seededSigRef.current = sig;
+    if (validation.contract && Object.keys(validation.contract.inputs).length) seedTestValues();
+  }, [nodeId, validation.contract, seedTestValues]);
 
   const runTest = useCallback(async () => {
     const missing = missingRequiredInputs(validation.contract, testValues);
@@ -611,23 +605,6 @@ export function CodePanel({ nodeId, onClose, isFullscreen, onToggleFullscreen }:
       setTestRunning(false);
     }
   }, [workerClient]);
-
-  // ── visual edits round-trip into the canonical source ──────────────────
-  const handleContractChange = useCallback(
-    (contract: BlockContract) => {
-      const body = parsed?.bodyText ?? '';
-      handleCodeChange(`${contractToTypeScript(contract)}\n\n${body}`.trimEnd() + '\n');
-    },
-    [parsed, handleCodeChange]
-  );
-
-  const handleBodyChange = useCallback(
-    (body: string) => {
-      const contractText = parsed?.contractText ?? '';
-      handleCodeChange(`${contractText}\n\n${body}`.trimEnd() + '\n');
-    },
-    [parsed, handleCodeChange]
-  );
 
   if (!node || !isCodeNode) {
     return (
@@ -684,7 +661,7 @@ export function CodePanel({ nodeId, onClose, isFullscreen, onToggleFullscreen }:
           )}
 
           {/* Module actions */}
-          {(node?.data as Record<string, unknown>)?.moduleRef ? (
+          {features.modules && ((node?.data as Record<string, unknown>)?.moduleRef ? (
             <button
               onClick={() => {
                 // Eject: copy module code inline, remove reference
@@ -716,7 +693,7 @@ export function CodePanel({ nodeId, onClose, isFullscreen, onToggleFullscreen }:
               <Package className="w-3 h-3" />
               Extract
             </button>
-          )}
+          ))}
 
           {executionStatus === 'error' && (
             <span className="text-xs text-orange-400 px-2 py-1 bg-orange-500/10 rounded border border-orange-500/20 flex items-center gap-1" title={executionErrorMessage}>
@@ -993,7 +970,7 @@ export function CodePanel({ nodeId, onClose, isFullscreen, onToggleFullscreen }:
         </div>
       )}
 
-      {/* View toggle: visual (contract builder + body) is the default; raw types are opt-in */}
+      {/* Toolbar: standalone test toggle */}
       <div className="flex items-center justify-end gap-2 border-b border-neutral-800/50 bg-neutral-900/40 px-4 py-1.5">
         <button
           onClick={toggleTestMode}
@@ -1008,52 +985,15 @@ export function CodePanel({ nodeId, onClose, isFullscreen, onToggleFullscreen }:
           <FlaskConical className="h-3 w-3" />
           Test
         </button>
-        <button
-          onClick={() => setViewMode((m) => (m === 'visual' ? 'code' : 'visual'))}
-          className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] transition ${
-            viewMode === 'code'
-              ? 'border-emerald-700 bg-emerald-600/15 text-emerald-300'
-              : 'border-neutral-700 text-neutral-400 hover:border-neutral-500 hover:text-neutral-200'
-          }`}
-          title={viewMode === 'code' ? 'Back to visual editing' : 'Edit the full source, types included'}
-        >
-          {viewMode === 'code' ? <LayoutPanelLeft className="h-3 w-3" /> : <Code2 className="h-3 w-3" />}
-          {viewMode === 'code' ? 'Visual' : 'Code'}
-        </button>
       </div>
 
       {/* Test bench: inputs on top (flow-prefilled or manual), run, outputs */}
       {testMode && validation.contract && (
         <div className="border-b border-amber-900/30 bg-amber-500/[0.03] px-4 py-3">
           <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
-            {Object.entries(validation.contract.inputs).map(([name, type]) => (
-              <div key={name} className="min-w-[150px] max-w-[260px] flex-1">
-                <label className="mb-1 flex items-baseline justify-between gap-2">
-                  <span className="text-[11px] font-medium text-neutral-300">{name}</span>
-                  <span className="text-[9px] uppercase tracking-wide text-neutral-600">
-                    {type.kind}
-                  </span>
-                </label>
-                {flowFed[name] ? (
-                  <button
-                    onClick={() => setFlowFed((f) => ({ ...f, [name]: false }))}
-                    className="flex w-full items-center gap-1.5 rounded-md border border-cyan-700/40 bg-cyan-500/10 px-2 py-1.5 text-left text-[11px] text-cyan-300 transition hover:border-cyan-500/60"
-                    title="Value comes from the connected flow — click to edit manually"
-                  >
-                    <span className="rounded bg-cyan-500/20 px-1 text-[9px] font-semibold uppercase">
-                      flow
-                    </span>
-                    <span className="truncate">{summarizeValue(testValues[name])}</span>
-                  </button>
-                ) : (
-                  <FieldWidget
-                    type={type}
-                    value={testValues[name]}
-                    onChange={(v) => setTestValues((s) => ({ ...s, [name]: v }))}
-                  />
-                )}
-              </div>
-            ))}
+            <span className="text-[11px] text-neutral-500">
+              Inputs are edited inline in the editor — seeded from the connected flow where available.
+            </span>
 
             <div className="ml-auto flex items-center gap-2 pb-0.5">
               {testResult?.executionTime != null && !testRunning && (
@@ -1100,52 +1040,19 @@ export function CodePanel({ nodeId, onClose, isFullscreen, onToggleFullscreen }:
         </div>
       )}
 
-      {/* Editor area */}
+      {/* Editor area: full source with inline GUI controls per input. */}
       <div className="flex min-h-0 flex-1 border-b border-neutral-800/50">
-        {viewMode === 'code' ? (
-          <div className="min-w-0 flex-1">
-            <Editor
-              height="100%"
-              defaultLanguage="typescript"
-              theme="vs-dark"
-              value={localCode}
-              onChange={handleCodeChange}
-              onMount={handleEditorMount}
-              options={{
-                minimap: { enabled: false },
-                fontSize: 13,
-                lineNumbers: 'on',
-                scrollBeyondLastLine: false,
-                automaticLayout: true,
-                tabSize: 2,
-                wordWrap: 'on',
-                padding: { top: 16, bottom: 16 },
-                fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-                fontLigatures: true,
-                renderLineHighlight: 'line',
-                cursorBlinking: 'smooth',
-                smoothScrolling: true,
-              }}
-            />
-          </div>
-        ) : (
-          <>
-            <aside className="w-72 flex-none overflow-y-auto border-r border-neutral-800/50 p-3">
-              <ContractBuilder
-                contract={validation.contract ?? parsed?.contract ?? { inputs: {}, outputs: {} }}
-                onChange={handleContractChange}
-              />
-            </aside>
-            <div className="min-w-0 flex-1">
-              <BlockEditor
-                value={parsed?.bodyText ?? localCode}
-                onChange={handleBodyChange}
-                contractTypes={parsed?.contractText ?? ''}
-                height="100%"
-              />
-            </div>
-          </>
-        )}
+        <div className="min-w-0 flex-1">
+          {/* Inline test controls, seeded from connected inputs (testValues). */}
+          <InlineWidgetEditor
+            height="100%"
+            value={localCode}
+            onChange={(next) => handleCodeChange(next)}
+            contract={validation.contract ?? parsed?.contract ?? { inputs: {}, outputs: {} }}
+            values={testValues}
+            onValueChange={(name, v) => setTestValues((prev) => ({ ...prev, [name]: v }))}
+          />
+        </div>
       </div>
 
       {/* Enhanced Execution Error display */}

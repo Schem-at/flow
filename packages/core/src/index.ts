@@ -59,7 +59,10 @@ export { Mcfunction, McfunctionBuilder } from './utils/mcfunction.js';
 export {
   ProviderRegistry,
   createDefaultRegistry,
+  flowlibProvider,
+  vendorProvider,
   standardProvider,
+  toolkitProvider,
   nucleationProvider,
   schematiProvider,
   createSchematiClient,

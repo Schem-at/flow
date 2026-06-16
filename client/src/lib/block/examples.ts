@@ -15,19 +15,15 @@ export interface ExampleBlock {
   category?: 'platform';
 }
 
-const REDSTONE_BUS = `type Inputs = {
-  length: Slider<{ min: 1; max: 128; default: 16 }>;
-  material: Block<{ default: 'minecraft:gray_concrete' }>;
-};
-
-type Outputs = {
+const REDSTONE_BUS = `function generate(
+  length: Slider<{ min: 1; max: 128; default: 16 }>,
+  material: Block<{ default: 'minecraft:gray_concrete' }>,
+): {
   schematic: Schematic;
-};
-
-function generate(inputs) {
+} {
   const schematic = new Schematic();
-  for (let x = 0; x < inputs.length; x++) {
-    schematic.set_block(x, 0, 0, inputs.material);
+  for (let x = 0; x < length; x++) {
+    schematic.set_block(x, 0, 0, material);
     if (x % 16 === 15) {
       schematic.set_block(x, 1, 0, 'minecraft:repeater[facing=west]');
     } else {
@@ -38,58 +34,38 @@ function generate(inputs) {
 }
 `;
 
-const PARAMETRIC_TERRAIN = `type Inputs = {
-  width: Slider<{ min: 8; max: 256; default: 64 }>;
-  depth: Slider<{ min: 8; max: 256; default: 64 }>;
-  amplitude: Slider<{ min: 1; max: 64; default: 16 }>;
-  scale: Slider<{ min: 0.01; max: 0.2; step: 0.01; default: 0.05 }>;
-  seed: number;
-  surface: Block<{ default: 'minecraft:grass_block' }>;
-};
-
-type Outputs = {
-  terrain: Schematic;
-};
-
-function sampleNoise(x, z, scale, seed) {
-  if (typeof Noise !== 'undefined' && typeof Noise.perlin2 === 'function') {
-    return Noise.perlin2(x * scale + seed, z * scale + seed);
-  }
-  // Fallback when no noise provider is available.
-  return Math.sin((x + seed) * scale) * Math.cos((z + seed) * scale);
+const PARAMETRIC_TERRAIN = `function sampleNoise(x, z, scale, seed) {
+  // Noise is an ambient runtime provider; get2D returns roughly [-1, 1].
+  return Noise.get2D(x * scale + seed, z * scale + seed);
 }
 
-function generate(inputs) {
+function generate(
+  width: Slider<{ min: 8; max: 256; default: 64 }>,
+  depth: Slider<{ min: 8; max: 256; default: 64 }>,
+  amplitude: Slider<{ min: 1; max: 64; default: 16 }>,
+  scale: Slider<{ min: 0.01; max: 0.2; step: 0.01; default: 0.05 }>,
+  seed: number,
+  surface: Block<{ default: 'minecraft:grass_block' }>,
+): {
+  terrain: Schematic;
+} {
   const terrain = new Schematic();
-  for (let x = 0; x < inputs.width; x++) {
-    if (x % 8 === 0) Progress.report((x / inputs.width) * 100, 'terrain column ' + x + '/' + inputs.width);
-    for (let z = 0; z < inputs.depth; z++) {
-      const n = sampleNoise(x, z, inputs.scale, inputs.seed);
-      const height = Math.floor((n * 0.5 + 0.5) * inputs.amplitude);
+  for (let x = 0; x < width; x++) {
+    if (x % 8 === 0) Progress.report((x / width) * 100, 'terrain column ' + x + '/' + width);
+    for (let z = 0; z < depth; z++) {
+      const n = sampleNoise(x, z, scale, seed);
+      const height = Math.floor((n * 0.5 + 0.5) * amplitude);
       for (let y = 0; y < height; y++) {
         terrain.set_block(x, y, z, 'minecraft:dirt');
       }
-      terrain.set_block(x, height, z, inputs.surface);
+      terrain.set_block(x, height, z, surface);
     }
   }
   return { terrain };
 }
 `;
 
-const PARAMETRIC_BUILDING = `type Inputs = {
-  width: Slider<{ min: 4; max: 64; default: 12 }>;
-  depth: Slider<{ min: 4; max: 64; default: 10 }>;
-  floors: Slider<{ min: 1; max: 32; default: 4 }>;
-  wall: Block<{ default: 'minecraft:bricks' }>;
-  glass: Block<{ default: 'minecraft:glass' }>;
-  roof: 'flat' | 'gable' | 'pyramid';
-};
-
-type Outputs = {
-  building: Schematic;
-};
-
-const FLOOR_HEIGHT = 4;
+const PARAMETRIC_BUILDING = `const FLOOR_HEIGHT = 4;
 
 function isEdge(x, z, width, depth) {
   return x === 0 || z === 0 || x === width - 1 || z === depth - 1;
@@ -148,89 +124,69 @@ function buildRoof(schematic, inputs, baseY) {
   }
 }
 
-function generate(inputs) {
+function generate(
+  width: Slider<{ min: 4; max: 64; default: 12 }>,
+  depth: Slider<{ min: 4; max: 64; default: 10 }>,
+  floors: Slider<{ min: 1; max: 32; default: 4 }>,
+  wall: Block<{ default: 'minecraft:bricks' }>,
+  glass: Block<{ default: 'minecraft:glass' }>,
+  roof: 'flat' | 'gable' | 'pyramid',
+): {
+  building: Schematic;
+} {
+  const opts = { width, depth, floors, wall, glass, roof };
   const building = new Schematic();
-  for (let floor = 0; floor < inputs.floors; floor++) {
-    buildWalls(building, inputs, floor * FLOOR_HEIGHT);
+  for (let floor = 0; floor < floors; floor++) {
+    buildWalls(building, opts, floor * FLOOR_HEIGHT);
   }
-  buildRoof(building, inputs, inputs.floors * FLOOR_HEIGHT);
+  buildRoof(building, opts, floors * FLOOR_HEIGHT);
   return { building };
 }
 `;
 
-const BUILD_ANALYSIS = `type Inputs = {
-  schematic: Schematic;
-};
-
-type Outputs = {
+const BUILD_ANALYSIS = `function generate(
+  schematic: Schematic,
+): {
   dimensions: Vec3;
   blockCounts: Array<{ block: Block; count: number }>;
   heatmap: Image;
-};
-
-function generate(inputs) {
-  const schematic = inputs.schematic;
-
+} {
   if (!schematic || typeof schematic.blocks !== 'function') {
-    return {
-      dimensions: [0, 0, 0],
-      blockCounts: [],
-      heatmap: { width: 1, height: 1, data: new Uint8ClampedArray(4) },
-    };
+    return { dimensions: [0, 0, 0], blockCounts: [], heatmap: Image.blank() };
   }
 
-  const dims = typeof schematic.get_dimensions === 'function'
-    ? schematic.get_dimensions()
-    : [0, 0, 0];
-  const dimensions = [dims[0] | 0, dims[1] | 0, dims[2] | 0];
+  // bounds + blockCounts() are native queries on the schematic.
+  const b = schematic.bounds;
+  const dimensions = [b.width | 0, b.height | 0, b.depth | 0];
 
-  const counts = new Map();
+  const blockCounts = [...schematic.blockCounts().entries()]
+    .map(([block, count]) => ({ block, count }))
+    .sort((a, b) => b.count - a.count);
+
+  // Top-down density heatmap: non-air blocks stacked in each XZ column.
   const columnDensity = new Map();
   for (const block of schematic.blocks()) {
-    const name = block && (block.name || block.block || block.id);
-    if (!name) continue;
-    if (name === 'minecraft:air') continue; // blocks() enumerates the full bounding box
-    counts.set(name, (counts.get(name) || 0) + 1);
     const key = (block.x | 0) + ',' + (block.z | 0);
     columnDensity.set(key, (columnDensity.get(key) || 0) + 1);
   }
 
-  const blockCounts = [...counts.entries()]
-    .map(([block, count]) => ({ block, count }))
-    .sort((a, b) => b.count - a.count);
-
   const width = Math.max(1, dimensions[0]);
   const height = Math.max(1, dimensions[2]);
   const maxDensity = Math.max(1, ...columnDensity.values());
-  const data = new Uint8ClampedArray(width * height * 4);
+  const heatmap = new Image(width, height);
   for (let z = 0; z < height; z++) {
     for (let x = 0; x < width; x++) {
       const density = columnDensity.get(x + ',' + z) || 0;
       const shade = Math.round((density / maxDensity) * 255);
-      const i = (z * width + x) * 4;
-      data[i] = shade;
-      data[i + 1] = shade;
-      data[i + 2] = shade;
-      data[i + 3] = 255;
+      heatmap.setPixel(x, z, shade, shade, shade);
     }
   }
 
-  return { dimensions, blockCounts, heatmap: { width, height, data } };
+  return { dimensions, blockCounts, heatmap };
 }
 `;
 
-const JULIA_GRID = `type Inputs = {
-  cols: Slider<{ min: 1; max: 8; default: 4 }>;
-  rows: Slider<{ min: 1; max: 6; default: 3 }>;
-  tile: Slider<{ min: 8; max: 32; default: 16 }>;
-  iterations: Slider<{ min: 8; max: 64; default: 32 }>;
-};
-
-type Outputs = {
-  tiles: Schematic[][];
-};
-
-// Each grid cell is the Julia set for the constant c at the cell's position in
+const JULIA_GRID = `// Each grid cell is the Julia set for the constant c at the cell's position in
 // the complex plane — together the dense cells trace the Mandelbrot set.
 const GRADIENT = [
   'minecraft:blue_concrete',
@@ -286,17 +242,24 @@ function juliaTile(cRe, cIm, size, maxIterations) {
   return schem;
 }
 
-function generate(inputs) {
+function generate(
+  cols: Slider<{ min: 1; max: 8; default: 4 }>,
+  rows: Slider<{ min: 1; max: 6; default: 3 }>,
+  tile: Slider<{ min: 8; max: 32; default: 16 }>,
+  iterations: Slider<{ min: 8; max: 64; default: 32 }>,
+): {
+  tiles: Schematic[][];
+} {
   // The region of the complex plane that frames the Mandelbrot set.
   const RE_MIN = -2.0, RE_MAX = 0.6, IM_MIN = -1.2, IM_MAX = 1.2;
   const tiles = [];
-  for (let r = 0; r < inputs.rows; r++) {
-    Progress.report((r / inputs.rows) * 100, 'julia row ' + (r + 1) + '/' + inputs.rows);
+  for (let r = 0; r < rows; r++) {
+    Progress.report((r / rows) * 100, 'julia row ' + (r + 1) + '/' + rows);
     const row = [];
-    for (let c = 0; c < inputs.cols; c++) {
-      const cRe = RE_MIN + (inputs.cols > 1 ? c / (inputs.cols - 1) : 0.5) * (RE_MAX - RE_MIN);
-      const cIm = IM_MAX - (inputs.rows > 1 ? r / (inputs.rows - 1) : 0.5) * (IM_MAX - IM_MIN);
-      row.push(juliaTile(cRe, cIm, inputs.tile, inputs.iterations));
+    for (let c = 0; c < cols; c++) {
+      const cRe = RE_MIN + (cols > 1 ? c / (cols - 1) : 0.5) * (RE_MAX - RE_MIN);
+      const cIm = IM_MAX - (rows > 1 ? r / (rows - 1) : 0.5) * (IM_MAX - IM_MIN);
+      row.push(juliaTile(cRe, cIm, tile, iterations));
     }
     tiles.push(row);
   }
@@ -304,23 +267,16 @@ function generate(inputs) {
 }
 `;
 
-const BLOCK_CENSUS = `type Inputs = {
-  schematic: Schematic;
-};
-
-type Outputs = {
+const BLOCK_CENSUS = `function generate(
+  schematic: Schematic,
+): {
   csv: string;
   rows: Array<{ block: Block; count: number; percent: number }>;
-};
-
-function generate(inputs) {
-  // blocks() excludes air by default ({ includeAir: true } for the raw list).
-  const counts = new Map();
+} {
+  // blockCounts() tallies every non-air block by id (the manual blocks() loop).
+  const counts = schematic.blockCounts();
   let total = 0;
-  for (const b of inputs.schematic.blocks()) {
-    counts.set(b.name, (counts.get(b.name) || 0) + 1);
-    total++;
-  }
+  for (const n of counts.values()) total += n;
 
   const rows = [...counts.entries()]
     .sort((p, q) => q[1] - p[1])
@@ -334,28 +290,23 @@ function generate(inputs) {
 }
 `;
 
-const HOLOGRAM_MCFUNCTION = `type Inputs = {
-  schematic: Schematic;
-  scale: Slider<{ min: 0.05; max: 0.5; step: 0.05; default: 0.125 }>;
-  tag: string;
-};
-
-type Outputs = {
+const HOLOGRAM_MCFUNCTION = `function generate(
+  schematic: Schematic,
+  scale: Slider<{ min: 0.05; max: 0.5; step: 0.05; default: 0.125 }>,
+  tag: string,
+): {
   mcfunction: string;
   commands: number;
-};
-
-function generate(inputs) {
-  const scale = inputs.scale;
-  const tag = inputs.tag || 'hologram';
+} {
+  const tagName = tag || 'hologram';
   const f = Mcfunction.builder()
     .comment('Tiny block_display hologram - generated by Flow')
     .comment('Paste into a datapack function and run it where the hologram should appear.')
-    .killTagged(tag);
+    .killTagged(tagName);
 
   const LIMIT = 4000;
   let count = 0;
-  for (const b of inputs.schematic.blocks()) {
+  for (const b of schematic.blocks()) {
     if (count >= LIMIT) {
       f.comment('... truncated at ' + LIMIT + ' blocks');
       break;
@@ -366,7 +317,7 @@ function generate(inputs) {
       { x: b.x * scale, y: b.y * scale + 1, z: b.z * scale },
       name,
       scale,
-      tag
+      tagName
     );
     count++;
   }
@@ -375,16 +326,7 @@ function generate(inputs) {
 }
 `;
 
-const LOGIC_LAB = `type Inputs = {
-  gate: 'and' | 'nand' | 'or' | 'not';
-};
-
-type Outputs = {
-  circuit: Schematic;
-  truthTable: Array<{ a: boolean; b: boolean; out: boolean }>;
-};
-
-const STONE = 'minecraft:gray_concrete';
+const LOGIC_LAB = `const STONE = 'minecraft:gray_concrete';
 const LEVER = 'minecraft:lever[face=floor,facing=north,powered=false]';
 
 function buildNot(s) {
@@ -429,12 +371,17 @@ function buildAndNand(s, isNand) {
   return { levers: [[0, 2, 0], [4, 2, 0]], probe: [2, 1, 3], probeIsTorch: true };
 }
 
-function generate(inputs) {
+function generate(
+  gate: 'and' | 'nand' | 'or' | 'not',
+): {
+  circuit: Schematic;
+  truthTable: Array<{ a: boolean; b: boolean; out: boolean }>;
+} {
   const s = new Schematic();
   let cfg;
-  if (inputs.gate === 'not') cfg = buildNot(s);
-  else if (inputs.gate === 'or') cfg = buildOr(s);
-  else cfg = buildAndNand(s, inputs.gate === 'nand');
+  if (gate === 'not') cfg = buildNot(s);
+  else if (gate === 'or') cfg = buildOr(s);
+  else cfg = buildAndNand(s, gate === 'nand');
 
   // Real redstone simulation (MCHPRS inside nucleation): toggle the levers
   // through every combination and probe the output.
@@ -468,28 +415,25 @@ function generate(inputs) {
 }
 `;
 
-const NOISE_FIELD = `type Inputs = {
-  size: Slider<{ min: 32; max: 256; default: 96 }>;
-  scale: Slider<{ min: 0.005; max: 0.1; step: 0.005; default: 0.02 }>;
-  octaves: Slider<{ min: 1; max: 6; default: 4 }>;
-  seed: number;
-};
-
-type Outputs = {
+const NOISE_FIELD = `// Field + Noise + Image ambients replace ~70 lines of hand-rolled value noise,
+// fBm stacking, normalization and RGBA byte loops. Inputs are positional params
+// on generate (no inputs object); Outputs are the return type.
+function generate(
+  size: Slider<{ min: 32; max: 256; default: 96 }>,
+  scale: Slider<{ min: 0.005; max: 0.1; step: 0.005; default: 0.02 }>,
+  octaves: Slider<{ min: 1; max: 6; default: 4 }>,
+  seed: number,
+): {
   field: number[][];
   preview: Image;
-};
-
-// The Field + Noise + Image ambients replace ~70 lines of hand-rolled value
-// noise, fBm stacking, normalization, and RGBA byte loops.
-function generate(inputs) {
-  const size = inputs.size | 0;
-  const seedShift = (inputs.seed | 0) * 1009;
+} {
+  const n = size | 0;
+  const seedShift = (seed | 0) * 1009;
   const field = Field.normalize(
-    Field.create(size, size, (x, z) =>
+    Field.create(n, n, (x, z) =>
       Noise.getFractal2D_01(x + seedShift, z, {
-        frequency: inputs.scale,
-        octaves: inputs.octaves,
+        frequency: scale,
+        octaves,
       })
     )
   );
@@ -497,220 +441,85 @@ function generate(inputs) {
 }
 `;
 
-const VORONOI_FIELD = `type Inputs = {
-  size: Slider<{ min: 32; max: 256; default: 96 }>;
-  cells: Slider<{ min: 2; max: 24; default: 7 }>;
-  seed: number;
-};
-
-type Outputs = {
+const VORONOI_FIELD = `function generate(
+  size: Slider<{ min: 32; max: 256; default: 96 }>,
+  cells: Slider<{ min: 2; max: 24; default: 7 }>,
+  seed: number,
+): {
   field: number[][];
   preview: Image;
-};
-
-function hash2(ix, iz, seed) {
-  let h = ((ix * 374761393) ^ (iz * 668265263) ^ Math.imul(seed | 0, 974711)) >>> 0;
-  h = (h ^ (h >>> 13)) >>> 0;
-  h = Math.imul(h, 1274126177) >>> 0;
-  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
-}
-
-function fieldToImage(field) {
-  const size = field.length;
-  const data = new Uint8ClampedArray(size * size * 4);
-  for (let z = 0; z < size; z++) {
-    for (let x = 0; x < size; x++) {
-      const v = Math.round(field[x][z] * 255);
-      const i = (z * size + x) * 4;
-      data[i] = v;
-      data[i + 1] = v;
-      data[i + 2] = v;
-      data[i + 3] = 255;
-    }
-  }
-  return { width: size, height: size, data: data };
-}
-
-function generate(inputs) {
-  const size = inputs.size | 0;
-  const cells = inputs.cells | 0;
-  const cellSize = size / cells;
-
-  // One jittered feature point per grid cell.
-  const points = [];
-  for (let cx = 0; cx < cells; cx++) {
-    for (let cz = 0; cz < cells; cz++) {
-      points.push([
-        (cx + hash2(cx, cz, inputs.seed | 0)) * cellSize,
-        (cz + hash2(cx, cz, (inputs.seed | 0) + 7777)) * cellSize,
-      ]);
-    }
-  }
-
-  // F1 Worley noise: distance to the nearest feature point.
-  const field = [];
-  let hi = 0;
-  for (let x = 0; x < size; x++) {
-    if (x % 16 === 0) Progress.report((x / size) * 100, 'voronoi column ' + x);
-    const col = [];
-    for (let z = 0; z < size; z++) {
-      let best = Infinity;
-      for (const p of points) {
-        const dx = p[0] - x;
-        const dz = p[1] - z;
-        const d = dx * dx + dz * dz;
-        if (d < best) best = d;
-      }
-      const v = Math.sqrt(best);
-      if (v > hi) hi = v;
-      col.push(v);
-    }
-    field.push(col);
-  }
-  for (let x = 0; x < size; x++) {
-    for (let z = 0; z < size; z++) {
-      field[x][z] = field[x][z] / (hi || 1);
-    }
-  }
-  return { field, preview: fieldToImage(field) };
+} {
+  const n = size | 0;
+  const c = cells | 0;
+  // F1 Worley/cellular noise: distance to the nearest jittered feature point.
+  // frequency = cells/size lays roughly cells features across the span; the
+  // seed shifts the sample lattice. Replaces the hand-rolled point grid +
+  // nearest-distance scan + RGBA byte loop.
+  const field = Field.normalize(
+    Field.create(n, n, (x, z) =>
+      Noise.worley(x + (seed | 0) * 131, z, { frequency: c / n })
+    )
+  );
+  return { field, preview: Image.fromField(field, 'grayscale') };
 }
 `;
 
-const COMBINE_FIELDS = `type Inputs = {
-  a: number[][];
-  b: number[][];
-  op: 'subtract' | 'add' | 'multiply' | 'min' | 'max' | 'average';
-  strength: Slider<{ min: 0; max: 1; step: 0.05; default: 1 }>;
-};
-
-type Outputs = {
+const COMBINE_FIELDS = `function generate(
+  a: number[][],
+  b: number[][],
+  op: 'subtract' | 'add' | 'multiply' | 'min' | 'max' | 'average',
+  strength: Slider<{ min: 0; max: 1; step: 0.05; default: 1 }>,
+): {
   field: number[][];
   preview: Image;
-};
+} {
+  const fa = a || [];
+  const fb = b || [];
+  const size = Math.min(fa.length, fb.length);
+  if (!size) return { field: [], preview: Image.blank() };
 
-function fieldToImage(field) {
-  const size = field.length;
-  const data = new Uint8ClampedArray(size * size * 4);
-  for (let z = 0; z < size; z++) {
-    for (let x = 0; x < size; x++) {
-      const v = Math.round(field[x][z] * 255);
-      const i = (z * size + x) * 4;
-      data[i] = v;
-      data[i + 1] = v;
-      data[i + 2] = v;
-      data[i + 3] = 255;
-    }
-  }
-  return { width: size, height: size, data: data };
-}
-
-function generate(inputs) {
-  const a = inputs.a || [];
-  const b = inputs.b || [];
-  const size = Math.min(a.length, b.length);
-  if (!size) return { field: [], preview: { width: 1, height: 1, data: new Uint8ClampedArray(4) } };
-
-  const k = inputs.strength;
-  const field = [];
-  let lo = Infinity;
-  let hi = -Infinity;
-  for (let x = 0; x < size; x++) {
-    const col = [];
-    for (let z = 0; z < size; z++) {
-      const va = a[x][z];
-      const vb = b[x][z] * k;
-      let v;
-      if (inputs.op === 'add') v = va + vb;
-      else if (inputs.op === 'multiply') v = va * (1 - k + vb);
-      else if (inputs.op === 'min') v = Math.min(va, vb);
-      else if (inputs.op === 'max') v = Math.max(va, vb);
-      else if (inputs.op === 'average') v = (va + vb) / 2;
-      else v = va - vb; // subtract (perlin minus voronoi = eroded ridges)
-      if (v < lo) lo = v;
-      if (v > hi) hi = v;
-      col.push(v);
-    }
-    field.push(col);
-  }
-  const span = hi - lo || 1;
-  for (let x = 0; x < size; x++) {
-    for (let z = 0; z < size; z++) {
-      field[x][z] = (field[x][z] - lo) / span;
-    }
-  }
-  return { field, preview: fieldToImage(field) };
+  // Element-wise op with a strength dial; Field.combine walks both fields and
+  // Field.normalize rescales the result into [0, 1] (the manual min/max loop).
+  const k = strength;
+  const merged = Field.combine(fa, fb, (va, raw) => {
+    const vb = raw * k;
+    if (op === 'add') return va + vb;
+    if (op === 'multiply') return va * (1 - k + vb);
+    if (op === 'min') return Math.min(va, vb);
+    if (op === 'max') return Math.max(va, vb);
+    if (op === 'average') return (va + vb) / 2;
+    return va - vb; // subtract (perlin minus voronoi = eroded ridges)
+  });
+  const field = Field.normalize(merged);
+  return { field, preview: Image.fromField(field, 'grayscale') };
 }
 `;
 
-const SHAPE_FIELD = `type Inputs = {
-  field: number[][];
-  exponent: Slider<{ min: 0.3; max: 3; step: 0.1; default: 1.6 }>;
-  terraces: Slider<{ min: 0; max: 12; default: 0 }>;
-};
-
-type Outputs = {
+const SHAPE_FIELD = `function generate(
+  field: number[][],
+  exponent: Slider<{ min: 0.3; max: 3; step: 0.1; default: 1.6 }>,
+  terraces: Slider<{ min: 0; max: 12; default: 0 }>,
+): {
   field: number[][];
   preview: Image;
-};
+} {
+  const src = field || [];
+  if (!src.length) return { field: [], preview: Image.blank() };
 
-function fieldToImage(field) {
-  const size = field.length;
-  const data = new Uint8ClampedArray(size * size * 4);
-  for (let z = 0; z < size; z++) {
-    for (let x = 0; x < size; x++) {
-      const v = Math.round(field[x][z] * 255);
-      const i = (z * size + x) * 4;
-      data[i] = v;
-      data[i + 1] = v;
-      data[i + 2] = v;
-      data[i + 3] = 255;
-    }
-  }
-  return { width: size, height: size, data: data };
-}
-
-function generate(inputs) {
-  const src = inputs.field || [];
-  const size = src.length;
-  if (!size) return { field: [], preview: { width: 1, height: 1, data: new Uint8ClampedArray(4) } };
-
-  const steps = inputs.terraces | 0;
-  const out = [];
-  for (let x = 0; x < size; x++) {
-    const col = [];
-    for (let z = 0; z < size; z++) {
-      // Redistribution: exponent > 1 flattens valleys and sharpens peaks.
-      let v = Math.pow(src[x][z], inputs.exponent);
-      if (steps > 0) v = Math.round(v * steps) / steps;
-      col.push(v);
-    }
-    out.push(col);
-  }
-  return { field: out, preview: fieldToImage(out) };
+  // Field.map walks every cell; exponent > 1 flattens valleys and sharpens
+  // peaks, then optional terracing snaps to flat steps. Image.fromField
+  // renders the preview (replaces the hand-rolled RGBA byte loop).
+  const steps = terraces | 0;
+  const out = Field.map(src, (value) => {
+    let v = Math.pow(value, exponent);
+    if (steps > 0) v = Math.round(v * steps) / steps;
+    return v;
+  });
+  return { field: out, preview: Image.fromField(out, 'grayscale') };
 }
 `;
 
-const FIELD_TO_TERRAIN = `type Inputs = {
-  elevation: number[][];
-  moisture: number[][];
-  amplitude: Slider<{ min: 4; max: 64; default: 30 }>;
-  waterLevel: Slider<{ min: 0; max: 1; step: 0.05; default: 0.35 }>;
-  seed: number;
-};
-
-type Outputs = {
-  terrain: Schematic;
-  biomes: Image;
-};
-
-function hash2(ix, iz, seed) {
-  let h = ((ix * 374761393) ^ (iz * 668265263) ^ Math.imul(seed | 0, 974711)) >>> 0;
-  h = (h ^ (h >>> 13)) >>> 0;
-  h = Math.imul(h, 1274126177) >>> 0;
-  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
-}
-
-const BIOMES = {
+const FIELD_TO_TERRAIN = `const BIOMES = {
   water:    { color: [56, 108, 215],  top: 'minecraft:blue_stained_glass' },
   beach:    { color: [222, 206, 153], top: 'minecraft:sand' },
   plains:   { color: [120, 176, 84],  top: 'minecraft:grass_block' },
@@ -740,30 +549,34 @@ function plantTree(terrain, x, y, z) {
   }
 }
 
-function generate(inputs) {
-  const elevation = inputs.elevation || [];
-  const moisture = inputs.moisture || [];
-  const size = elevation.length;
+function generate(
+  elevation: number[][],
+  moisture: number[][],
+  amplitude: Slider<{ min: 4; max: 64; default: 30 }>,
+  waterLevel: Slider<{ min: 0; max: 1; step: 0.05; default: 0.35 }>,
+  seed: number,
+): {
+  terrain: Schematic;
+  biomes: Image;
+} {
+  const elev = elevation || [];
+  const moist = moisture || [];
+  const size = elev.length;
   const terrain = new Schematic();
-  const data = new Uint8ClampedArray(Math.max(1, size * size * 4));
-  if (!size) return { terrain, biomes: { width: 1, height: 1, data: data } };
+  if (!size) return { terrain, biomes: Image.blank() };
 
-  const amplitude = inputs.amplitude;
-  const waterY = Math.max(1, Math.floor(inputs.waterLevel * amplitude));
+  const biomes = new Image(size, size);
+  const waterY = Math.max(1, Math.floor(waterLevel * amplitude));
 
   for (let x = 0; x < size; x++) {
     if (x % 8 === 0) Progress.report((x / size) * 100, 'building column ' + x);
     for (let z = 0; z < size; z++) {
-      const e = elevation[x][z];
-      const m = moisture[x] && moisture[x][z] !== undefined ? moisture[x][z] : 0.5;
-      const biome = classify(e, m, inputs.waterLevel);
+      const e = elev[x][z];
+      const m = moist[x] && moist[x][z] !== undefined ? moist[x][z] : 0.5;
+      const biome = classify(e, m, waterLevel);
       const spec = BIOMES[biome];
 
-      const i = (z * size + x) * 4;
-      data[i] = spec.color[0];
-      data[i + 1] = spec.color[1];
-      data[i + 2] = spec.color[2];
-      data[i + 3] = 255;
+      biomes.setPixel(x, z, spec.color[0], spec.color[1], spec.color[2]);
 
       const height = Math.max(1, Math.floor(e * amplitude));
       for (let y = 0; y < height - 1; y++) {
@@ -777,41 +590,37 @@ function generate(inputs) {
       } else {
         terrain.set_block(x, height - 1, z, spec.top);
         if (biome === 'forest' && x > 1 && z > 1 && x < size - 2 && z < size - 2 &&
-            hash2(x, z, (inputs.seed | 0) + 31) < 0.025) {
+            Random.hash2(x, z, (seed | 0) + 31) < 0.025) {
           plantTree(terrain, x, height, z);
         }
       }
     }
   }
 
-  return { terrain, biomes: { width: size, height: size, data: data } };
+  return { terrain, biomes };
 }
 `;
 
-const SCHEMATI_SEARCH = `type Inputs = {
-  tag: string;
-  search: string;
-  limit: Slider<{ min: 1; max: 50; default: 10 }>;
-};
-
-type Outputs = {
+const SCHEMATI_SEARCH = `// Searches the schemati platform. In the browser this rides your session;
+// on the server it uses SCHEMATI_URL / SCHEMATI_API_TOKEN.
+async function generate(
+  tag: string,
+  search: string,
+  limit: Slider<{ min: 1; max: 50; default: 10 }>,
+): {
   results: { name: string; id: string; format: string; tags: string; authors: string }[];
   firstId: string;
   count: number;
-};
-
-// Searches the schemati platform. In the browser this rides your session;
-// on the server it uses SCHEMATI_URL / SCHEMATI_API_TOKEN.
-async function generate(inputs) {
+} {
   const found = await Schemati.searchSchematics({
-    tag: inputs.tag || undefined,
-    search: inputs.search || undefined,
-    limit: inputs.limit,
+    tag: tag || undefined,
+    search: search || undefined,
+    limit: limit,
   });
 
   const results = found.map((s) => ({
     name: s.name,
-    id: s.shortId || s.id,
+    id: Schemati.displayId(s),
     format: s.format,
     tags: s.tags.join(', '),
     authors: s.authors.join(', '),
@@ -819,141 +628,104 @@ async function generate(inputs) {
 
   return {
     results,
-    firstId: found.length ? (found[0].shortId || found[0].id) : '',
+    firstId: found.length ? Schemati.displayId(found[0]) : '',
     count: found.length,
   };
 }
 `;
 
-const SCHEMATI_FETCH = `type Inputs = {
-  id: TextField<{ required: true }>;
-};
-
-type Outputs = {
-  schematic: Schematic;
-  name: string;
-};
-
-// Downloads a schematic from the platform by id, short id, or slug and
+const SCHEMATI_FETCH = `// Downloads a schematic from the platform by id, short id, or slug and
 // loads it as a live Schematic (one download, parsed locally). The
 // required flag blocks runs until the id is provided.
-async function generate(inputs) {
-  const file = await Schemati.getSchematicData(inputs.id);
-  const schematic = new Schematic();
-  schematic.from_data(file.data);
-  return { schematic, name: file.metadata.name };
+async function generate(
+  id: TextField<{ required: true }>,
+): {
+  schematic: Schematic;
+  name: string;
+} {
+  // One step: download + parse into a live Schematic.
+  const loaded = await Schemati.loadSchematic(id);
+  return { schematic: loaded.schematic, name: loaded.name };
 }
 `;
 
-const SCHEMATI_UPLOAD = `type Inputs = {
-  schematic: Schematic;
-  name: string;
-  description: string;
-  tags: string;
-  isPublic: Toggle<{ default: true }>;
-};
-
-type Outputs = {
+const SCHEMATI_UPLOAD = `// Publishes a schematic to the schemati platform. In the browser you must be
+// signed in; on the server SCHEMATI_API_TOKEN is used. Tags are comma-separated
+// platform tag names. A top-down preview image is generated automatically.
+async function generate(
+  schematic: Schematic,
+  name: string,
+  description: string,
+  tags: string,
+  isPublic: Toggle<{ default: true }>,
+): {
   id: string;
   url: string;
   summary: string;
-};
-
-// Publishes a schematic to the schemati platform. In the browser you must be
-// signed in; on the server SCHEMATI_API_TOKEN is used. Tags are comma-separated
-// platform tag names. A top-down preview image is generated automatically.
-async function generate(inputs) {
-  if (!inputs.name) throw new Error('Give the upload a name');
-  const tags = inputs.tags
+} {
+  if (!name) throw new Error('Give the upload a name');
+  const tagList = tags
     .split(',')
     .map((t) => t.trim())
     .filter(Boolean);
 
-  const uploaded = await Schemati.uploadSchematic(inputs.schematic, {
-    name: inputs.name,
-    description: inputs.description || undefined,
-    tags,
-    isPublic: inputs.isPublic,
+  const uploaded = await Schemati.uploadSchematic(schematic, {
+    name: name,
+    description: description || undefined,
+    tags: tagList,
+    isPublic: isPublic,
   });
 
+  const id = Schemati.displayId(uploaded);
   return {
-    id: uploaded.shortId || uploaded.id,
+    id,
     url: uploaded.webUrl || '',
-    summary: 'Uploaded "' + uploaded.name + '" (' + (uploaded.shortId || uploaded.id) + ')',
+    summary: 'Uploaded "' + uploaded.name + '" (' + id + ')',
   };
 }
 `;
 
-const PICK_ITEM = `type Inputs = {
-  list: any[];
-  index: NumberField<{ min: 0; default: 0 }>;
-  fieldName: string;
-};
-
-type Outputs = {
-  item: any;
-};
-
-// Plumbing node: take element [index] from a list (negative counts from the
+const PICK_ITEM = `// Plumbing node: take element [index] from a list (negative counts from the
 // end), optionally drilling into a named field — so upstream blocks don't
 // need single-purpose outputs like "firstId".
-function generate(inputs) {
-  const list = Array.isArray(inputs.list) ? inputs.list : [];
-  if (!list.length) throw new Error('Pick: the list is empty');
-  const i = inputs.index < 0 ? list.length + inputs.index : inputs.index;
-  if (i < 0 || i >= list.length) {
-    throw new Error('Pick: index ' + inputs.index + ' out of range (0..' + (list.length - 1) + ')');
+function generate(
+  list: any[],
+  index: NumberField<{ min: 0; default: 0 }>,
+  fieldName: string,
+): {
+  item: any;
+} {
+  const items = Array.isArray(list) ? list : [];
+  if (!items.length) throw new Error('Pick: the list is empty');
+  const i = index < 0 ? items.length + index : index;
+  if (i < 0 || i >= items.length) {
+    throw new Error('Pick: index ' + index + ' out of range (0..' + (items.length - 1) + ')');
   }
-  const item = list[i];
-  if (inputs.fieldName) {
-    if (item === null || typeof item !== 'object' || !(inputs.fieldName in item)) {
-      throw new Error('Pick: item has no field "' + inputs.fieldName + '"');
+  const item = items[i];
+  if (fieldName) {
+    if (item === null || typeof item !== 'object' || !(fieldName in item)) {
+      throw new Error('Pick: item has no field "' + fieldName + '"');
     }
-    return { item: item[inputs.fieldName] };
+    return { item: item[fieldName] };
   }
   return { item };
 }
 `;
 
-const STITCH_GRID = `type Inputs = {
-  tiles: Schematic[][];
-  spacing: Slider<{ min: 0; max: 8; default: 1 }>;
-};
-
-type Outputs = {
-  stitched: Schematic;
-};
-
-// Arrange a 2D grid of schematics into one mosaic. Uses paste() — the
+const STITCH_GRID = `// Arrange a 2D grid of schematics into one mosaic. Uses paste() — the
 // centralized copy (a native WASM offset-paste will slot in transparently).
-function generate(inputs) {
-  const rows = inputs.tiles;
+function generate(
+  tiles: Schematic[][],
+  spacing: Slider<{ min: 0; max: 8; default: 1 }>,
+): {
+  stitched: Schematic;
+} {
+  const rows = tiles;
   if (!rows || !rows.length) throw new Error('Stitch: no tiles');
 
-  // Uniform cell size from the largest tile.
-  let cellW = 1;
-  let cellD = 1;
-  for (const row of rows) {
-    for (const tile of row) {
-      const d = tile.get_dimensions();
-      cellW = Math.max(cellW, d[0]);
-      cellD = Math.max(cellD, d[2]);
-    }
-  }
-
-  const stitched = new Schematic();
-  rows.forEach((row, rz) => {
-    Progress.tick(rz, rows.length, 'stitching row ' + rz);
-    row.forEach((tile, rx) => {
-      stitched.paste(
-        tile,
-        rx * (cellW + inputs.spacing),
-        0,
-        rz * (cellD + inputs.spacing)
-      );
-    });
-  });
-
+  // tileGrid lays the rows into one mosaic on a uniform cell grid (sized to
+  // the largest tile) with the requested spacing — the manual paste loop.
+  const stitched = Schematic.tileGrid(rows, { spacing: spacing, mode: 'uniform' });
   return { stitched };
 }
 `;

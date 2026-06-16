@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Plus, LogIn, Loader2, ArrowLeft, User, LogOut, ChevronDown } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
+import { features } from '../../config/features';
 
 const SCHEMATI_URL = import.meta.env.VITE_SCHEMATI_URL || 'https://schemati.test';
 
@@ -47,14 +48,16 @@ export function Navbar() {
           >
             Flows
           </Link>
-          <Link
-            to="/modules"
-            className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
-              isActive('/modules') ? 'bg-white/10 text-white' : 'text-neutral-400 hover:text-white hover:bg-white/5'
-            }`}
-          >
-            Modules
-          </Link>
+          {features.modules && (
+            <Link
+              to="/modules"
+              className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                isActive('/modules') ? 'bg-white/10 text-white' : 'text-neutral-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              Modules
+            </Link>
+          )}
           <Link
             to="/editor"
             className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${

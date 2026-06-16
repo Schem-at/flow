@@ -34,26 +34,13 @@ type Outputs = {
 };
 
 function generate(inputs) {
-  const stitched = new Schematic();
   const tiles = inputs.tiles || [];
   const spacing = inputs.spacing ?? 2;
 
-  let offsetZ = 0;
-  for (let r = 0; r < tiles.length; r++) {
-    const row = tiles[r] || [];
-    let offsetX = 0;
-    let rowDepth = 0;
-    for (let c = 0; c < row.length; c++) {
-      const tile = row[c];
-      if (!tile || typeof tile.blocks !== 'function') continue;
-      const dims = tile.get_dimensions();
-      // paste() copies every (non-air) block at the offset in one call.
-      stitched.paste(tile, offsetX, 0, offsetZ);
-      offsetX += (dims[0] | 0) + spacing;
-      rowDepth = Math.max(rowDepth, dims[2] | 0);
-    }
-    offsetZ += rowDepth + spacing;
-  }
+  // tileGrid (packed) lays rows out exactly like the old hand-rolled loop:
+  // per-row offsetX += tileWidth + spacing, offsetZ += maxRowDepth + spacing,
+  // skipping non-schematic cells and air blocks.
+  const stitched = Schematic.tileGrid(tiles, { spacing: spacing, mode: 'packed' });
 
   return { stitched };
 }
@@ -188,22 +175,12 @@ type Outputs = {
   grid: number[][];
 };
 
-function mulberry32(seed) {
-  let s = seed >>> 0 || 1;
-  return () => {
-    s |= 0;
-    s = (s + 0x6d2b79f5) | 0;
-    let t = Math.imul(s ^ (s >>> 15), 1 | s);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
 function generate(inputs) {
   // Odd dimensions so walls and corridors alternate cleanly.
   const w = inputs.width % 2 ? inputs.width : inputs.width + 1;
   const h = inputs.height % 2 ? inputs.height : inputs.height + 1;
-  const rand = mulberry32(inputs.seed | 0 || 42);
+  // Random.seeded is the shared deterministic mulberry32 PRNG.
+  const rand = Random.seeded(inputs.seed | 0 || 42);
 
   const grid = [];
   for (let z = 0; z < h; z++) {
@@ -230,20 +207,18 @@ function generate(inputs) {
       stack.pop();
       continue;
     }
-    const [nx, nz, dx, dz] = options[Math.floor(rand() * options.length)];
+    const [nx, nz, dx, dz] = Random.pick(options, rand);
     grid[nz][nx] = 0;
     grid[cz + dz / 2][cx + dx / 2] = 0;
     stack.push([nx, nz]);
   }
 
   const maze = new Schematic();
+  // Floor is a solid plane; walls rise two blocks per filled cell.
+  maze.fillPlane(0, 0, w - 1, h - 1, 0, 'minecraft:polished_andesite');
   for (let z = 0; z < h; z++) {
     for (let x = 0; x < w; x++) {
-      maze.set_block(x, 0, z, 'minecraft:polished_andesite');
-      if (grid[z][x] === 1) {
-        maze.set_block(x, 1, z, inputs.wall);
-        maze.set_block(x, 2, z, inputs.wall);
-      }
+      if (grid[z][x] === 1) maze.fillColumn(x, z, 1, 2, inputs.wall);
     }
   }
 
@@ -306,11 +281,8 @@ function generate(inputs) {
     }
   }
 
-  const solved = new Schematic();
-  for (const b of inputs.maze.blocks()) {
-    if (b.name === 'minecraft:air') continue;
-    solved.set_block(b.x, b.y, b.z, b.name);
-  }
+  // clone() copies every non-air block — no manual block-by-block loop needed.
+  const solved = inputs.maze.clone();
 
   let length = 0;
   if (found) {
@@ -443,21 +415,10 @@ type Outputs = {
   ground: Schematic;
 };
 
-function mulberry32(seed) {
-  let s = seed >>> 0 || 1;
-  return () => {
-    s |= 0;
-    s = (s + 0x6d2b79f5) | 0;
-    let t = Math.imul(s ^ (s >>> 15), 1 | s);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
 function generate(inputs) {
   const size = inputs.size | 0;
   const lotSize = inputs.lot | 0;
-  const rand = mulberry32(inputs.seed | 0 || 7);
+  const rand = Random.seeded(inputs.seed | 0 || 7);
   const pitch = lotSize + 1;
 
   const ground = new Schematic();
@@ -522,11 +483,8 @@ type Outputs = {
 };
 
 function generate(inputs) {
-  const city = new Schematic();
-  for (const b of inputs.ground.blocks()) {
-    if (b.name === 'minecraft:air') continue;
-    city.set_block(b.x, b.y, b.z, b.name);
-  }
+  // Start from a copy of the road grid, then raise towers on each lot.
+  const city = inputs.ground.clone();
 
   for (const lot of inputs.lots || []) {
     const top = lot.floors * 4;
@@ -543,11 +501,8 @@ function generate(inputs) {
         }
       }
     }
-    for (let x = lot.x; x < lot.x + lot.w; x++) {
-      for (let z = lot.z; z < lot.z + lot.d; z++) {
-        city.set_block(x, top + 1, z, 'minecraft:polished_andesite');
-      }
-    }
+    // Flat roof slab over the whole lot footprint.
+    city.fillPlane(lot.x, lot.z, lot.x + lot.w - 1, lot.z + lot.d - 1, top + 1, 'minecraft:polished_andesite');
   }
 
   return { city };
@@ -711,29 +666,20 @@ type Outputs = {
 };
 
 function generate(inputs) {
-  // Read the heightmap (top block per column) out of the input schematic.
-  const tops = new Map();
-  let maxX = 0;
-  let maxZ = 0;
-  for (const b of inputs.terrain.blocks()) {
-    if (b.name === 'minecraft:air') continue; // blocks() enumerates the full bounding box
-    const key = b.x + ',' + b.z;
-    const top = tops.get(key);
-    if (!top || b.y > top.y) tops.set(key, { y: b.y, name: b.name });
-    if (b.x > maxX) maxX = b.x;
-    if (b.z > maxZ) maxZ = b.z;
-  }
-  const w = maxX + 1;
-  const d = maxZ + 1;
+  // heightmap() returns the top block y (or -1) and its name per [x][z] column.
+  const map = inputs.terrain.heightmap();
+  const w = map.height.length;
+  const d = w ? map.height[0].length : 0;
   const height = [];
   const surface = [];
   for (let x = 0; x < w; x++) {
     height.push([]);
     surface.push([]);
     for (let z = 0; z < d; z++) {
-      const top = tops.get(x + ',' + z);
-      height[x].push(top ? top.y + 1 : 1);
-      surface[x].push(top ? top.name : 'minecraft:grass_block');
+      const topY = map.height[x][z];
+      // Column height = topY + 1 (1 for empty columns), surface defaults to grass.
+      height[x].push(topY >= 0 ? topY + 1 : 1);
+      surface[x].push(topY >= 0 ? map.surface[x][z] : 'minecraft:grass_block');
     }
   }
 
@@ -768,7 +714,8 @@ function generate(inputs) {
   for (let x = 0; x < w; x++) {
     for (let z = 0; z < d; z++) {
       const h = Math.max(1, height[x][z]);
-      for (let y = 0; y < h - 1; y++) eroded.set_block(x, y, z, 'minecraft:dirt');
+      // Dirt body up to h-2 (fillColumn is inclusive), surface block on top.
+      if (h > 1) eroded.fillColumn(x, z, 0, h - 2, 'minecraft:dirt');
       eroded.set_block(x, h - 1, z, surface[x][z]);
     }
   }
@@ -1163,6 +1110,66 @@ export const WORLDGEN_FLOW: FlowData = {
       },
     },
     {
+      id: 'wg-size',
+      type: 'input',
+      position: { x: -380, y: -120 },
+      data: { label: 'world size', value: 96, dataType: 'number', widgetType: 'slider', min: 32, max: 256 },
+    },
+    {
+      id: 'wg-elev-scale',
+      type: 'input',
+      position: { x: -380, y: -300 },
+      data: { label: 'elevation scale', value: 0.02, dataType: 'number', widgetType: 'slider', min: 0.005, max: 0.1, step: 0.005 },
+    },
+    {
+      id: 'wg-elev-octaves',
+      type: 'input',
+      position: { x: -380, y: -420 },
+      data: { label: 'elevation octaves', value: 4, dataType: 'number', widgetType: 'slider', min: 1, max: 6 },
+    },
+    {
+      id: 'wg-cells',
+      type: 'input',
+      position: { x: -380, y: 320 },
+      data: { label: 'voronoi cells', value: 7, dataType: 'number', widgetType: 'slider', min: 2, max: 24 },
+    },
+    {
+      id: 'wg-moist-scale',
+      type: 'input',
+      position: { x: -380, y: 560 },
+      data: { label: 'moisture scale', value: 0.03, dataType: 'number', widgetType: 'slider', min: 0.005, max: 0.1, step: 0.005 },
+    },
+    {
+      id: 'wg-moist-octaves',
+      type: 'input',
+      position: { x: -380, y: 680 },
+      data: { label: 'moisture octaves', value: 3, dataType: 'number', widgetType: 'slider', min: 1, max: 6 },
+    },
+    {
+      id: 'wg-strength',
+      type: 'input',
+      position: { x: 560, y: -180 },
+      data: { label: 'ridge strength', value: 1, dataType: 'number', widgetType: 'slider', min: 0, max: 1, step: 0.05 },
+    },
+    {
+      id: 'wg-exponent',
+      type: 'input',
+      position: { x: 1060, y: -160 },
+      data: { label: 'shape exponent', value: 1.6, dataType: 'number', widgetType: 'slider', min: 0.3, max: 3, step: 0.1 },
+    },
+    {
+      id: 'wg-terraces',
+      type: 'input',
+      position: { x: 1060, y: -40 },
+      data: { label: 'terraces', value: 0, dataType: 'number', widgetType: 'slider', min: 0, max: 12 },
+    },
+    {
+      id: 'wg-amplitude',
+      type: 'input',
+      position: { x: 1560, y: 100 },
+      data: { label: 'amplitude', value: 30, dataType: 'number', widgetType: 'slider', min: 4, max: 64 },
+    },
+    {
       id: 'wg-perlin',
       type: 'code',
       position: { x: 300, y: -160 },
@@ -1259,6 +1266,19 @@ export const WORLDGEN_FLOW: FlowData = {
     { id: 'wg-v5', source: 'wg-build', target: 'wg-v-biomes', sourceHandle: 'biomes', targetHandle: 'input' },
     { id: 'wg-v6', source: 'wg-build', target: 'wg-v-world', sourceHandle: 'terrain', targetHandle: 'input' },
     { id: 'wg-o1', source: 'wg-build', target: 'wg-out', sourceHandle: 'terrain', targetHandle: 'input' },
+    // Parameter input nodes → code-node inputs (full studio).
+    { id: 'wg-i1', source: 'wg-size', target: 'wg-perlin', sourceHandle: 'output', targetHandle: 'size' },
+    { id: 'wg-i2', source: 'wg-size', target: 'wg-voronoi', sourceHandle: 'output', targetHandle: 'size' },
+    { id: 'wg-i3', source: 'wg-size', target: 'wg-moisture', sourceHandle: 'output', targetHandle: 'size' },
+    { id: 'wg-i4', source: 'wg-elev-scale', target: 'wg-perlin', sourceHandle: 'output', targetHandle: 'scale' },
+    { id: 'wg-i5', source: 'wg-elev-octaves', target: 'wg-perlin', sourceHandle: 'output', targetHandle: 'octaves' },
+    { id: 'wg-i6', source: 'wg-cells', target: 'wg-voronoi', sourceHandle: 'output', targetHandle: 'cells' },
+    { id: 'wg-i7', source: 'wg-moist-scale', target: 'wg-moisture', sourceHandle: 'output', targetHandle: 'scale' },
+    { id: 'wg-i8', source: 'wg-moist-octaves', target: 'wg-moisture', sourceHandle: 'output', targetHandle: 'octaves' },
+    { id: 'wg-i9', source: 'wg-strength', target: 'wg-combine', sourceHandle: 'output', targetHandle: 'strength' },
+    { id: 'wg-i10', source: 'wg-exponent', target: 'wg-shape', sourceHandle: 'output', targetHandle: 'exponent' },
+    { id: 'wg-i11', source: 'wg-terraces', target: 'wg-shape', sourceHandle: 'output', targetHandle: 'terraces' },
+    { id: 'wg-i12', source: 'wg-amplitude', target: 'wg-build', sourceHandle: 'output', targetHandle: 'amplitude' },
   ],
 };
 
