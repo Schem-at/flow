@@ -1,0 +1,10 @@
+# Keep the build context lean and force clean installs/builds in-image.
+**/node_modules
+**/dist
+**/.turbo
+.turbo
+.git
+server/data
+**/*.log
+Dockerfile
+.dockerignore
