@@ -37,7 +37,15 @@ ENV VITE_SCHEMATI_URL=$VITE_SCHEMATI_URL \
     VITE_FEATURE_SCHEMATI_NODES=$VITE_FEATURE_SCHEMATI_NODES \
     VITE_FEATURE_MODULES=$VITE_FEATURE_MODULES \
     VITE_FEATURE_API_EXECUTION=$VITE_FEATURE_API_EXECUTION
-RUN bunx turbo build --filter=client
+# Build the workspace deps (@flow/core, @flow/synthase, shared) via Turbo, then
+# bundle the client with Vite directly. We deliberately skip the package's
+# `tsc -b` typecheck (client build = "tsc -b && vite build"): the dev workflow
+# never typechecks (it runs plain `vite`), Vite/esbuild transpiles without
+# type-checking, and client/tsconfig.app.json sets noUnusedLocals/Parameters,
+# so upstream TS6133 "unused var" lint errors would otherwise block the deploy
+# bundle. Type-check in CI, not in the release image.
+RUN bunx turbo build --filter='client^...'
+RUN cd client && bunx vite build
 
 ############################################################
 # Client runtime: Caddy serves the SPA + proxies /api -> Laravel.
