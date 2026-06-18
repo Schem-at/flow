@@ -153,7 +153,20 @@ export type NodeType =
   | 'schematic_input'   // @deprecated - Load schematic file
   | 'schematic_output'  // @deprecated - Export schematic file
   | 'schematic_viewer'  // @deprecated - 3D preview of schematic
-  | 'comment';          // Non-functional comment node
+  | 'comment'           // Non-functional comment node
+  // Meta / visual-tidiness nodes
+  | 'frame'             // Decorative backdrop rectangle
+  | 'reroute'           // Pass-through wire dot
+  | 'constant'          // Emits a baked literal value
+  | 'inspect'           // Transparent value tap (pass-through + live preview)
+  // Semantic object meta-nodes
+  | 'bundle'            // Packs named inputs into one object
+  | 'unbundle'          // Splits an object into named outputs
+  // Group / subflow meta-node (collapses a selection into a nested subgraph)
+  | 'group'             // Embedded subgraph with a derived boundary contract
+  // Control-flow meta-nodes
+  | 'switch'            // Selects one of N inputs by a numeric selector index
+  | 'map';              // Iterates a body subgraph over a list → list of results
 
 // ============================================================================
 // Execution Types

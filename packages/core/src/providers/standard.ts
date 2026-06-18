@@ -11,6 +11,33 @@ import { createNoiseProvider } from '../utils/noise.js';
 import { VectorUtils } from '../utils/vector.js';
 import { Pathfinding } from '../utils/pathfinding.js';
 
+/**
+ * A read-only, host-backed monotonic clock captured BEFORE SES lockdown tames
+ * the intrinsics. Endowed into the compartment as the `__hostNow` global so
+ * trace instrumentation (flow-compiler.ts) can measure REAL per-node `ms` even
+ * though SES makes `performance.now`/`Date.now` throw/return 0 inside.
+ *
+ * It exposes nothing but elapsed milliseconds — no setter, no other capability.
+ * `Function.prototype.bind` yields a fresh, frozen function whose only authority
+ * is reading the (already-captured) timer, so it grants no fresh host access.
+ */
+const hostNow: () => number = (() => {
+  const hp =
+    typeof performance !== 'undefined' && typeof performance.now === 'function'
+      ? performance.now.bind(performance)
+      : null;
+  const fn = hp ?? Date.now.bind(Date);
+  // Always return a finite number, even if a future host throws.
+  return () => {
+    try {
+      const t = fn();
+      return typeof t === 'number' && isFinite(t) ? t : 0;
+    } catch {
+      return 0;
+    }
+  };
+})();
+
 export interface ProgressReporter {
   report: (percent: number, message?: string, data?: unknown) => void;
   step: (current: number, total: number, message?: string) => void;
@@ -67,6 +94,9 @@ export const standardProvider: RuntimeProvider = {
       Vec3: VectorUtils.Vec3,
 
       Pathfinding,
+
+      // Host-backed read-only clock for trace timing under SES (see hostNow).
+      __hostNow: hostNow,
 
       // Math's built-ins are non-enumerable — spread/assign would produce an
       // empty shadow. Prototype-chain it instead so sin/cos/… resolve.

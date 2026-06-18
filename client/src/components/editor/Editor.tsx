@@ -4,7 +4,7 @@ import { uuid } from '../../lib/uuid';
  */
 
 import { useCallback, useRef, useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { layoutWithElk } from '../../lib/layout';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -18,10 +18,15 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import type { Edge } from '@xyflow/react';
-import type { BlockContract } from '@flow/core';
-import { defaultInputsForContract, isAssetNodeData, assetNodeValue } from '@flow/core';
-import { missingRequiredInputs, missingInputsMessage } from '../../lib/validateRequiredInputs';
+import type { TracedResult } from '@flow/core';
+import { isAssetNodeData, assetNodeValue, compileFlow, FlowCompileError } from '@flow/core';
 import { type FlowNode } from '../../store/flowStore';
+import {
+  collectFlowInputs,
+  collectOutputNames,
+  traceValueToCache,
+  flowHasSubflowNodes,
+} from '../../lib/tracePlan';
 
 import { 
   FolderOpen, 
@@ -58,13 +63,15 @@ import { CommandPalette } from '../ui/CommandPalette';
 import { MobileNodeDrawer } from './MobileNodeDrawer';
 import { useLocalExecutor } from '../../hooks/useLocalExecutor';
 import { parseExecutionError, createSimpleError } from '../../lib/utils';
-import { hashExecutionInputs } from '../../lib/inputHash';
+import { EXAMPLE_FLOWS } from '../../lib/exampleFlows';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL ?? '';
 
 export function Editor() {
   const reactFlowInstance = useRef<ReactFlowInstance | null>(null);
   const { flowId: urlFlowId } = useParams();
+  const [searchParams] = useSearchParams();
+  const exampleId = searchParams.get('example');
   const navigate = useNavigate();
   
   const {
@@ -97,8 +104,8 @@ export function Editor() {
     debugMode,
     toggleDebugMode,
     getStaleNodes,
-    getNodesToExecute,
-    markNodeCached,
+    groupSelected,
+    ungroupNode,
   } = useFlowStore();
 
   // Auto-arrange the graph into a clean left-to-right layered layout (ELK).
@@ -150,6 +157,21 @@ export function Editor() {
       if (flowData.name) setFlowName(flowData.name);
     }
   }, [flowData, loadFlow, setFlowId, setFlowName]);
+
+  // Deep-linked example (?example=<id>) — only when there is no saved-flow id in
+  // the URL (so /flow/:uuid and /editor/:uuid stay untouched). Examples are
+  // ephemeral: loaded with no backend id (flowId stays null) so a "Save" still
+  // creates a fresh flow. Guarded so a refresh restores it without thrashing.
+  useEffect(() => {
+    if (urlFlowId || !exampleId) return;
+    const key = `example:${exampleId}`;
+    if (hasLoadedFlowRef.current === key) return;
+    const example = EXAMPLE_FLOWS.find((f) => f.id === exampleId);
+    if (!example) return;
+    hasLoadedFlowRef.current = key;
+    loadFlow({ ...example, id: '', createdAt: Date.now() });
+    setFlowName(example.name);
+  }, [urlFlowId, exampleId, loadFlow, setFlowName]);
 
   // Sync URL with store state
   // Only sync FROM store TO URL when store has a new flow that wasn't loaded from URL
@@ -354,6 +376,24 @@ export function Editor() {
         // Show shortcuts panel
         e.preventDefault();
         setShowShortcuts(true);
+      } else if (cmdKey && (e.key === 'g' || e.key === 'G')) {
+        // Group selected nodes (Cmd/Ctrl+G); Shift to ungroup the selected group.
+        e.preventDefault();
+        if (e.shiftKey) {
+          const sel = nodes.find((n) => n.selected && n.type === 'group') ??
+            (selectedNodeId ? nodes.find((n) => n.id === selectedNodeId && n.type === 'group') : undefined);
+          if (sel) {
+            ungroupNode(sel.id);
+            addExecutionLog('[OK] Ungrouped');
+          }
+        } else {
+          const selectedIds = nodes.filter((n) => n.selected).map((n) => n.id);
+          const ids = selectedIds.length ? selectedIds : selectedNodeId ? [selectedNodeId] : [];
+          if (ids.length >= 1) {
+            const gid = groupSelected(ids);
+            if (gid) addExecutionLog(`[OK] Grouped ${ids.length} node(s)`);
+          }
+        }
       } else if (cmdKey && e.key === 'k') {
         // Show command palette
         e.preventDefault();
@@ -367,16 +407,9 @@ export function Editor() {
     
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo, canUndo, canRedo, handleDuplicateNode, handleCopyNodes, handlePasteNodes, handleZoomToFit]);
+  }, [undo, redo, canUndo, canRedo, handleDuplicateNode, handleCopyNodes, handlePasteNodes, handleZoomToFit, nodes, selectedNodeId, groupSelected, ungroupNode, addExecutionLog]);
   
   const { executeScript, executeSubflow, workerClient } = useLocalExecutor();
-
-  // Live-mode value cache: skip re-executing a node when its code AND resolved
-  // input VALUES are unchanged, even if upstream re-ran. Invalidation is
-  // graph-based (any change marks all downstream stale), so without this a
-  // tag tweak re-downloads and re-renders an identical fetched schematic on
-  // every keystroke — the main-thread rehydrate+remesh is what freezes the UI.
-  const liveValueCacheRef = useRef<Map<string, { hash: string; output: Record<string, unknown> }>>(new Map());
 
   // Module code resolution cache + helper
   const moduleCodeCacheRef = useRef<Map<string, string>>(new Map());
@@ -539,91 +572,6 @@ export function Editor() {
     return sorted;
   }, []);
 
-  /**
-   * Find code chains - groups of sequential code nodes that can be executed
-   * together in the worker without crossing the boundary.
-   * 
-   * IMPORTANT: A node can only be part of a chain if it EXCLUSIVELY outputs to
-   * other code nodes. If a node outputs to ANY non-code node (viewer, output, etc.),
-   * it must serialize its output and cannot be an intermediate chain node.
-   */
-  const findCodeChains = useCallback((nodes: FlowNode[], edges: Edge[]): Map<string, string[]> => {
-    const nodeMap = new Map(nodes.map(n => [n.id, n]));
-    const chains = new Map<string, string[]>(); // chainId -> [nodeIds in order]
-    const nodeToChain = new Map<string, string>(); // nodeId -> chainId
-    
-    // Get downstream nodes for each node
-    const getDownstreamNodes = (nodeId: string): FlowNode[] => {
-      return edges
-        .filter(e => e.source === nodeId)
-        .map(e => nodeMap.get(e.target))
-        .filter((n): n is FlowNode => n !== undefined);
-    };
-    
-    // Get upstream code nodes for a node
-    const getUpstreamCodeNodes = (nodeId: string): FlowNode[] => {
-      return edges
-        .filter(e => e.target === nodeId)
-        .map(e => nodeMap.get(e.source))
-        .filter((n): n is FlowNode => n !== undefined && n.type === 'code');
-    };
-    
-    // Check if a code node EXCLUSIVELY outputs to code nodes (can stay in worker)
-    // Returns false if ANY downstream is a non-code node
-    const canStayInWorker = (nodeId: string): boolean => {
-      const downstream = getDownstreamNodes(nodeId);
-      // If no downstream nodes, it needs to serialize (it's a terminal output)
-      if (downstream.length === 0) return false;
-      // Only stay in worker if ALL downstream nodes are code nodes
-      // If even ONE downstream is a viewer/output, we must serialize
-      return downstream.every(n => n.type === 'code');
-    };
-    
-    // Build chains starting from code nodes that have no upstream code nodes
-    // or whose upstream code nodes output to non-code nodes too
-    const codeNodes = nodes.filter(n => n.type === 'code');
-    
-    for (const node of codeNodes) {
-      if (nodeToChain.has(node.id)) continue;
-      
-      // Check if this node starts a new chain
-      const upstreamCode = getUpstreamCodeNodes(node.id);
-      const isChainStart = upstreamCode.length === 0 || 
-        upstreamCode.every(u => !canStayInWorker(u.id));
-      
-      if (!isChainStart) continue;
-      
-      // Build the chain forward from this node
-      const chainId = node.id;
-      const chain: string[] = [node.id];
-      nodeToChain.set(node.id, chainId);
-      
-      // Follow the chain while nodes EXCLUSIVELY output to code nodes
-      let current = node;
-      while (canStayInWorker(current.id)) {
-        const downstream = getDownstreamNodes(current.id);
-        const nextCodeNode = downstream.find(n => n.type === 'code' && !nodeToChain.has(n.id));
-        if (!nextCodeNode) break;
-        
-        chain.push(nextCodeNode.id);
-        nodeToChain.set(nextCodeNode.id, chainId);
-        current = nextCodeNode;
-      }
-      
-      chains.set(chainId, chain);
-    }
-    
-    // Handle any remaining code nodes that weren't part of a chain
-    for (const node of codeNodes) {
-      if (!nodeToChain.has(node.id)) {
-        chains.set(node.id, [node.id]);
-        nodeToChain.set(node.id, node.id);
-      }
-    }
-    
-    return chains;
-  }, []);
-
   // ── type-mismatch connection prompt ──────────────────────────────────────
   const pendingConnection = useFlowStore((state) => state.pendingConnection);
 
@@ -702,969 +650,495 @@ export function Editor() {
     state.setPendingConnection(null);
   }, []);
 
-  const handleQuickRun = useCallback(async () => {
-    setIsExecuting(true);
-    clearExecutionLogs();
-    addExecutionLog('Starting quick run...');
+  // ════════════════════════════════════════════════════════════════════════
+  // SINGLE LIVE-CANVAS ENGINE
+  //
+  // The live canvas runs ONE execution path: fold the WHOLE flow with trace
+  // mode (`compileFlow(flow, { trace:true })`), run the folded source ONCE on
+  // the shared worker (`executeScript(..., { returnHandles:true })`), then
+  // distribute the per-node `__trace` ({ value, ms, status }) and the flow
+  // `__outputs` back onto the canvas via the SAME store actions the old
+  // bespoke per-node engine used (setNodeExecutionStatus / markNodeCached /
+  // setExecutingNodeId). The folder executes EVERY node type — code, viewer,
+  // bundle/unbundle, switch, map, group, constant, reroute, inspect — so the
+  // canvas, viewer previews and Inspect (which all read nodeCache) light up
+  // uniformly, with REAL per-node timing (ms via the endowed __hostNow clock).
+  //
+  // Nested schematic handles in trace/output values are deep-resolved by the
+  // shared client (`workerClient.resolveSchematicHandles`) so SCHEMATIC nodes
+  // render on the canvas and in the viewer.
+  //
+  // The one node type the folder does NOT compile is `subflow` (an embedded
+  // `flowDefinition` run via `executeSubflow`). Flows containing a subflow are
+  // routed through `runSubflowLegacy` below — a trimmed, subflow-aware
+  // executor — so that (rare) feature is preserved, not regressed. Everything
+  // else (all examples, all meta nodes) runs the unified path.
+  // ════════════════════════════════════════════════════════════════════════
 
-    // Store outputs from each node for passing to downstream nodes
-    const nodeOutputs = new Map<string, Record<string, unknown>>();
+  /**
+   * The unified live run. Folds + executes the whole flow once and paints the
+   * canvas from `__trace` / `__outputs`.
+   *
+   * @param opts.onlyStale  When true (live/debounced mode), skip re-painting
+   *   nodes whose cache is already up to date — the trace value is identical,
+   *   so we avoid needless churn (and re-resolving schematic handles). The
+   *   manual quick-run passes `false` to repaint everything.
+   *
+   * GRACEFUL FALLBACK: a FlowCompileError (mid-edit graph, or a subflow node)
+   * or an executeScript throw never blanks the canvas — it surfaces in the
+   * ExecutionPanel + leaves existing node state intact.
+   */
+  // Last raw (pre-resolve) trace value per node — lets live mode repaint only
+  // what actually changed, instead of a drift-prone separate staleness graph.
+  const lastTraceRef = useRef<Record<string, unknown>>({});
+  const runUnifiedFlow = useCallback(
+    async (opts: { onlyStale?: boolean } = {}): Promise<void> => {
+      const onlyStale = !!opts.onlyStale;
 
-    try {
-      // Get execution order (topological sort)
-      const executionOrder = getExecutionOrder(nodes, edges);
-      
-      // Find code nodes
-      const codeNodes = executionOrder.filter(n => n.type === 'code');
-      
-      if (codeNodes.length === 0) {
-        addExecutionLog('[ERROR] No code node found');
-        setIsExecuting(false);
+      // Subflow nodes aren't foldable — hand the whole flow to the legacy
+      // subflow-aware executor (kept solely for this case).
+      if (flowHasSubflowNodes(nodes)) {
+        await runSubflowLegacyRef.current?.(onlyStale);
         return;
       }
 
-      // Find code chains for batched execution
-      const codeChains = findCodeChains(nodes, edges);
-      const executedChains = new Set<string>();
-      
-      // Build a map of node -> chain for quick lookup
-      const nodeToChain = new Map<string, string>();
-      for (const [chainId, nodeIds] of codeChains) {
-        for (const nodeId of nodeIds) {
-          nodeToChain.set(nodeId, chainId);
+      setIsExecuting(true);
+      if (!onlyStale) clearExecutionLogs();
+      addExecutionLog(onlyStale ? 'Live update…' : 'Running flow…');
+
+      // 1. COLLECT input values exactly as compileFlow names them.
+      const inputValues = collectFlowInputs(nodes);
+
+      // 2. FOLD with trace. A compile error means the graph is incomplete /
+      //    mid-edit — surface it, keep the canvas, bail.
+      let compiled;
+      try {
+        compiled = compileFlow({ nodes: nodes as never, edges: edges as never }, { trace: true });
+      } catch (err) {
+        const message = (err as Error)?.message || 'Flow could not be compiled';
+        if (err instanceof FlowCompileError) {
+          // Expected during editing (no code node yet, dangling edge, cycle…).
+          addExecutionLog(`[WARN] ${message}`);
+        } else {
+          addExecutionLog(`[ERROR] ${message}`);
+        }
+        setIsExecuting(false);
+        setExecutingNodeId(null);
+        return;
+      }
+
+      // Cheap signature of a raw (pre-resolve) trace value, for change detection.
+      const traceSig = (v: unknown): string => {
+        try { return JSON.stringify(v) ?? 'u'; } catch { return `x${Math.random()}`; }
+      };
+
+      // Manual run flashes every node "pending"; live mode skips the flash and
+      // just repaints whatever actually changed after the run (below), so a
+      // tweak to any input always lands — no separate staleness graph needed.
+      if (!onlyStale) {
+        for (const node of nodes) {
+          setNodeExecutionStatus(node.id, 'pending');
         }
       }
 
-      // Mark all nodes as pending
-      for (const node of nodes) {
-        setNodeExecutionStatus(node.id, 'pending');
+      // 3. EXECUTE the folded source once on the shared worker.
+      let result;
+      try {
+        result = await executeScript(compiled.source, inputValues, { returnHandles: true });
+      } catch (err) {
+        const execError = parseExecutionError(err as Error);
+        addExecutionLog(`[ERROR] ${execError.message}`);
+        // Surface on code nodes (the executable ones) — leave the rest intact.
+        for (const node of nodes.filter((n) => n.type === 'code')) {
+          setNodeExecutionStatus(node.id, 'error', undefined, execError);
+        }
+        setIsExecuting(false);
+        setExecutingNodeId(null);
+        return;
       }
 
-      console.log(`[Execution] Execution order:`, executionOrder.map(n => `${n.id}(${n.type})`));
+      if (!result.success) {
+        const execError = result.error
+          ? parseExecutionError(result.error)
+          : createSimpleError('Unknown execution error');
+        addExecutionLog(`[ERROR] ${execError.message}`);
+        for (const node of nodes.filter((n) => n.type === 'code')) {
+          setNodeExecutionStatus(node.id, 'error', undefined, execError);
+        }
+        setIsExecuting(false);
+        setExecutingNodeId(null);
+        return;
+      }
 
-      // Process nodes in topological order
-      for (const node of executionOrder) {
-        console.log(`[Execution] Processing node: ${node.id} type: ${node.type}`);
-        
-        // Handle input nodes - they just output their value
-        if (node.type?.includes('input') && !node.type?.includes('schematic')) {
-          let outputValue = node.data.value;
-          let output: Record<string, unknown> = { default: outputValue };
+      const traced = result.result as unknown as Partial<TracedResult> | undefined;
+      if (!traced || typeof traced !== 'object' || !('__trace' in traced)) {
+        // No trace payload — nothing to distribute. (Shouldn't happen for a
+        // trace-mode fold, but never blank the canvas if it does.)
+        addExecutionLog('[WARN] Run produced no trace');
+        setIsExecuting(false);
+        setExecutingNodeId(null);
+        return;
+      }
 
-          // Special handling for file inputs
-          if (node.type === 'file_input') {
-             outputValue = (node.data as { fileData: unknown }).fileData;
-             output = { output: outputValue, default: outputValue };
-          }
+      const trace = traced.__trace ?? {};
+      const outputs = traced.__outputs ?? {};
+      const nodeById = new Map(nodes.map((n) => [n.id, n]));
 
-          nodeOutputs.set(node.id, output);
-          setNodeExecutionStatus(node.id, 'completed', output);
+      // 4. DISTRIBUTE the per-node trace onto the canvas. In live mode, only
+      //    the stale nodes repaint — a fresh node's trace value is identical,
+      //    so skipping it avoids re-resolving its (possibly heavy) schematic
+      //    handles every keystroke.
+      for (const [nodeId, entry] of Object.entries(trace)) {
+        const node = nodeById.get(nodeId);
+        if (!node) continue;
+        // Live mode: skip nodes whose value didn't change (avoids re-resolving
+        // heavy schematic handles every keystroke); errors always repaint.
+        const changed = traceSig(lastTraceRef.current[nodeId]) !== traceSig(entry.value);
+        lastTraceRef.current[nodeId] = entry.value;
+        if (onlyStale && !changed && entry.status !== 'error') continue;
+
+        if (entry.status === 'error') {
+          setNodeExecutionStatus(
+            nodeId,
+            'error',
+            undefined,
+            createSimpleError(entry.message || 'Execution error')
+          );
           continue;
         }
 
-        // Bundled assets: decode the stored base64 to the runtime value
-        if (node.type === 'asset') {
-          if (isAssetNodeData(node.data)) {
-            const value = assetNodeValue(node.data);
-            const output = { output: value, default: value };
+        setExecutingNodeId(nodeId);
+        // Deep-resolve any nested { _schematicHandle } to serialized preview data
+        // so viewers / the canvas can render schematics.
+        let value: unknown = entry.value;
+        try {
+          value = await workerClient.resolveSchematicHandles(value);
+        } catch {
+          /* keep raw value if a handle can't be resolved */
+        }
+
+        const output = traceValueToCache(value);
+        setNodeExecutionStatus(nodeId, 'completed', output, undefined, Math.round(entry.ms));
+      }
+
+      // 5. OUTPUT nodes ← __outputs (resolving nested handles too).
+      const outputNames = collectOutputNames(nodes);
+      for (const [nodeId, name] of outputNames) {
+        if (!(name in outputs)) continue;
+        const changed = traceSig(lastTraceRef.current[`out:${nodeId}`]) !== traceSig(outputs[name]);
+        lastTraceRef.current[`out:${nodeId}`] = outputs[name];
+        if (onlyStale && !changed) continue;
+        let value: unknown = outputs[name];
+        try {
+          value = await workerClient.resolveSchematicHandles(value);
+        } catch {
+          /* keep raw */
+        }
+        setNodeExecutionStatus(nodeId, 'completed', { output: value, default: value });
+      }
+
+      addExecutionLog('[OK] Run complete');
+      setIsExecuting(false);
+      setExecutingNodeId(null);
+    },
+    [
+      nodes,
+      edges,
+      setIsExecuting,
+      clearExecutionLogs,
+      addExecutionLog,
+      setNodeExecutionStatus,
+      setExecutingNodeId,
+      executeScript,
+      workerClient,
+    ]
+  );
+
+  // Manual quick-run (toolbar Play): repaint everything.
+  const handleQuickRun = useCallback(() => runUnifiedFlow({ onlyStale: false }), [runUnifiedFlow]);
+  // "Run stale" button shares the single path (repaint all — cheap, one fold).
+  const handleIncrementalRun = useCallback(
+    () => runUnifiedFlow({ onlyStale: true }),
+    [runUnifiedFlow]
+  );
+
+  // ── SUBFLOW-ONLY LEGACY EXECUTOR ─────────────────────────────────────────
+  // The single node type `compileFlow` cannot fold is `subflow` (embedded
+  // `flowDefinition`, run in-worker via `executeSubflow`). Flows that contain
+  // one fall back to this trimmed topological executor — it handles input /
+  // file_input / asset / code / viewer / output / file_output / subflow and
+  // resolves schematic handles for viewers + outputs, exactly as before. Kept
+  // deliberately minimal and documented; the common (subflow-free) case never
+  // reaches it. Invoked via a ref so the unified run (declared above) can call
+  // it without a circular dependency.
+  const runSubflowLegacy = useCallback(
+    async (onlyStale: boolean): Promise<void> => {
+      setIsExecuting(true);
+      if (!onlyStale) clearExecutionLogs();
+      addExecutionLog('Running flow (subflow mode)…');
+
+      const nodeOutputs = new Map<string, Record<string, unknown>>();
+
+      // Seed cached outputs so already-computed nodes feed downstream.
+      const cacheSnapshot = useFlowStore.getState().nodeCache;
+      for (const node of nodes) {
+        const cache = cacheSnapshot[node.id];
+        if ((cache?.status === 'completed' || cache?.status === 'cached') && cache.output) {
+          nodeOutputs.set(node.id, cache.output as Record<string, unknown>);
+        }
+      }
+
+      const pickValue = (
+        sourceOutput: Record<string, unknown>,
+        sourceHandle: string | null | undefined,
+        targetHandle?: string | null
+      ): unknown => {
+        const key = sourceHandle || targetHandle || 'default';
+        if (key in sourceOutput) return sourceOutput[key];
+        if ('default' in sourceOutput) return sourceOutput['default'];
+        const keys = Object.keys(sourceOutput);
+        return keys.length === 1 ? sourceOutput[keys[0]] : undefined;
+      };
+
+      const resolveForDisplay = async (value: unknown): Promise<unknown> => {
+        if (value && typeof value === 'object') {
+          try {
+            return await workerClient.resolveSchematicHandles(value);
+          } catch {
+            return value;
+          }
+        }
+        return value;
+      };
+
+      try {
+        const order = getExecutionOrder(nodes, edges);
+        for (const node of nodes) setNodeExecutionStatus(node.id, 'pending');
+
+        for (const node of order) {
+          // input / file_input
+          if (node.type?.includes('input') && !node.type?.includes('schematic')) {
+            const outputValue =
+              node.type === 'file_input'
+                ? (node.data as { fileData: unknown }).fileData
+                : node.data.value;
+            const output = { output: outputValue, default: outputValue };
             nodeOutputs.set(node.id, output);
             setNodeExecutionStatus(node.id, 'completed', output);
-          } else {
-            setNodeExecutionStatus(node.id, 'error', undefined, createSimpleError('Asset node has no file — pick one'));
-          }
-          continue;
-        }
-
-        // Handle code nodes - execute as chain if part of multi-node chain
-        if (node.type === 'code') {
-          const chainId = nodeToChain.get(node.id);
-
-          // Skip if we already executed this chain
-          if (chainId && executedChains.has(chainId)) {
             continue;
           }
-          
-          const chain = chainId ? codeChains.get(chainId) || [node.id] : [node.id];
-          console.log(`[Chain] Processing node ${node.id}, chain:`, chain);
-          
-          // TEMPORARILY DISABLED: Chain batching has issues when intermediate nodes 
-          // have cached outputs that get reused. Execute all nodes individually for now.
-          // TODO: Re-enable chain batching with proper cache invalidation
-          const useChainBatching = false;
-          
-          if (useChainBatching && chain.length > 1) {
-            // Execute entire chain as subflow (keeps data in worker)
-            executedChains.add(chainId!);
-            console.log(`[Chain] Executing multi-node chain:`, chain);
-            
-            addExecutionLog(`Executing code chain (${chain.length} nodes) in worker...`);
-            
-            // Mark all chain nodes as running
-            for (const nodeId of chain) {
-              setNodeExecutionStatus(nodeId, 'running');
+
+          if (node.type === 'asset') {
+            if (isAssetNodeData(node.data)) {
+              const value = assetNodeValue(node.data);
+              const output = { output: value, default: value };
+              nodeOutputs.set(node.id, output);
+              setNodeExecutionStatus(node.id, 'completed', output);
+            } else {
+              setNodeExecutionStatus(
+                node.id,
+                'error',
+                undefined,
+                createSimpleError('Asset node has no file — pick one')
+              );
             }
-            setExecutingNodeId(chain[0]);
-            
-            // Gather chain nodes
-            const chainNodeSet = new Set(chain);
-            const chainNodes = nodes.filter(n => chainNodeSet.has(n.id));
-            
-            // Also include input nodes that feed into the chain
-            const inputNodeIds = new Set<string>();
-            for (const nodeId of chain) {
-              const incomingEdges = edges.filter(e => e.target === nodeId && !chainNodeSet.has(e.source));
-              for (const edge of incomingEdges) {
-                const sourceNode = nodes.find(n => n.id === edge.source);
-                if (sourceNode && (sourceNode.type?.includes('input') || sourceNode.type === 'code' || sourceNode.type === 'asset')) {
-                  inputNodeIds.add(edge.source);
+            continue;
+          }
+
+          if (node.type === 'code') {
+            const code = await resolveNodeCode(node as unknown as FlowNode);
+            if (!code) {
+              setNodeExecutionStatus(node.id, 'error', undefined, createSimpleError('No script'));
+              continue;
+            }
+            const inputValues: Record<string, unknown> = {};
+            for (const edge of edges.filter((e) => e.target === node.id)) {
+              const sourceOutput = nodeOutputs.get(edge.source);
+              if (!sourceOutput) continue;
+              const inputName = edge.targetHandle || 'default';
+              inputValues[inputName] = pickValue(sourceOutput, edge.sourceHandle, inputName);
+            }
+            setExecutingNodeId(node.id);
+            setNodeExecutionStatus(node.id, 'running');
+            const startTime = Date.now();
+            const result = await executeScript(code, inputValues, { returnHandles: true });
+            const executionTime = Date.now() - startTime;
+            useFlowStore.getState().setNodeProgress(node.id, undefined);
+            if (result.success) {
+              let finalResult: Record<string, unknown> = {
+                ...((result.result as Record<string, unknown> | undefined) ?? {}),
+              };
+              if (result.schematicHandles) {
+                for (const [key, handleId] of Object.entries(result.schematicHandles)) {
+                  finalResult[key] = { _schematicHandle: handleId };
                 }
               }
-            }
-            
-            // Add input nodes to the subflow
-            const inputNodes = nodes.filter(n => inputNodeIds.has(n.id));
-            const allSubflowNodes = [...inputNodes, ...chainNodes];
-            const allSubflowEdges = edges.filter(e => 
-              (chainNodeSet.has(e.target) && (chainNodeSet.has(e.source) || inputNodeIds.has(e.source)))
-            );
-            
-            // Gather external inputs for the subflow
-            const subflowInputs: Record<string, unknown> = {};
-            for (const inputNodeId of inputNodeIds) {
-              const cached = nodeOutputs.get(inputNodeId);
-              if (cached) {
-                // Pass the entire output object
-                subflowInputs[inputNodeId] = cached.default ?? cached;
+              if (Object.keys(finalResult).length === 0) finalResult = result.result || {};
+              if (Object.keys(finalResult).length === 1 && !('default' in finalResult)) {
+                finalResult['default'] = finalResult[Object.keys(finalResult)[0]];
               }
+              nodeOutputs.set(node.id, finalResult);
+              setNodeExecutionStatus(node.id, 'completed', finalResult, undefined, executionTime);
+            } else {
+              const execError = result.error
+                ? parseExecutionError(result.error, node.data.code)
+                : createSimpleError('Unknown execution error');
+              setNodeExecutionStatus(node.id, 'error', undefined, execError);
+              break;
             }
-            
-            // The output node is the last code node in the chain
-            const outputNodeId = chain[chain.length - 1];
-            
-            console.log(`[Chain] Subflow details:`, {
-              chainNodes: chainNodes.map(n => n.id),
-              inputNodes: inputNodes.map(n => n.id),
-              allSubflowNodes: allSubflowNodes.map(n => n.id),
-              allSubflowEdges: allSubflowEdges.map(e => `${e.source}->${e.target}`),
-              subflowInputs: Object.keys(subflowInputs),
-              outputNodeId
-            });
-            
+            continue;
+          }
+
+          if (node.type === 'viewer' || node.type === 'output' || node.type === 'file_output') {
+            const incomingEdge = edges.find((e) => e.target === node.id);
+            if (!incomingEdge) continue;
+            const sourceOutput = nodeOutputs.get(incomingEdge.source);
+            if (!sourceOutput) continue;
+            const raw = pickValue(sourceOutput, incomingEdge.sourceHandle);
+            const display = await resolveForDisplay(raw);
+            if (node.type === 'viewer') {
+              setNodeExecutionStatus(node.id, 'completed', { default: display });
+              if ((node.data as { passthrough?: boolean }).passthrough) {
+                nodeOutputs.set(node.id, { output: raw, default: raw });
+              }
+            } else {
+              setNodeExecutionStatus(node.id, 'completed', { output: display, default: display });
+              nodeOutputs.set(node.id, { output: display, default: display });
+            }
+            continue;
+          }
+
+          if (node.type === 'subflow') {
+            const subflowData = node.data as {
+              subflowConfig: { outputs: { id: string }[] };
+              flowDefinition?: { nodes: FlowNode[]; edges: Edge[] };
+            };
+            if (!subflowData.flowDefinition) {
+              setNodeExecutionStatus(
+                node.id,
+                'error',
+                undefined,
+                createSimpleError('Subflow definition not loaded')
+              );
+              continue;
+            }
+            setExecutingNodeId(node.id);
+            setNodeExecutionStatus(node.id, 'running');
+            const subflowStartTime = Date.now();
             try {
-              const startTime = Date.now();
+              const subflowInputs: Record<string, unknown> = {};
+              for (const edge of edges.filter((e) => e.target === node.id)) {
+                const sourceOutput = nodeOutputs.get(edge.source);
+                if (sourceOutput && edge.targetHandle) {
+                  subflowInputs[edge.targetHandle] = pickValue(
+                    sourceOutput,
+                    edge.sourceHandle,
+                    edge.targetHandle
+                  );
+                }
+              }
+              const def = subflowData.flowDefinition;
+              const outputNodeIds = subflowData.subflowConfig.outputs.map((o) => o.id);
               const result = await executeSubflow(
-                allSubflowNodes.map(n => ({
+                def.nodes.map((n) => ({
                   id: n.id,
                   type: n.type || 'unknown',
-                  data: { code: n.data.code, value: n.data.value, label: n.data.label }
+                  data: { code: n.data.code, value: n.data.value, label: n.data.label },
                 })),
-                allSubflowEdges.map(e => ({
+                def.edges.map((e) => ({
                   id: e.id,
                   source: e.source,
                   target: e.target,
                   sourceHandle: e.sourceHandle,
-                  targetHandle: e.targetHandle
+                  targetHandle: e.targetHandle,
                 })),
                 subflowInputs,
-                [outputNodeId]
+                outputNodeIds
               );
-              
-              const executionTime = Date.now() - startTime;
-              
-              console.log(`[Chain] Subflow result:`, {
-                success: result.success,
-                outputKeys: Object.keys(result.outputs || {}),
-                schematicKeys: result.schematics ? Object.keys(result.schematics) : [],
-                error: result.error
-              });
-              
-              if (!result.success) {
-                throw new Error(result.error?.message || 'Chain execution failed');
-              }
-              
-              // Process results - mark intermediate nodes as completed (no serialized output)
-              for (let i = 0; i < chain.length - 1; i++) {
-                const nodeId = chain[i];
-                const nodeLabel = nodes.find(n => n.id === nodeId)?.data.label || nodeId;
-                // Intermediate nodes kept data in worker - mark with special indicator
-                setNodeExecutionStatus(nodeId, 'completed', { _workerInternal: true });
-                addExecutionLog(`[OK] "${nodeLabel}" (in-worker)`);
-              }
-              
-              // Final node gets the serialized output
-              let finalResult: Record<string, unknown> = {};
+              if (!result.success) throw new Error(result.error?.message || 'Subflow failed');
+              let subflowResult: Record<string, unknown> = {};
               if (result.schematics && Object.keys(result.schematics).length > 0) {
                 for (const [key, value] of Object.entries(result.schematics)) {
-                  if (value) finalResult[key] = value;
+                  if (value) subflowResult[key] = value;
                 }
               } else {
-                finalResult = result.outputs;
+                subflowResult = result.outputs;
               }
-              
-              if (Object.keys(finalResult).length === 1 && !('default' in finalResult)) {
-                finalResult['default'] = finalResult[Object.keys(finalResult)[0]];
+              if (Object.keys(subflowResult).length === 1 && !('default' in subflowResult)) {
+                subflowResult['default'] = subflowResult[Object.keys(subflowResult)[0]];
               }
-              
-              nodeOutputs.set(outputNodeId, finalResult);
-              const lastNodeLabel = nodes.find(n => n.id === outputNodeId)?.data.label || outputNodeId;
-              setNodeExecutionStatus(outputNodeId, 'completed', finalResult, undefined, executionTime);
-              addExecutionLog(`[OK] "${lastNodeLabel}" completed chain in ${executionTime}ms`);
-              
+              nodeOutputs.set(node.id, subflowResult);
+              const subflowTime = result.executionTime || Date.now() - subflowStartTime;
+              setNodeExecutionStatus(node.id, 'completed', subflowResult, undefined, subflowTime);
             } catch (err) {
-              const error = err as Error;
-              for (const nodeId of chain) {
-                setNodeExecutionStatus(nodeId, 'error', undefined, parseExecutionError(error));
-              }
-              addExecutionLog(`[ERROR] Chain execution: ${error.message}`);
+              setNodeExecutionStatus(node.id, 'error', undefined, parseExecutionError(err as Error));
               break;
             }
-            
             continue;
-          }
-          
-          // Single code node - execute normally (will serialize)
-          // Resolve module reference if present, otherwise use inline code
-          const code = await resolveNodeCode(node as unknown as FlowNode);
-
-          if (!code) {
-            addExecutionLog(`[WARN] Code node "${node.data.label || node.id}" has no script, skipping`);
-            setNodeExecutionStatus(node.id, 'error', undefined, createSimpleError('No script'));
-            continue;
-          }
-
-          // Gather inputs from connected upstream nodes, starting from the
-          // block's contract defaults so unconnected inputs are populated.
-          // For code nodes, prefer handles (_schematicHandle) over serialized data
-          const nodeContract = (node.data as { contract?: BlockContract }).contract;
-          const inputValues: Record<string, unknown> = nodeContract
-            ? defaultInputsForContract(nodeContract)
-            : {};
-          const incomingEdges = edges.filter(e => e.target === node.id);
-          
-          for (const edge of incomingEdges) {
-            const sourceOutput = nodeOutputs.get(edge.source);
-            console.log('Edge:', edge.source, '->', edge.target, 'handles:', edge.sourceHandle, '->', edge.targetHandle);
-            console.log('Source output:', sourceOutput);
-            
-            if (sourceOutput) {
-              // Use the targetHandle as the input name
-              const inputName = edge.targetHandle || 'default';
-              // Try to get the value by sourceHandle, then by inputName, then 'default'
-              const outputKey = edge.sourceHandle || inputName;
-              let value = sourceOutput[outputKey];
-              
-              // If not found by outputKey, try to find a matching key or use 'default'
-              if (value === undefined) {
-                // Check if there's only one key in the output (common case)
-                const outputKeys = Object.keys(sourceOutput);
-                if (outputKeys.length === 1) {
-                  value = sourceOutput[outputKeys[0]];
-                } else {
-                  value = sourceOutput['default'];
-                }
-              }
-              
-              // Value is either a handle { _schematicHandle: "..." } or primitive data
-              // The worker will resolve handles back to WASM objects
-              console.log('Mapping input:', inputName, '=', value);
-              inputValues[inputName] = value;
-            }
-          }
-
-          // Always use handles - keeps data in worker, avoids serialization
-          // Viewers will fetch serialized data on-demand using the handle
-          const returnHandles = true;
-          const nodeLabel = node.data.label || 'Code';
-
-          // Domain inputs (schematic/image) can't be defaulted — fail fast
-          // with a clear message instead of an opaque null error mid-block.
-          const missing = missingRequiredInputs(nodeContract, inputValues);
-          if (missing.length) {
-            const message = missingInputsMessage(missing);
-            setNodeExecutionStatus(node.id, 'error', undefined, createSimpleError(message));
-            addExecutionLog(`[ERROR] "${nodeLabel}": ${message}`);
-            continue;
-          }
-
-          // Mark as running
-          setExecutingNodeId(node.id);
-          setNodeExecutionStatus(node.id, 'running');
-          addExecutionLog(`Executing "${nodeLabel}"...`);
-
-          // Execute with timing
-          const startTime = Date.now();
-          const result = await executeScript(code, inputValues, { returnHandles });
-          const executionTime = Date.now() - startTime;
-          useFlowStore.getState().setNodeProgress(node.id, undefined);
-
-          if (result.success) {
-            // Build final result - always store handles
-            let finalResult: Record<string, unknown> = {};
-            
-            console.log('Execution result:', { 
-              result: result.result, 
-              schematics: result.schematics,
-              schematicHandles: result.schematicHandles,
-              returnHandles
-            });
-            
-            if (returnHandles && result.schematicHandles && Object.keys(result.schematicHandles).length > 0) {
-              // Keep ALL outputs (lots, grids, stats, … arrive deep-serialized
-              // in result.result), then swap schematic outputs for handles so
-              // they stay resident in the worker.
-              finalResult = { ...(result.result as Record<string, unknown> | undefined ?? {}) };
-              for (const [key, handleId] of Object.entries(result.schematicHandles)) {
-                finalResult[key] = { _schematicHandle: handleId };
-              }
-
-              if (Object.keys(finalResult).length === 1 && !('default' in finalResult)) {
-                finalResult['default'] = finalResult[Object.keys(finalResult)[0]];
-              }
-            } else if (result.schematics && Object.keys(result.schematics).length > 0) {
-              // Store serialized data - viewers will use this directly
-              for (const [key, value] of Object.entries(result.schematics)) {
-                if (value) {
-                  finalResult[key] = value;
-                }
-              }
-              
-              if (Object.keys(finalResult).length === 1 && !('default' in finalResult)) {
-                finalResult['default'] = finalResult[Object.keys(finalResult)[0]];
-              }
-            } else {
-              finalResult = result.result || {};
-            }
-
-            nodeOutputs.set(node.id, finalResult);
-            setNodeExecutionStatus(node.id, 'completed', finalResult, undefined, executionTime);
-            addExecutionLog(`[OK] "${node.data.label || 'Code'}" completed in ${executionTime}ms`);
-          } else {
-            // Parse the error with line numbers from the script
-            const executionError = result.error 
-              ? parseExecutionError(result.error, node.data.code)
-              : createSimpleError('Unknown execution error');
-            setNodeExecutionStatus(node.id, 'error', undefined, executionError);
-            addExecutionLog(`[ERROR] "${node.data.label || 'Code'}": ${executionError.message}`);
-            // Stop execution on error
-            break;
           }
         }
 
-        // Handle viewer nodes - they receive data and can pass it through
-        if (node.type === 'viewer') {
-          console.log(`[Viewer] Processing viewer node: ${node.id}`);
-          const incomingEdge = edges.find(e => e.target === node.id);
-          console.log(`[Viewer] Incoming edge:`, incomingEdge);
-          if (incomingEdge) {
-            const sourceOutput = nodeOutputs.get(incomingEdge.source);
-            console.log(`[Viewer] Source output from ${incomingEdge.source}:`, sourceOutput);
-            if (sourceOutput) {
-              // Strict output selection
-              const handleId = incomingEdge.sourceHandle;
-              let viewerValue: unknown = undefined;
-
-              if (handleId) {
-                // If a specific handle is requested, only return that
-                if (handleId in sourceOutput) {
-                  viewerValue = sourceOutput[handleId];
-                }
-              } else {
-                // No handle specified - try default or single output
-                if ('default' in sourceOutput) {
-                  viewerValue = sourceOutput['default'];
-                } else if (Object.keys(sourceOutput).length === 1) {
-                  viewerValue = sourceOutput[Object.keys(sourceOutput)[0]];
-                }
-              }
-              
-              // For viewers: if we have a handle, fetch serialized data from worker
-              if (viewerValue && typeof viewerValue === 'object') {
-                if ('_schematicHandle' in viewerValue) {
-                  const handleObj = viewerValue as { _schematicHandle: string };
-                  const handleId = handleObj._schematicHandle;
-                  console.log(`[Viewer] Fetching serialized data for handle: ${handleId}`);
-                  
-                  if (workerClient) {
-                    try {
-                      const serializedData = await workerClient.getData(handleId);
-                      if (serializedData) {
-                        viewerValue = serializedData;
-                      }
-                    } catch (err) {
-                      console.error(`[Viewer] Failed to fetch data for handle ${handleId}:`, err);
-                    }
-                  }
-                } else {
-                  // Check for nested handles (e.g. when viewing all outputs)
-                  const obj = viewerValue as Record<string, unknown>;
-                  const entries = Object.entries(obj);
-                  const updates: Record<string, unknown> = {};
-                  let hasUpdates = false;
-
-                  await Promise.all(entries.map(async ([key, val]) => {
-                    if (val && typeof val === 'object' && '_schematicHandle' in val) {
-                      const handleObj = val as { _schematicHandle: string };
-                      const handleId = handleObj._schematicHandle;
-                      
-                      if (workerClient) {
-                        try {
-                          const serializedData = await workerClient.getData(handleId);
-                          if (serializedData) {
-                            updates[key] = serializedData;
-                            hasUpdates = true;
-                          }
-                        } catch (err) {
-                          console.error(`[Viewer] Failed to fetch data for handle ${handleId} at key ${key}:`, err);
-                        }
-                      }
-                    }
-                  }));
-
-                  if (hasUpdates) {
-                    viewerValue = { ...obj, ...updates };
-                  }
-                }
-              }
-              
-              // Set the viewer's cache with the unwrapped value
-              setNodeExecutionStatus(node.id, 'completed', { default: viewerValue });
-              
-              // If passthrough is enabled, make output available to downstream nodes
-              // Pass through the ORIGINAL value (handle) so downstream code nodes can use it
-              const viewerData = node.data as { passthrough?: boolean };
-              if (viewerData.passthrough) {
-                // Get the original source output (with handle) for passthrough
-                const originalValue = sourceOutput[incomingEdge.sourceHandle || 'default'] || sourceOutput['default'];
-                nodeOutputs.set(node.id, { output: originalValue, default: originalValue });
-              }
-            }
-          }
+        addExecutionLog('[OK] Run complete');
+      } catch (error) {
+        const execError = parseExecutionError(error as Error);
+        addExecutionLog(`[ERROR] ${execError.message}`);
+        for (const node of nodes.filter((n) => n.type === 'code')) {
+          setNodeExecutionStatus(node.id, 'error', undefined, execError);
         }
-
-        // Handle output nodes - they receive data and mark it as a flow output
-        if (node.type === 'output' || node.type === 'file_output') {
-          const incomingEdge = edges.find(e => e.target === node.id);
-          if (incomingEdge) {
-            const sourceOutput = nodeOutputs.get(incomingEdge.source);
-            if (sourceOutput) {
-              // Unwrap - prefer sourceHandle, then 'default', then first key
-              const handleKey = incomingEdge.sourceHandle || 'default';
-              let outputValue: unknown = sourceOutput;
-              
-              if (handleKey in sourceOutput) {
-                outputValue = sourceOutput[handleKey];
-              } else if ('default' in sourceOutput) {
-                outputValue = sourceOutput['default'];
-              } else {
-                const keys = Object.keys(sourceOutput);
-                if (keys.length === 1) {
-                  outputValue = sourceOutput[keys[0]];
-                }
-              }
-              
-              // For output nodes: if we have a handle, fetch serialized data from worker
-              if (outputValue && typeof outputValue === 'object' && '_schematicHandle' in outputValue) {
-                const handleObj = outputValue as { _schematicHandle: string };
-                const handleId = handleObj._schematicHandle;
-                
-                if (workerClient) {
-                  try {
-                    const serializedData = await workerClient.getData(handleId);
-                    if (serializedData) {
-                      outputValue = serializedData;
-                    }
-                  } catch (err) {
-                    console.error(`Failed to fetch data for handle ${handleId}:`, err);
-                  }
-                }
-              }
-              
-              // Set the output node's cache
-              setNodeExecutionStatus(node.id, 'completed', { output: outputValue, default: outputValue });
-              
-              // Store for downstream nodes (in case of chaining)
-              nodeOutputs.set(node.id, { output: outputValue, default: outputValue });
-            }
-          }
-        }
-
-        // Handle subflow nodes - execute the embedded flow entirely within the worker
-        // This avoids serialization overhead by keeping WASM objects in memory
-        if (node.type === 'subflow') {
-          const subflowData = node.data as { 
-            flowId: string; 
-            subflowConfig: { inputs: { id: string }[]; outputs: { id: string }[] };
-            flowDefinition?: { nodes: FlowNode[]; edges: Edge[] };
-          };
-          
-          if (!subflowData.flowDefinition) {
-            setNodeExecutionStatus(node.id, 'error', undefined, createSimpleError('Subflow definition not loaded'));
-            addExecutionLog(`[ERROR] Subflow "${node.data.label || node.id}": Definition not loaded`);
-            continue;
-          }
-          
-          // Mark as running
-          setExecutingNodeId(node.id);
-          setNodeExecutionStatus(node.id, 'running');
-          addExecutionLog(`Executing subflow "${node.data.label || 'Subflow'}"...`);
-          
-          const subflowStartTime = Date.now();
-          try {
-            // Gather inputs for the subflow from upstream nodes
-            const subflowInputs: Record<string, unknown> = {};
-            const incomingEdges = edges.filter(e => e.target === node.id);
-            
-            for (const edge of incomingEdges) {
-              const sourceOutput = nodeOutputs.get(edge.source);
-              if (sourceOutput) {
-                const inputPortId = edge.targetHandle;
-                if (inputPortId) {
-                  const outputKey = edge.sourceHandle || 'default';
-                  let value = sourceOutput[outputKey];
-                  if (value === undefined && Object.keys(sourceOutput).length === 1) {
-                    value = sourceOutput[Object.keys(sourceOutput)[0]];
-                  }
-                  subflowInputs[inputPortId] = value;
-                }
-              }
-            }
-            
-            // Execute the entire subflow within the worker
-            // This keeps WASM objects in memory between nodes, only serializing at the end
-            const subflowDef = subflowData.flowDefinition;
-            const outputNodeIds = subflowData.subflowConfig.outputs.map(o => o.id);
-            
-            const result = await executeSubflow(
-              subflowDef.nodes.map(n => ({
-                id: n.id,
-                type: n.type || 'unknown',
-                data: { code: n.data.code, value: n.data.value, label: n.data.label }
-              })),
-              subflowDef.edges.map(e => ({
-                id: e.id,
-                source: e.source,
-                target: e.target,
-                sourceHandle: e.sourceHandle,
-                targetHandle: e.targetHandle
-              })),
-              subflowInputs,
-              outputNodeIds
-            );
-            
-            if (!result.success) {
-              throw new Error(result.error?.message || 'Subflow execution failed');
-            }
-            
-            // Process the result - prefer schematics if present
-            let subflowResult: Record<string, unknown> = {};
-            
-            if (result.schematics && Object.keys(result.schematics).length > 0) {
-              // Use serialized schematic data
-              for (const [key, value] of Object.entries(result.schematics)) {
-                if (value) subflowResult[key] = value;
-              }
-            } else {
-              // Use regular outputs
-              subflowResult = result.outputs;
-            }
-            
-            // Add default output if there's only one
-            if (Object.keys(subflowResult).length === 1 && !('default' in subflowResult)) {
-              subflowResult['default'] = subflowResult[Object.keys(subflowResult)[0]];
-            }
-            
-            nodeOutputs.set(node.id, subflowResult);
-            const subflowTime = result.executionTime || (Date.now() - subflowStartTime);
-            setNodeExecutionStatus(node.id, 'completed', subflowResult, undefined, subflowTime);
-            addExecutionLog(`[OK] Subflow "${node.data.label || 'Subflow'}" completed in ${subflowTime}ms`);
-            
-          } catch (err) {
-            const error = err as Error;
-            setNodeExecutionStatus(node.id, 'error', undefined, parseExecutionError(error));
-            addExecutionLog(`[ERROR] Subflow "${node.data.label || 'Subflow'}": ${error.message}`);
-            break;
-          }
-        }
+      } finally {
+        setIsExecuting(false);
+        setExecutingNodeId(null);
       }
+    },
+    [
+      nodes,
+      edges,
+      setIsExecuting,
+      clearExecutionLogs,
+      addExecutionLog,
+      setNodeExecutionStatus,
+      setExecutingNodeId,
+      executeScript,
+      executeSubflow,
+      getExecutionOrder,
+      resolveNodeCode,
+      workerClient,
+    ]
+  );
 
-      addExecutionLog('[OK] Execution complete');
+  // Ref so runUnifiedFlow (declared earlier) can invoke the legacy executor.
+  const runSubflowLegacyRef = useRef<((onlyStale: boolean) => Promise<void>) | null>(null);
+  useEffect(() => {
+    runSubflowLegacyRef.current = runSubflowLegacy;
+  }, [runSubflowLegacy]);
 
-    } catch (error) {
-      const err = error as Error;
-      addExecutionLog(`[ERROR] ${err.message}`);
-      // Mark all code nodes as error with structured error info
-      const execError = parseExecutionError(err);
-      for (const node of nodes.filter(n => n.type === 'code')) {
-        setNodeExecutionStatus(node.id, 'error', undefined, execError);
-      }
-    } finally {
-      setIsExecuting(false);
-      setExecutingNodeId(null);
-    }
-  }, [nodes, edges, setIsExecuting, clearExecutionLogs, addExecutionLog, setNodeExecutionStatus, setExecutingNodeId, executeScript, executeSubflow, getExecutionOrder, findCodeChains, workerClient]);
-
-  /**
-   * Run only nodes that have stale/invalidated cache
-   * This is more efficient when only some inputs have changed
-   */
-  const handleIncrementalRun = useCallback(async () => {
-    const nodesToRun = getNodesToExecute(true);
-    
-    if (nodesToRun.length === 0) {
-      addExecutionLog('[OK] All nodes are up to date, nothing to run');
-      return;
-    }
-
-    setIsExecuting(true);
-    clearExecutionLogs();
-    addExecutionLog(`Starting incremental run (${nodesToRun.length} stale nodes)...`);
-
-    // Store outputs from each node for passing to downstream nodes
-    const nodeOutputs = new Map<string, Record<string, unknown>>();
-    
-    // Pre-populate with cached outputs from nodes that don't need re-execution
-    for (const node of nodes) {
-      const cache = nodeCache[node.id];
-      if (cache?.status === 'completed' || cache?.status === 'cached') {
-        if (cache.output) {
-          nodeOutputs.set(node.id, cache.output as Record<string, unknown>);
-          // Mark as using cached value
-          markNodeCached(node.id);
-        }
-      }
-    }
-
-    try {
-      // Get execution order but filter to only stale nodes and their dependencies
-      const executionOrder = getExecutionOrder(nodes, edges);
-      const nodesToRunIds = new Set(nodesToRun.map(n => n.id));
-      
-      // Find code chains for batched execution  
-      const codeChains = findCodeChains(nodes, edges);
-      
-      // Build a map of node -> chain for quick lookup
-      const nodeToChain = new Map<string, string>();
-      for (const [chainId, nodeIds] of codeChains) {
-        for (const nodeId of nodeIds) {
-          nodeToChain.set(nodeId, chainId);
-        }
-      }
-
-      // Mark only stale nodes as pending
-      for (const node of nodesToRun) {
-        setNodeExecutionStatus(node.id, 'pending');
-      }
-
-      console.log(`[Incremental] Running ${nodesToRun.length} nodes:`, nodesToRun.map(n => n.id));
-
-      // Process nodes in topological order
-      for (const node of executionOrder) {
-        // Skip nodes that don't need to be executed
-        if (!nodesToRunIds.has(node.id)) {
-          // But make sure we have its cached output available
-          const cache = nodeCache[node.id];
-          if (cache?.output && !nodeOutputs.has(node.id)) {
-            nodeOutputs.set(node.id, cache.output as Record<string, unknown>);
-          }
-          continue;
-        }
-
-        console.log(`[Incremental] Processing node: ${node.id} type: ${node.type}`);
-        
-        // Handle input nodes - they just output their value
-        if (node.type?.includes('input') && !node.type?.includes('schematic')) {
-          let outputValue = node.data.value;
-          let output: Record<string, unknown> = { default: outputValue };
-
-          // Special handling for file inputs
-          if (node.type === 'file_input') {
-             outputValue = (node.data as { fileData: unknown }).fileData;
-             output = { output: outputValue, default: outputValue };
-          }
-
-          nodeOutputs.set(node.id, output);
-          setNodeExecutionStatus(node.id, 'completed', output);
-          continue;
-        }
-
-        // Bundled assets: decode the stored base64 to the runtime value
-        if (node.type === 'asset') {
-          if (isAssetNodeData(node.data)) {
-            const value = assetNodeValue(node.data);
-            const output = { output: value, default: value };
-            nodeOutputs.set(node.id, output);
-            setNodeExecutionStatus(node.id, 'completed', output);
-          } else {
-            setNodeExecutionStatus(node.id, 'error', undefined, createSimpleError('Asset node has no file — pick one'));
-          }
-          continue;
-        }
-
-        // Handle code nodes
-        if (node.type === 'code') {
-          // Execute single code node — resolve module reference if present
-          const code = await resolveNodeCode(node as unknown as FlowNode);
-          
-          if (!code) {
-            addExecutionLog(`[WARN] Code node "${node.data.label || node.id}" has no script, skipping`);
-            setNodeExecutionStatus(node.id, 'error', undefined, createSimpleError('No script'));
-            continue;
-          }
-
-          // Gather inputs from connected upstream nodes (use cached values when
-          // available), starting from the block's contract defaults.
-          const liveContract = (node.data as { contract?: BlockContract }).contract;
-          const inputValues: Record<string, unknown> = liveContract
-            ? defaultInputsForContract(liveContract)
-            : {};
-          const incomingEdges = edges.filter(e => e.target === node.id);
-
-          for (const edge of incomingEdges) {
-            const sourceOutput = nodeOutputs.get(edge.source);
-
-            if (sourceOutput) {
-              const inputName = edge.targetHandle || 'default';
-              const outputKey = edge.sourceHandle || inputName;
-              let value = sourceOutput[outputKey];
-
-              if (value === undefined) {
-                const outputKeys = Object.keys(sourceOutput);
-                if (outputKeys.length === 1) {
-                  value = sourceOutput[outputKeys[0]];
-                } else {
-                  value = sourceOutput['default'];
-                }
-              }
-
-              if (value !== undefined) {
-                inputValues[inputName] = value;
-              }
-            }
-          }
-
-          const returnHandles = true;
-          const nodeLabel = node.data.label || 'Code';
-
-          const missingLive = missingRequiredInputs(liveContract, inputValues);
-          if (missingLive.length) {
-            const message = missingInputsMessage(missingLive);
-            setNodeExecutionStatus(node.id, 'error', undefined, createSimpleError(message));
-            addExecutionLog(`[ERROR] "${nodeLabel}": ${message}`);
-            continue;
-          }
-
-          // Same code + same resolved input values → reuse the previous result
-          // instead of re-executing (and re-downloading / re-rendering).
-          const liveHash = hashExecutionInputs(code, inputValues);
-          const cachedByValue = liveValueCacheRef.current.get(node.id);
-          if (cachedByValue && cachedByValue.hash === liveHash) {
-            nodeOutputs.set(node.id, cachedByValue.output);
-            setNodeExecutionStatus(node.id, 'completed', cachedByValue.output);
-            markNodeCached(node.id);
-            addExecutionLog(`"${nodeLabel}": inputs unchanged — reused previous result`);
-            continue;
-          }
-
-          // Mark as running
-          setExecutingNodeId(node.id);
-          setNodeExecutionStatus(node.id, 'running');
-          addExecutionLog(`Executing "${nodeLabel}"...`);
-
-          // Execute with timing
-          const startTime = Date.now();
-          const result = await executeScript(code, inputValues, { returnHandles });
-          const executionTime = Date.now() - startTime;
-          useFlowStore.getState().setNodeProgress(node.id, undefined);
-
-          if (result.success) {
-            let finalResult: Record<string, unknown> = {};
-
-            if (returnHandles && result.schematicHandles && Object.keys(result.schematicHandles).length > 0) {
-              // Keep ALL outputs (fields, images, tables arrive deep-serialized
-              // in result.result); swap schematic keys for resident handles.
-              finalResult = { ...(result.result as Record<string, unknown> | undefined ?? {}) };
-              for (const [key, handleId] of Object.entries(result.schematicHandles)) {
-                finalResult[key] = { _schematicHandle: handleId };
-              }
-
-              if (Object.keys(finalResult).length === 1 && !('default' in finalResult)) {
-                finalResult['default'] = finalResult[Object.keys(finalResult)[0]];
-              }
-            } else if (result.schematics && Object.keys(result.schematics).length > 0) {
-              for (const [key, value] of Object.entries(result.schematics)) {
-                if (value) {
-                  finalResult[key] = value;
-                }
-              }
-
-              if (Object.keys(finalResult).length === 1 && !('default' in finalResult)) {
-                finalResult['default'] = finalResult[Object.keys(finalResult)[0]];
-              }
-            } else {
-              finalResult = result.result || {};
-            }
-
-            nodeOutputs.set(node.id, finalResult);
-            liveValueCacheRef.current.set(node.id, { hash: liveHash, output: finalResult });
-            setNodeExecutionStatus(node.id, 'completed', finalResult, undefined, executionTime);
-            addExecutionLog(`[OK] "${nodeLabel}" completed in ${executionTime}ms`);
-          } else {
-            const executionError = result.error
-              ? parseExecutionError(result.error, node.data.code)
-              : createSimpleError('Unknown execution error');
-            setNodeExecutionStatus(node.id, 'error', undefined, executionError);
-            addExecutionLog(`[ERROR] "${nodeLabel}": ${executionError.message}`);
-            break;
-          }
-        }
-
-        // Handle viewer nodes - only update if this viewer is in the stale list
-        if (node.type === 'viewer') {
-          // Skip viewer if it's not stale (its source hasn't changed)
-          if (!nodesToRunIds.has(node.id)) {
-            // Make sure its output is available for downstream
-            const cache = nodeCache[node.id];
-            if (cache?.output && !nodeOutputs.has(node.id)) {
-              nodeOutputs.set(node.id, cache.output as Record<string, unknown>);
-            }
-            continue;
-          }
-          
-          const incomingEdge = edges.find(e => e.target === node.id);
-          if (incomingEdge) {
-            const sourceOutput = nodeOutputs.get(incomingEdge.source);
-            if (sourceOutput) {
-              const handleKey = incomingEdge.sourceHandle || 'default';
-              let viewerValue: unknown = sourceOutput;
-              
-              if (handleKey in sourceOutput) {
-                viewerValue = sourceOutput[handleKey];
-              } else if ('default' in sourceOutput) {
-                viewerValue = sourceOutput['default'];
-              } else {
-                const keys = Object.keys(sourceOutput);
-                if (keys.length === 1) {
-                  viewerValue = sourceOutput[keys[0]];
-                }
-              }
-              
-              // For viewers: if we have a handle, fetch serialized data from worker
-              if (viewerValue && typeof viewerValue === 'object' && '_schematicHandle' in viewerValue) {
-                const handleObj = viewerValue as { _schematicHandle: string };
-                const handleId = handleObj._schematicHandle;
-                
-                if (workerClient) {
-                  try {
-                    const serializedData = await workerClient.getData(handleId);
-                    if (serializedData) {
-                      viewerValue = serializedData;
-                    }
-                  } catch (err) {
-                    console.error(`Failed to fetch data for handle ${handleId}:`, err);
-                  }
-                }
-              }
-              
-              setNodeExecutionStatus(node.id, 'completed', { default: viewerValue });
-              
-              const viewerData = node.data as { passthrough?: boolean };
-              if (viewerData.passthrough) {
-                const originalValue = sourceOutput[incomingEdge.sourceHandle || 'default'] || sourceOutput['default'];
-                nodeOutputs.set(node.id, { output: originalValue, default: originalValue });
-              }
-            }
-          }
-        }
-
-        // Handle output nodes - only update if stale
-        if (node.type === 'output' || node.type === 'file_output') {
-          // Skip if not stale
-          if (!nodesToRunIds.has(node.id)) {
-            const cache = nodeCache[node.id];
-            if (cache?.output && !nodeOutputs.has(node.id)) {
-              nodeOutputs.set(node.id, cache.output as Record<string, unknown>);
-            }
-            continue;
-          }
-          
-          const incomingEdge = edges.find(e => e.target === node.id);
-          if (incomingEdge) {
-            const sourceOutput = nodeOutputs.get(incomingEdge.source);
-            if (sourceOutput) {
-              const handleKey = incomingEdge.sourceHandle || 'default';
-              let outputValue: unknown = sourceOutput;
-              
-              if (handleKey in sourceOutput) {
-                outputValue = sourceOutput[handleKey];
-              } else if ('default' in sourceOutput) {
-                outputValue = sourceOutput['default'];
-              } else {
-                const keys = Object.keys(sourceOutput);
-                if (keys.length === 1) {
-                  outputValue = sourceOutput[keys[0]];
-                }
-              }
-              
-              if (outputValue && typeof outputValue === 'object' && '_schematicHandle' in outputValue) {
-                const handleObj = outputValue as { _schematicHandle: string };
-                const handleId = handleObj._schematicHandle;
-                
-                if (workerClient) {
-                  try {
-                    const serializedData = await workerClient.getData(handleId);
-                    if (serializedData) {
-                      outputValue = serializedData;
-                    }
-                  } catch (err) {
-                    console.error(`Failed to fetch data for handle ${handleId}:`, err);
-                  }
-                }
-              }
-              
-              setNodeExecutionStatus(node.id, 'completed', { output: outputValue, default: outputValue });
-              nodeOutputs.set(node.id, { output: outputValue, default: outputValue });
-            }
-          }
-        }
-      }
-
-      addExecutionLog('[OK] Incremental execution complete');
-
-    } catch (error) {
-      const err = error as Error;
-      addExecutionLog(`[ERROR] ${err.message}`);
-      const execError = parseExecutionError(err);
-      for (const node of nodesToRun.filter(n => n.type === 'code')) {
-        setNodeExecutionStatus(node.id, 'error', undefined, execError);
-      }
-    } finally {
-      setIsExecuting(false);
-      setExecutingNodeId(null);
-    }
-  }, [nodes, edges, nodeCache, setIsExecuting, clearExecutionLogs, addExecutionLog, setNodeExecutionStatus, setExecutingNodeId, executeScript, getExecutionOrder, findCodeChains, getNodesToExecute, markNodeCached, workerClient]);
-
-  // Listen for live execution triggers (when execution mode is 'live').
-  // Triggers that land mid-run are NOT dropped: they set a pending flag and
-  // re-run once the current pass finishes, so the final tweak always lands.
+  // Listen for live execution triggers (execution mode 'live'). Triggers that
+  // land mid-run are NOT dropped: they set a pending flag and re-run once the
+  // current pass finishes, so the final tweak always lands — on the SAME path.
   const pendingLiveRunRef = useRef(false);
   useEffect(() => {
-    const handleLiveExecution = async (event: CustomEvent) => {
-      console.log('[Live] Execution triggered by:', event.detail);
-      if (isExecuting) {
+    const handleLiveExecution = async () => {
+      if (useFlowStore.getState().isExecuting) {
         pendingLiveRunRef.current = true;
         return;
       }
       do {
         pendingLiveRunRef.current = false;
-        await handleIncrementalRun();
+        await runUnifiedFlow({ onlyStale: true });
       } while (pendingLiveRunRef.current);
     };
 
-    window.addEventListener('polymerase:liveExecutionTrigger', handleLiveExecution as unknown as EventListener);
+    window.addEventListener(
+      'polymerase:liveExecutionTrigger',
+      handleLiveExecution as unknown as EventListener
+    );
     return () => {
-      window.removeEventListener('polymerase:liveExecutionTrigger', handleLiveExecution as unknown as EventListener);
+      window.removeEventListener(
+        'polymerase:liveExecutionTrigger',
+        handleLiveExecution as unknown as EventListener
+      );
     };
-  }, [isExecuting, handleIncrementalRun]);
+  }, [runUnifiedFlow]);
 
   const onInit = useCallback((instance: ReactFlowInstance) => {
     reactFlowInstance.current = instance;
@@ -1718,7 +1192,8 @@ export function Editor() {
 
       const type = event.dataTransfer.getData('application/reactflow');
       const dataString = event.dataTransfer.getData('application/reactflow-data');
-      
+      const nodePropsString = event.dataTransfer.getData('application/reactflow-nodeprops');
+
       // check if the dropped element is valid
       if (typeof type === 'undefined' || !type) {
         return;
@@ -1732,12 +1207,14 @@ export function Editor() {
       if (!position) return;
 
       const nodeData = dataString ? JSON.parse(dataString) : { label: `${type} node` };
+      const extraNodeProps = nodePropsString ? JSON.parse(nodePropsString) : {};
 
       const newNode: FlowNode = {
         id: `${type}-${uuid().slice(0, 8)}`,
         type,
         position,
         data: nodeData,
+        ...extraNodeProps,
       };
 
       addNode(newNode);

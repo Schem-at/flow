@@ -14,8 +14,20 @@ import {
   Eye,
   Search,
   Command,
+  StickyNote,
+  Square,
+  Circle,
+  Pi,
+  Package,
+  PackageOpen,
+  ScanEye,
+  Boxes,
+  Ungroup,
+  GitFork,
+  Repeat,
 } from 'lucide-react';
 import { useFlowStore, type FlowNode } from '../../store/flowStore';
+import { defaultMapData } from '../../lib/makeMap';
 
 interface NodeTemplate {
   type: string;
@@ -28,6 +40,10 @@ interface NodeTemplate {
   defaultValue?: unknown;
   dataType?: 'number' | 'string' | 'boolean';
   config?: Record<string, unknown>;
+  /** Extra top-level node fields (e.g. zIndex for backdrops). */
+  nodeProps?: Record<string, unknown>;
+  /** Action commands operate on the current selection instead of adding a node. */
+  action?: 'group' | 'ungroup';
 }
 
 const nodeTemplates: NodeTemplate[] = [
@@ -103,6 +119,116 @@ const nodeTemplates: NodeTemplate[] = [
     bg: 'bg-cyan-500/10',
     keywords: ['output', 'export', 'download', 'save', 'return', 'result'],
   },
+  {
+    type: 'constant',
+    label: 'Constant',
+    Icon: Pi,
+    description: 'Emit a fixed literal value',
+    color: 'text-neutral-300',
+    bg: 'bg-neutral-500/10',
+    keywords: ['constant', 'literal', 'value', 'fixed', 'number', 'string', 'vec3', 'block'],
+    defaultValue: 0,
+    config: { dataType: 'number' },
+  },
+  {
+    type: 'reroute',
+    label: 'Reroute',
+    Icon: Circle,
+    description: 'Pass-through dot to tidy wires',
+    color: 'text-neutral-300',
+    bg: 'bg-neutral-500/10',
+    keywords: ['reroute', 'wire', 'tidy', 'dot', 'pass', 'through', 'pipe'],
+  },
+  {
+    type: 'bundle',
+    label: 'Bundle',
+    Icon: Package,
+    description: 'Pack named inputs into one object',
+    color: 'text-violet-300',
+    bg: 'bg-violet-500/10',
+    keywords: ['bundle', 'object', 'pack', 'group', 'struct', 'record', 'combine', 'fields'],
+    config: { bundleFields: [{ name: 'a' }, { name: 'b' }] },
+  },
+  {
+    type: 'unbundle',
+    label: 'Unbundle',
+    Icon: PackageOpen,
+    description: 'Split an object into named outputs',
+    color: 'text-violet-300',
+    bg: 'bg-violet-500/10',
+    keywords: ['unbundle', 'object', 'unpack', 'destructure', 'split', 'extract', 'fields', 'pluck'],
+    config: { bundleFields: [{ name: 'a' }, { name: 'b' }] },
+  },
+  {
+    type: 'inspect',
+    label: 'Inspect',
+    Icon: ScanEye,
+    description: 'Tap a wire to preview its live value',
+    color: 'text-teal-300',
+    bg: 'bg-teal-500/10',
+    keywords: ['inspect', 'preview', 'tap', 'debug', 'peek', 'watch', 'value', 'probe'],
+  },
+  {
+    type: 'comment',
+    label: 'Comment',
+    Icon: StickyNote,
+    description: 'Sticky note (no execution)',
+    color: 'text-amber-300',
+    bg: 'bg-amber-500/10',
+    keywords: ['comment', 'note', 'sticky', 'annotate', 'text', 'label', 'doc'],
+    config: { label: '' },
+  },
+  {
+    type: 'frame',
+    label: 'Frame',
+    Icon: Square,
+    description: 'Labeled backdrop behind nodes',
+    color: 'text-indigo-300',
+    bg: 'bg-indigo-500/10',
+    keywords: ['frame', 'backdrop', 'group', 'box', 'region', 'container', 'rectangle'],
+    config: { label: 'Frame' },
+    nodeProps: { zIndex: -1 },
+  },
+  {
+    type: 'group',
+    label: 'Group Selection',
+    Icon: Boxes,
+    description: 'Collapse selected nodes into one group node',
+    color: 'text-indigo-300',
+    bg: 'bg-indigo-500/10',
+    keywords: ['group', 'collapse', 'subflow', 'subgraph', 'merge', 'fold', 'combine', 'nest'],
+    action: 'group',
+  },
+  {
+    type: 'group',
+    label: 'Ungroup',
+    Icon: Ungroup,
+    description: 'Inline the selected group back into the flow',
+    color: 'text-indigo-300',
+    bg: 'bg-indigo-500/10',
+    keywords: ['ungroup', 'expand', 'inline', 'explode', 'unfold', 'flatten', 'subflow'],
+    action: 'ungroup',
+  },
+  {
+    type: 'switch',
+    label: 'Switch',
+    Icon: GitFork,
+    description: 'Select one of N inputs by a numeric index',
+    color: 'text-amber-300',
+    bg: 'bg-amber-500/10',
+    keywords: ['switch', 'select', 'case', 'choose', 'branch', 'mux', 'router', 'index', 'pick'],
+    config: { caseCount: 2 },
+  },
+  {
+    type: 'map',
+    label: 'Map',
+    Icon: Repeat,
+    description: 'Run a body over every list item → list of results',
+    color: 'text-cyan-300',
+    bg: 'bg-cyan-500/10',
+    keywords: ['map', 'iterate', 'loop', 'foreach', 'list', 'transform', 'each', 'apply', 'collect'],
+    config: defaultMapData() as unknown as Record<string, unknown>,
+  },
 ];
 
 const getDefaultCode = () => `type Inputs = {
@@ -128,7 +254,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
-  const { addNode, nodes } = useFlowStore();
+  const { addNode, nodes, groupSelected, ungroupNode, selectedNodeId } = useFlowStore();
 
   // Calculate next position based on existing nodes
   const getNextPosition = useCallback(() => {
@@ -221,6 +347,21 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
 
   // Handle template selection
   const handleSelectTemplate = useCallback((template: NodeTemplate) => {
+    // Action commands operate on the current selection (group / ungroup).
+    if (template.action === 'group') {
+      const ids = nodes.filter((n) => n.selected).map((n) => n.id);
+      const sel = ids.length ? ids : selectedNodeId ? [selectedNodeId] : [];
+      if (sel.length) groupSelected(sel);
+      onClose();
+      return;
+    }
+    if (template.action === 'ungroup') {
+      const grp = nodes.find((n) => n.selected && n.type === 'group') ??
+        (selectedNodeId ? nodes.find((n) => n.id === selectedNodeId && n.type === 'group') : undefined);
+      if (grp) ungroupNode(grp.id);
+      onClose();
+      return;
+    }
     const position = getNextPosition();
     const nodeId = `${template.type}-${uuid().slice(0, 8)}`;
     
@@ -246,11 +387,12 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
       type: template.type,
       position,
       data: nodeData,
+      ...template.nodeProps,
     };
 
     addNode(newNode);
     onClose();
-  }, [addNode, getNextPosition, onClose]);
+  }, [addNode, getNextPosition, onClose, nodes, selectedNodeId, groupSelected, ungroupNode]);
 
   if (!isOpen) return null;
 

@@ -157,920 +157,6 @@ export const JULIA_STITCH_FLOW: FlowData = {
   ],
 };
 
-// ─── Maze & Pathfinder ──────────────────────────────────────────────────────
-// Node 1 carves a perfect maze (recursive backtracker, seeded) and emits BOTH
-// the schematic and the raw grid; node 2 BFS-solves the grid and draws the
-// shortest path in glowstone on a copy of the maze — data and geometry flowing
-// side by side between blocks.
-
-const MAZE_GEN_SOURCE = `type Inputs = {
-  width: Slider<{ min: 5; max: 41; default: 21 }>;
-  height: Slider<{ min: 5; max: 41; default: 21 }>;
-  wall: Block<{ default: 'minecraft:stone_bricks' }>;
-  seed: number;
-};
-
-type Outputs = {
-  maze: Schematic;
-  grid: number[][];
-};
-
-function generate(inputs) {
-  // Odd dimensions so walls and corridors alternate cleanly.
-  const w = inputs.width % 2 ? inputs.width : inputs.width + 1;
-  const h = inputs.height % 2 ? inputs.height : inputs.height + 1;
-  // Random.seeded is the shared deterministic mulberry32 PRNG.
-  const rand = Random.seeded(inputs.seed | 0 || 42);
-
-  const grid = [];
-  for (let z = 0; z < h; z++) {
-    const row = [];
-    for (let x = 0; x < w; x++) row.push(1);
-    grid.push(row);
-  }
-
-  // Recursive backtracker (iterative): carve 2 cells at a time.
-  const dirs = [[2, 0], [-2, 0], [0, 2], [0, -2]];
-  const stack = [[1, 1]];
-  grid[1][1] = 0;
-  while (stack.length) {
-    const [cx, cz] = stack[stack.length - 1];
-    const options = [];
-    for (const [dx, dz] of dirs) {
-      const nx = cx + dx;
-      const nz = cz + dz;
-      if (nx > 0 && nz > 0 && nx < w - 1 && nz < h - 1 && grid[nz][nx] === 1) {
-        options.push([nx, nz, dx, dz]);
-      }
-    }
-    if (!options.length) {
-      stack.pop();
-      continue;
-    }
-    const [nx, nz, dx, dz] = Random.pick(options, rand);
-    grid[nz][nx] = 0;
-    grid[cz + dz / 2][cx + dx / 2] = 0;
-    stack.push([nx, nz]);
-  }
-
-  const maze = new Schematic();
-  // Floor is a solid plane; walls rise two blocks per filled cell.
-  maze.fillPlane(0, 0, w - 1, h - 1, 0, 'minecraft:polished_andesite');
-  for (let z = 0; z < h; z++) {
-    for (let x = 0; x < w; x++) {
-      if (grid[z][x] === 1) maze.fillColumn(x, z, 1, 2, inputs.wall);
-    }
-  }
-
-  return { maze, grid };
-}
-`;
-
-const MAZE_GEN_CONTRACT: BlockContract = {
-  inputs: {
-    width: { kind: 'number', widget: 'slider', min: 5, max: 41, default: 21 },
-    height: { kind: 'number', widget: 'slider', min: 5, max: 41, default: 21 },
-    wall: { kind: 'block', default: 'minecraft:stone_bricks' },
-    seed: { kind: 'number' },
-  },
-  outputs: {
-    maze: { kind: 'schematic' },
-    grid: { kind: 'list', of: { kind: 'list', of: { kind: 'number' } } },
-  },
-};
-
-const MAZE_SOLVE_SOURCE = `type Inputs = {
-  maze: Schematic;
-  grid: number[][];
-  marker: Block<{ default: 'minecraft:glowstone' }>;
-};
-
-type Outputs = {
-  solved: Schematic;
-  stats: { found: boolean; length: number; explored: number };
-};
-
-function generate(inputs) {
-  const grid = inputs.grid || [];
-  const h = grid.length;
-  const w = h ? grid[0].length : 0;
-  const goal = [w - 2, h - 2];
-
-  // BFS from entrance to exit — shortest path in a perfect maze.
-  const prev = new Map();
-  const seen = new Set(['1,1']);
-  const queue = [[1, 1]];
-  let explored = 0;
-  let found = false;
-  while (queue.length) {
-    const [x, z] = queue.shift();
-    explored++;
-    if (x === goal[0] && z === goal[1]) {
-      found = true;
-      break;
-    }
-    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-      const nx = x + dx;
-      const nz = z + dz;
-      if (nx < 0 || nz < 0 || nz >= h || nx >= w) continue;
-      const key = nx + ',' + nz;
-      if (grid[nz][nx] !== 0 || seen.has(key)) continue;
-      seen.add(key);
-      prev.set(key, x + ',' + z);
-      queue.push([nx, nz]);
-    }
-  }
-
-  // clone() copies every non-air block — no manual block-by-block loop needed.
-  const solved = inputs.maze.clone();
-
-  let length = 0;
-  if (found) {
-    let cursor = goal[0] + ',' + goal[1];
-    while (cursor) {
-      const [px, pz] = cursor.split(',').map(Number);
-      solved.set_block(px, 1, pz, inputs.marker);
-      length++;
-      cursor = prev.get(cursor);
-    }
-  }
-
-  return { solved, stats: { found: found, length: length, explored: explored } };
-}
-`;
-
-const MAZE_SOLVE_CONTRACT: BlockContract = {
-  inputs: {
-    maze: { kind: 'schematic' },
-    grid: { kind: 'list', of: { kind: 'list', of: { kind: 'number' } } },
-    marker: { kind: 'block', default: 'minecraft:glowstone' },
-  },
-  outputs: {
-    solved: { kind: 'schematic' },
-    stats: {
-      kind: 'object',
-      fields: {
-        found: { kind: 'boolean' },
-        length: { kind: 'number' },
-        explored: { kind: 'number' },
-      },
-    },
-  },
-};
-
-export const MAZE_FLOW: FlowData = {
-  id: 'example-maze-solver',
-  name: 'Maze & Pathfinder',
-  version: '1.0.0',
-  createdAt: 0,
-  nodes: [
-    {
-      id: 'maze-size',
-      type: 'input',
-      position: { x: 0, y: 0 },
-      data: {
-        label: 'size',
-        value: 25,
-        dataType: 'number',
-        widgetType: 'slider',
-        min: 5,
-        max: 41,
-        step: 2,
-        description: 'Maze width & height',
-      },
-    },
-    {
-      id: 'maze-seed',
-      type: 'input',
-      position: { x: 0, y: 180 },
-      data: { label: 'seed', value: 7, dataType: 'number', widgetType: 'number' },
-    },
-    {
-      id: 'maze-gen',
-      type: 'code',
-      position: { x: 320, y: 0 },
-      data: {
-        label: 'Maze Generator',
-        code: MAZE_GEN_SOURCE,
-        contract: MAZE_GEN_CONTRACT,
-        io: contractToIO(MAZE_GEN_CONTRACT),
-      },
-    },
-    {
-      id: 'maze-solve',
-      type: 'code',
-      position: { x: 800, y: 60 },
-      data: {
-        label: 'Path Solver',
-        code: MAZE_SOLVE_SOURCE,
-        contract: MAZE_SOLVE_CONTRACT,
-        io: contractToIO(MAZE_SOLVE_CONTRACT),
-      },
-    },
-    {
-      id: 'maze-view',
-      type: 'viewer',
-      position: { x: 1280, y: 0 },
-      data: { label: 'Solved maze' },
-    },
-    {
-      id: 'maze-stats',
-      type: 'viewer',
-      position: { x: 1280, y: 380 },
-      data: { label: 'Search stats' },
-    },
-    {
-      id: 'maze-out',
-      type: 'output',
-      position: { x: 1280, y: 600 },
-      data: { label: 'solved' },
-    },
-  ],
-  edges: [
-    { id: 'me-w', source: 'maze-size', target: 'maze-gen', sourceHandle: 'output', targetHandle: 'width' },
-    { id: 'me-h', source: 'maze-size', target: 'maze-gen', sourceHandle: 'output', targetHandle: 'height' },
-    { id: 'me-s', source: 'maze-seed', target: 'maze-gen', sourceHandle: 'output', targetHandle: 'seed' },
-    { id: 'me-m', source: 'maze-gen', target: 'maze-solve', sourceHandle: 'maze', targetHandle: 'maze' },
-    { id: 'me-g', source: 'maze-gen', target: 'maze-solve', sourceHandle: 'grid', targetHandle: 'grid' },
-    { id: 'me-v', source: 'maze-solve', target: 'maze-view', sourceHandle: 'solved', targetHandle: 'input' },
-    { id: 'me-st', source: 'maze-solve', target: 'maze-stats', sourceHandle: 'stats', targetHandle: 'input' },
-    { id: 'me-o', source: 'maze-solve', target: 'maze-out', sourceHandle: 'solved', targetHandle: 'input' },
-  ],
-};
-
-// ─── Procedural City ────────────────────────────────────────────────────────
-// A planner lays out road grid + building lots (a LIST OF OBJECTS — rendered
-// as a table by the viewer), then a tower builder raises glass-banded towers
-// on each lot. Skyline peaks toward the city center.
-
-const CITY_PLAN_SOURCE = `type Inputs = {
-  size: Slider<{ min: 32; max: 96; default: 64 }>;
-  lot: Slider<{ min: 6; max: 16; default: 10 }>;
-  density: Slider<{ min: 0.1; max: 1; step: 0.05; default: 0.75 }>;
-  seed: number;
-};
-
-type Outputs = {
-  lots: Array<{ x: number; z: number; w: number; d: number; floors: number }>;
-  ground: Schematic;
-};
-
-function generate(inputs) {
-  const size = inputs.size | 0;
-  const lotSize = inputs.lot | 0;
-  const rand = Random.seeded(inputs.seed | 0 || 7);
-  const pitch = lotSize + 1;
-
-  const ground = new Schematic();
-  for (let x = 0; x < size; x++) {
-    for (let z = 0; z < size; z++) {
-      const onRoad = x % pitch === 0 || z % pitch === 0;
-      ground.set_block(x, 0, z, onRoad ? 'minecraft:gray_concrete' : 'minecraft:smooth_stone');
-    }
-  }
-
-  const lots = [];
-  const center = size / 2;
-  for (let lx = 1; lx + lotSize <= size; lx += pitch) {
-    for (let lz = 1; lz + lotSize <= size; lz += pitch) {
-      if (rand() > inputs.density) continue;
-      // Skyline: tall towers downtown, low-rise at the edges.
-      const dist = Math.hypot(lx + lotSize / 2 - center, lz + lotSize / 2 - center);
-      const skyline = Math.max(1, Math.round(9 * (1 - dist / (center * 1.5))));
-      const floors = Math.max(1, Math.min(9, skyline + Math.floor(rand() * 3) - 1));
-      lots.push({ x: lx + 1, z: lz + 1, w: lotSize - 2, d: lotSize - 2, floors: floors });
-    }
-  }
-
-  return { lots, ground };
-}
-`;
-
-const CITY_PLAN_CONTRACT: BlockContract = {
-  inputs: {
-    size: { kind: 'number', widget: 'slider', min: 32, max: 96, default: 64 },
-    lot: { kind: 'number', widget: 'slider', min: 6, max: 16, default: 10 },
-    density: { kind: 'number', widget: 'slider', min: 0.1, max: 1, step: 0.05, default: 0.75 },
-    seed: { kind: 'number' },
-  },
-  outputs: {
-    lots: {
-      kind: 'list',
-      of: {
-        kind: 'object',
-        fields: {
-          x: { kind: 'number' },
-          z: { kind: 'number' },
-          w: { kind: 'number' },
-          d: { kind: 'number' },
-          floors: { kind: 'number' },
-        },
-      },
-    },
-    ground: { kind: 'schematic' },
-  },
-};
-
-const CITY_BUILD_SOURCE = `type Inputs = {
-  lots: Array<{ x: number; z: number; w: number; d: number; floors: number }>;
-  ground: Schematic;
-  wall: Block<{ default: 'minecraft:light_gray_concrete' }>;
-  glass: Block<{ default: 'minecraft:cyan_stained_glass' }>;
-};
-
-type Outputs = {
-  city: Schematic;
-};
-
-function generate(inputs) {
-  // Start from a copy of the road grid, then raise towers on each lot.
-  const city = inputs.ground.clone();
-
-  for (const lot of inputs.lots || []) {
-    const top = lot.floors * 4;
-    for (let y = 1; y <= top; y++) {
-      const band = y % 4 === 2 || y % 4 === 3; // window band on each floor
-      for (let x = lot.x; x < lot.x + lot.w; x++) {
-        for (let z = lot.z; z < lot.z + lot.d; z++) {
-          const onEdgeX = x === lot.x || x === lot.x + lot.w - 1;
-          const onEdgeZ = z === lot.z || z === lot.z + lot.d - 1;
-          if (!onEdgeX && !onEdgeZ) continue;
-          const corner = onEdgeX && onEdgeZ;
-          const block = band && !corner && (x + z) % 2 === 0 ? inputs.glass : inputs.wall;
-          city.set_block(x, y, z, block);
-        }
-      }
-    }
-    // Flat roof slab over the whole lot footprint.
-    city.fillPlane(lot.x, lot.z, lot.x + lot.w - 1, lot.z + lot.d - 1, top + 1, 'minecraft:polished_andesite');
-  }
-
-  return { city };
-}
-`;
-
-const CITY_BUILD_CONTRACT: BlockContract = {
-  inputs: {
-    lots: CITY_PLAN_CONTRACT.outputs.lots,
-    ground: { kind: 'schematic' },
-    wall: { kind: 'block', default: 'minecraft:light_gray_concrete' },
-    glass: { kind: 'block', default: 'minecraft:cyan_stained_glass' },
-  },
-  outputs: {
-    city: { kind: 'schematic' },
-  },
-};
-
-export const CITY_FLOW: FlowData = {
-  id: 'example-city',
-  name: 'Procedural City',
-  version: '1.0.0',
-  createdAt: 0,
-  nodes: [
-    {
-      id: 'city-size',
-      type: 'input',
-      position: { x: 0, y: 0 },
-      data: {
-        label: 'size',
-        value: 64,
-        dataType: 'number',
-        widgetType: 'slider',
-        min: 32,
-        max: 96,
-        step: 1,
-        description: 'City footprint',
-      },
-    },
-    {
-      id: 'city-density',
-      type: 'input',
-      position: { x: 0, y: 180 },
-      data: {
-        label: 'density',
-        value: 0.75,
-        dataType: 'number',
-        widgetType: 'slider',
-        min: 0.1,
-        max: 1,
-        step: 0.05,
-        description: 'Built-lot probability',
-      },
-    },
-    {
-      id: 'city-seed',
-      type: 'input',
-      position: { x: 0, y: 360 },
-      data: { label: 'seed', value: 7, dataType: 'number', widgetType: 'number' },
-    },
-    {
-      id: 'city-plan',
-      type: 'code',
-      position: { x: 320, y: 60 },
-      data: {
-        label: 'City Planner',
-        code: CITY_PLAN_SOURCE,
-        contract: CITY_PLAN_CONTRACT,
-        io: contractToIO(CITY_PLAN_CONTRACT),
-      },
-    },
-    {
-      id: 'city-build',
-      type: 'code',
-      position: { x: 800, y: 120 },
-      data: {
-        label: 'Tower Builder',
-        code: CITY_BUILD_SOURCE,
-        contract: CITY_BUILD_CONTRACT,
-        io: contractToIO(CITY_BUILD_CONTRACT),
-      },
-    },
-    {
-      id: 'city-lots-table',
-      type: 'viewer',
-      position: { x: 800, y: 480 },
-      data: { label: 'Zoning table' },
-    },
-    {
-      id: 'city-view',
-      type: 'viewer',
-      position: { x: 1280, y: 60 },
-      data: { label: 'Skyline' },
-    },
-    {
-      id: 'city-out',
-      type: 'output',
-      position: { x: 1280, y: 520 },
-      data: { label: 'city' },
-    },
-  ],
-  edges: [
-    { id: 'ce-s', source: 'city-size', target: 'city-plan', sourceHandle: 'output', targetHandle: 'size' },
-    { id: 'ce-d', source: 'city-density', target: 'city-plan', sourceHandle: 'output', targetHandle: 'density' },
-    { id: 'ce-r', source: 'city-seed', target: 'city-plan', sourceHandle: 'output', targetHandle: 'seed' },
-    { id: 'ce-l', source: 'city-plan', target: 'city-build', sourceHandle: 'lots', targetHandle: 'lots' },
-    { id: 'ce-g', source: 'city-plan', target: 'city-build', sourceHandle: 'ground', targetHandle: 'ground' },
-    { id: 'ce-t', source: 'city-plan', target: 'city-lots-table', sourceHandle: 'lots', targetHandle: 'input' },
-    { id: 'ce-v', source: 'city-build', target: 'city-view', sourceHandle: 'city', targetHandle: 'input' },
-    { id: 'ce-o', source: 'city-build', target: 'city-out', sourceHandle: 'city', targetHandle: 'input' },
-  ],
-};
-
-// ─── Terrain → Erosion → Analysis ───────────────────────────────────────────
-// A three-stage pipeline: noise terrain (the workbench example as a node) →
-// thermal erosion (schematic in, schematic out) → the build-analysis block
-// fanning out into vec3 / table / image viewers.
-
-const TERRAIN_SOURCE = EXAMPLE_BLOCKS.find((b) => b.id === 'parametric-terrain')!.source;
-const ANALYSIS_SOURCE = EXAMPLE_BLOCKS.find((b) => b.id === 'build-analysis')!.source;
-
-const TERRAIN_CONTRACT: BlockContract = {
-  inputs: {
-    width: { kind: 'number', widget: 'slider', min: 8, max: 256, default: 64 },
-    depth: { kind: 'number', widget: 'slider', min: 8, max: 256, default: 64 },
-    amplitude: { kind: 'number', widget: 'slider', min: 1, max: 64, default: 16 },
-    scale: { kind: 'number', widget: 'slider', min: 0.01, max: 0.2, step: 0.01, default: 0.05 },
-    seed: { kind: 'number' },
-    surface: { kind: 'block', default: 'minecraft:grass_block' },
-  },
-  outputs: {
-    terrain: { kind: 'schematic' },
-  },
-};
-
-const ANALYSIS_CONTRACT: BlockContract = {
-  inputs: {
-    schematic: { kind: 'schematic' },
-  },
-  outputs: {
-    dimensions: { kind: 'vec3' },
-    blockCounts: {
-      kind: 'list',
-      of: {
-        kind: 'object',
-        fields: { block: { kind: 'block' }, count: { kind: 'number' } },
-      },
-    },
-    heatmap: { kind: 'image' },
-  },
-};
-
-const ERODE_SOURCE = `type Inputs = {
-  terrain: Schematic;
-  iterations: Slider<{ min: 0; max: 60; default: 25 }>;
-  talus: Slider<{ min: 1; max: 4; default: 1 }>;
-};
-
-type Outputs = {
-  eroded: Schematic;
-};
-
-function generate(inputs) {
-  // heightmap() returns the top block y (or -1) and its name per [x][z] column.
-  const map = inputs.terrain.heightmap();
-  const w = map.height.length;
-  const d = w ? map.height[0].length : 0;
-  const height = [];
-  const surface = [];
-  for (let x = 0; x < w; x++) {
-    height.push([]);
-    surface.push([]);
-    for (let z = 0; z < d; z++) {
-      const topY = map.height[x][z];
-      // Column height = topY + 1 (1 for empty columns), surface defaults to grass.
-      height[x].push(topY >= 0 ? topY + 1 : 1);
-      surface[x].push(topY >= 0 ? map.surface[x][z] : 'minecraft:grass_block');
-    }
-  }
-
-  // Thermal erosion: steep slopes shed material onto their lowest neighbour.
-  const talus = inputs.talus | 0 || 1;
-  for (let it = 0; it < inputs.iterations; it++) {
-    if (it % 2 === 0) Progress.report((it / inputs.iterations) * 100, 'erosion pass ' + it + '/' + inputs.iterations);
-    for (let x = 0; x < w; x++) {
-      for (let z = 0; z < d; z++) {
-        let lx = x;
-        let lz = z;
-        let lowest = height[x][z];
-        for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-          const nx = x + dx;
-          const nz = z + dz;
-          if (nx < 0 || nz < 0 || nx >= w || nz >= d) continue;
-          if (height[nx][nz] < lowest) {
-            lowest = height[nx][nz];
-            lx = nx;
-            lz = nz;
-          }
-        }
-        if (height[x][z] - lowest > talus) {
-          height[x][z]--;
-          height[lx][lz]++;
-        }
-      }
-    }
-  }
-
-  const eroded = new Schematic();
-  for (let x = 0; x < w; x++) {
-    for (let z = 0; z < d; z++) {
-      const h = Math.max(1, height[x][z]);
-      // Dirt body up to h-2 (fillColumn is inclusive), surface block on top.
-      if (h > 1) eroded.fillColumn(x, z, 0, h - 2, 'minecraft:dirt');
-      eroded.set_block(x, h - 1, z, surface[x][z]);
-    }
-  }
-
-  return { eroded };
-}
-`;
-
-const ERODE_CONTRACT: BlockContract = {
-  inputs: {
-    terrain: { kind: 'schematic' },
-    iterations: { kind: 'number', widget: 'slider', min: 0, max: 60, default: 25 },
-    talus: { kind: 'number', widget: 'slider', min: 1, max: 4, default: 1 },
-  },
-  outputs: {
-    eroded: { kind: 'schematic' },
-  },
-};
-
-export const TERRAIN_PIPELINE_FLOW: FlowData = {
-  id: 'example-terrain-pipeline',
-  name: 'Terrain → Erosion → Analysis',
-  version: '1.0.0',
-  createdAt: 0,
-  nodes: [
-    {
-      id: 'tp-amplitude',
-      type: 'input',
-      position: { x: 0, y: 0 },
-      data: {
-        label: 'amplitude',
-        value: 22,
-        dataType: 'number',
-        widgetType: 'slider',
-        min: 1,
-        max: 64,
-        step: 1,
-        description: 'Mountain height',
-      },
-    },
-    {
-      id: 'tp-seed',
-      type: 'input',
-      position: { x: 0, y: 180 },
-      data: { label: 'seed', value: 3, dataType: 'number', widgetType: 'number' },
-    },
-    {
-      id: 'tp-iterations',
-      type: 'input',
-      position: { x: 0, y: 340 },
-      data: {
-        label: 'iterations',
-        value: 25,
-        dataType: 'number',
-        widgetType: 'slider',
-        min: 0,
-        max: 60,
-        step: 1,
-        description: 'Erosion passes',
-      },
-    },
-    {
-      id: 'tp-terrain',
-      type: 'code',
-      position: { x: 300, y: 20 },
-      data: {
-        label: 'Terrain',
-        code: TERRAIN_SOURCE,
-        contract: TERRAIN_CONTRACT,
-        io: contractToIO(TERRAIN_CONTRACT),
-      },
-    },
-    {
-      id: 'tp-erode',
-      type: 'code',
-      position: { x: 760, y: 80 },
-      data: {
-        label: 'Thermal Erosion',
-        code: ERODE_SOURCE,
-        contract: ERODE_CONTRACT,
-        io: contractToIO(ERODE_CONTRACT),
-      },
-    },
-    {
-      id: 'tp-analyze',
-      type: 'code',
-      position: { x: 1220, y: 300 },
-      data: {
-        label: 'Build Analysis',
-        code: ANALYSIS_SOURCE,
-        contract: ANALYSIS_CONTRACT,
-        io: contractToIO(ANALYSIS_CONTRACT),
-      },
-    },
-    {
-      id: 'tp-eroded-view',
-      type: 'viewer',
-      position: { x: 1220, y: -60 },
-      data: { label: 'Eroded terrain' },
-    },
-    {
-      id: 'tp-heatmap-view',
-      type: 'viewer',
-      position: { x: 1700, y: 160 },
-      data: { label: 'Density heatmap' },
-    },
-    {
-      id: 'tp-counts-view',
-      type: 'viewer',
-      position: { x: 1700, y: 520 },
-      data: { label: 'Block counts' },
-    },
-    {
-      id: 'tp-out',
-      type: 'output',
-      position: { x: 1700, y: -40 },
-      data: { label: 'terrain' },
-    },
-  ],
-  edges: [
-    { id: 'te-a', source: 'tp-amplitude', target: 'tp-terrain', sourceHandle: 'output', targetHandle: 'amplitude' },
-    { id: 'te-s', source: 'tp-seed', target: 'tp-terrain', sourceHandle: 'output', targetHandle: 'seed' },
-    { id: 'te-t', source: 'tp-terrain', target: 'tp-erode', sourceHandle: 'terrain', targetHandle: 'terrain' },
-    { id: 'te-i', source: 'tp-iterations', target: 'tp-erode', sourceHandle: 'output', targetHandle: 'iterations' },
-    { id: 'te-e', source: 'tp-erode', target: 'tp-analyze', sourceHandle: 'eroded', targetHandle: 'schematic' },
-    { id: 'te-ev', source: 'tp-erode', target: 'tp-eroded-view', sourceHandle: 'eroded', targetHandle: 'input' },
-    { id: 'te-hv', source: 'tp-analyze', target: 'tp-heatmap-view', sourceHandle: 'heatmap', targetHandle: 'input' },
-    { id: 'te-cv', source: 'tp-analyze', target: 'tp-counts-view', sourceHandle: 'blockCounts', targetHandle: 'input' },
-    { id: 'te-o', source: 'tp-erode', target: 'tp-out', sourceHandle: 'eroded', targetHandle: 'input' },
-  ],
-};
-
-// ─── Redstone Logic Lab ─────────────────────────────────────────────────────
-// One block builds a REAL redstone gate and simulates it with MCHPRS (inside
-// nucleation): levers are toggled through every combination and the output is
-// probed each time. The viewer shows the measured truth table; the circuit
-// viewer shows the live world state.
-
-const LOGIC_LAB_SOURCE = EXAMPLE_BLOCKS.find((b) => b.id === 'logic-lab')!.source;
-
-const LOGIC_LAB_CONTRACT: BlockContract = {
-  inputs: {
-    gate: { kind: 'enum', options: ['and', 'nand', 'or', 'not'] },
-  },
-  outputs: {
-    circuit: { kind: 'schematic' },
-    truthTable: {
-      kind: 'list',
-      of: {
-        kind: 'object',
-        fields: {
-          a: { kind: 'boolean' },
-          b: { kind: 'boolean' },
-          out: { kind: 'boolean' },
-        },
-      },
-    },
-  },
-};
-
-export const LOGIC_LAB_FLOW: FlowData = {
-  id: 'example-logic-lab',
-  name: 'Redstone Logic Lab',
-  version: '1.0.0',
-  createdAt: 0,
-  nodes: [
-    {
-      id: 'gate-select',
-      type: 'input',
-      position: { x: 0, y: 60 },
-      data: {
-        label: 'gate',
-        value: 'and',
-        dataType: 'string',
-        widgetType: 'select',
-        options: ['and', 'nand', 'or', 'not'],
-        description: 'Which gate to build & simulate',
-      },
-    },
-    {
-      id: 'lab',
-      type: 'code',
-      position: { x: 300, y: 0 },
-      data: {
-        label: 'Logic Lab',
-        code: LOGIC_LAB_SOURCE,
-        contract: LOGIC_LAB_CONTRACT,
-        io: contractToIO(LOGIC_LAB_CONTRACT),
-      },
-    },
-    {
-      id: 'truth-view',
-      type: 'viewer',
-      position: { x: 800, y: 320 },
-      data: { label: 'Measured truth table' },
-    },
-    {
-      id: 'circuit-view',
-      type: 'viewer',
-      position: { x: 800, y: -40 },
-      data: { label: 'Live circuit' },
-    },
-    {
-      id: 'circuit-out',
-      type: 'output',
-      position: { x: 800, y: 620 },
-      data: { label: 'circuit' },
-    },
-  ],
-  edges: [
-    { id: 'll-g', source: 'gate-select', target: 'lab', sourceHandle: 'output', targetHandle: 'gate' },
-    { id: 'll-t', source: 'lab', target: 'truth-view', sourceHandle: 'truthTable', targetHandle: 'input' },
-    { id: 'll-c', source: 'lab', target: 'circuit-view', sourceHandle: 'circuit', targetHandle: 'input' },
-    { id: 'll-o', source: 'lab', target: 'circuit-out', sourceHandle: 'circuit', targetHandle: 'input' },
-  ],
-};
-
-// ─── Build Report ───────────────────────────────────────────────────────────
-// One generator fans out into three analysis/export blocks: census (table with
-// chart/CSV export), build analysis (heatmap + dimensions), and the hologram
-// mcfunction (downloadable). The automated-report pattern: generate → analyze
-// → export, all driven by sliders.
-
-const BUILDING_SOURCE = EXAMPLE_BLOCKS.find((b) => b.id === 'parametric-building')!.source;
-const CENSUS_SOURCE = EXAMPLE_BLOCKS.find((b) => b.id === 'block-census')!.source;
-const HOLOGRAM_SOURCE = EXAMPLE_BLOCKS.find((b) => b.id === 'hologram-mcfunction')!.source;
-
-export const BUILD_REPORT_FLOW: FlowData = {
-  id: 'example-build-report',
-  name: 'Build Report',
-  version: '1.0.0',
-  createdAt: 0,
-  nodes: [
-    {
-      id: 'br-floors',
-      type: 'input',
-      position: { x: 0, y: 0 },
-      data: {
-        label: 'floors',
-        value: 6,
-        dataType: 'number',
-        widgetType: 'slider',
-        min: 1,
-        max: 32,
-        step: 1,
-      },
-    },
-    {
-      id: 'br-roof',
-      type: 'input',
-      position: { x: 0, y: 170 },
-      data: {
-        label: 'roof',
-        value: 'gable',
-        dataType: 'string',
-        widgetType: 'select',
-        options: ['flat', 'gable', 'pyramid'],
-      },
-    },
-    {
-      id: 'br-building',
-      type: 'code',
-      position: { x: 300, y: 20 },
-      data: {
-        label: 'Building',
-        code: BUILDING_SOURCE,
-        contract: EXAMPLE_BLOCK_CONTRACTS['parametric-building'],
-        io: contractToIO(EXAMPLE_BLOCK_CONTRACTS['parametric-building']),
-      },
-    },
-    {
-      id: 'br-census',
-      type: 'code',
-      position: { x: 800, y: -120 },
-      data: {
-        label: 'Block Census',
-        code: CENSUS_SOURCE,
-        contract: EXAMPLE_BLOCK_CONTRACTS['block-census'],
-        io: contractToIO(EXAMPLE_BLOCK_CONTRACTS['block-census']),
-      },
-    },
-    {
-      id: 'br-analysis',
-      type: 'code',
-      position: { x: 800, y: 240 },
-      data: {
-        label: 'Build Analysis',
-        code: EXAMPLE_BLOCKS.find((b) => b.id === 'build-analysis')!.source,
-        contract: EXAMPLE_BLOCK_CONTRACTS['build-analysis'],
-        io: contractToIO(EXAMPLE_BLOCK_CONTRACTS['build-analysis']),
-      },
-    },
-    {
-      id: 'br-hologram',
-      type: 'code',
-      position: { x: 800, y: 600 },
-      data: {
-        label: 'Hologram',
-        code: HOLOGRAM_SOURCE,
-        contract: EXAMPLE_BLOCK_CONTRACTS['hologram-mcfunction'],
-        io: contractToIO(EXAMPLE_BLOCK_CONTRACTS['hologram-mcfunction']),
-      },
-    },
-    {
-      id: 'br-building-view',
-      type: 'viewer',
-      position: { x: 300, y: 420 },
-      data: { label: 'Building' },
-    },
-    {
-      id: 'br-census-view',
-      type: 'viewer',
-      position: { x: 1300, y: -160 },
-      data: { label: 'Census (chart/CSV export)' },
-    },
-    {
-      id: 'br-heatmap-view',
-      type: 'viewer',
-      position: { x: 1300, y: 240 },
-      data: { label: 'Density heatmap' },
-    },
-    {
-      id: 'br-holo-view',
-      type: 'viewer',
-      position: { x: 1300, y: 600 },
-      data: { label: 'mcfunction (download)' },
-    },
-    {
-      id: 'br-csv-out',
-      type: 'output',
-      position: { x: 1300, y: 60 },
-      data: { label: 'census_csv' },
-    },
-    {
-      id: 'br-holo-out',
-      type: 'output',
-      position: { x: 1300, y: 900 },
-      data: { label: 'hologram_mcfunction' },
-    },
-  ],
-  edges: [
-    { id: 'br-f', source: 'br-floors', target: 'br-building', sourceHandle: 'output', targetHandle: 'floors' },
-    { id: 'br-r', source: 'br-roof', target: 'br-building', sourceHandle: 'output', targetHandle: 'roof' },
-    { id: 'br-b1', source: 'br-building', target: 'br-census', sourceHandle: 'building', targetHandle: 'schematic' },
-    { id: 'br-b2', source: 'br-building', target: 'br-analysis', sourceHandle: 'building', targetHandle: 'schematic' },
-    { id: 'br-b3', source: 'br-building', target: 'br-hologram', sourceHandle: 'building', targetHandle: 'schematic' },
-    { id: 'br-bv', source: 'br-building', target: 'br-building-view', sourceHandle: 'building', targetHandle: 'input' },
-    { id: 'br-cv', source: 'br-census', target: 'br-census-view', sourceHandle: 'rows', targetHandle: 'input' },
-    { id: 'br-hv', source: 'br-analysis', target: 'br-heatmap-view', sourceHandle: 'heatmap', targetHandle: 'input' },
-    { id: 'br-mv', source: 'br-hologram', target: 'br-holo-view', sourceHandle: 'mcfunction', targetHandle: 'input' },
-    { id: 'br-co', source: 'br-census', target: 'br-csv-out', sourceHandle: 'csv', targetHandle: 'input' },
-    { id: 'br-mo', source: 'br-hologram', target: 'br-holo-out', sourceHandle: 'mcfunction', targetHandle: 'input' },
-  ],
-};
-
 // ─── Worldgen Studio ────────────────────────────────────────────────────────
 // A real procedural-worldgen graph where RAW HEIGHTFIELDS (number[][]) flow
 // between nodes: fBm noise minus a Voronoi field (eroded ridges) → exponent/
@@ -1282,107 +368,263 @@ export const WORLDGEN_FLOW: FlowData = {
   ],
 };
 
-/**
- * Schemati Browser — talks to the host platform: search schematics by tag,
- * download the top hit, and inspect it. The Schemati ambient rides the page
- * session in the browser and SCHEMATI_URL/SCHEMATI_API_TOKEN on the server,
- * so the same flow works in the editor, tool mode, and the API.
- */
-const SCHEMATI_SEARCH_SOURCE = EXAMPLE_BLOCKS.find((b) => b.id === 'schemati-search')!.source;
-const SCHEMATI_FETCH_SOURCE = EXAMPLE_BLOCKS.find((b) => b.id === 'schemati-fetch')!.source;
-const SCHEMATI_SEARCH_CONTRACT = EXAMPLE_BLOCK_CONTRACTS['schemati-search'];
-const SCHEMATI_FETCH_CONTRACT = EXAMPLE_BLOCK_CONTRACTS['schemati-fetch'];
+// ════════════════════════════════════════════════════════════════════════════
+//  ASM → ROM Studio — the meta-node showcase
+// ════════════════════════════════════════════════════════════════════════════
+// One purposeful pipeline that exercises EVERY meta-node working together:
+// a real ARPU fibonacci program is assembled to machine-code bytes, then those
+// bytes fan out two ways — a Map formats each byte as hex, and a Group ("ROM
+// Layout") unbundles a settings struct to drive the ROM-data + ROM-schematic
+// blocks. A Switch picks the ROM base (hex vs binary), a Bundle packs the
+// config, a Reroute keeps the bytes bus tidy, and an Inspect taps the digits.
+//
+//   Constant×3 → Switch(base) ─┐
+//                              Bundle{config} ─────────────┐
+//                                                          ▼
+//   program → ARPU Asm → Reroute(bytes) ─┬─► Map(hex)      Group "ROM Layout"
+//                                        │                  ├ Unbundle config
+//                                        └────────────────► ├ rom-data → data
+//                                                           └ rom-schematic → rom
+//                              data ─► Inspect ─► romData | rom ─► romPreview
+//
+// Folds + executes hermetically: the PURE outputs (romData digit string, the
+// hex list, words) are deterministic; the rom-schematic `rom` needs the WASM
+// `Schematic` global, so the showcase test stubs it and only asserts the pure
+// data. Meta-nodes demonstrated: Constant, Switch, Bundle, Unbundle, Group,
+// Map, Reroute, Inspect (plus Input/Output and the three ASM/ROM code blocks).
 
-export const SCHEMATI_BROWSER_FLOW: FlowData = {
-  id: 'example-schemati-browser',
-  name: 'Schemati Browser',
+const ASM_ROM = (id: string) => ({
+  code: EXAMPLE_BLOCKS.find((b) => b.id === id)!.source,
+  contract: EXAMPLE_BLOCK_CONTRACTS[id],
+  io: contractToIO(EXAMPLE_BLOCK_CONTRACTS[id]),
+});
+
+// The verified fibonacci sample — its bytes match arpuemu's own assembler.
+const ASM_ROM_PROGRAM = `IMM R1 0 0
+IMM R2 0 1
+IMM R3 0 6        // Fibonacci: F0=0, F1=1, run 6 iterations
+.loop
+ADD R1 R2
+SOP R1 0
+MOV R1 R2
+SOP R2 1
+DEC R3 R3
+BRA 0 0b11 .loop  // loop while R3 != 0
+PST R1 0
+.end
+BRA 0 0 .end      // halt
+`;
+
+// Two MORE verified ARPU programs the selector can feed to the assembler. Each
+// assembles cleanly with the same generic 'Asm' spec the arpu-assembler block
+// uses (verified against @flow/core's Asm.define/pack).
+
+// A simple counter loop: count down from 5, emitting each value (→ 9 bytes).
+const ASM_ROM_COUNTER = `IMM R1 0 5        // counter starts at 5
+.loop
+SOP R1 0          // emit current value
+DEC R1 R1         // R1 = R1 - 1
+BRA 0 0b11 .loop  // loop while R1 != 0
+PST R1 0
+.end
+BRA 0 0 .end      // halt
+`;
+
+// A small arithmetic program: compute (7 + 3) then double it (→ 10 bytes).
+const ASM_ROM_ARITH = `IMM R1 0 7        // R1 = 7
+IMM R2 0 3        // R2 = 3
+ADD R1 R2         // R1 = R1 + R2  (= 10)
+MOV R2 R1         // R2 = R1
+ADD R1 R2         // R1 = R1 + R2  (= 20, doubled)
+PST R1 0          // store result
+.end
+BRA 0 0 .end      // halt
+`;
+
+// Map body: format one byte as a two-char hex string (item:number → result:string).
+export const ASM_ROM_HEX_SOURCE = `type Inputs = {
+  item: number;
+};
+type Outputs = {
+  result: string;
+};
+function generate(inputs) {
+  const h = (inputs.item & 0xff).toString(16).padStart(2, '0');
+  return { result: h };
+}
+`;
+const ASM_ROM_HEX_CONTRACT: BlockContract = {
+  inputs: { item: { kind: 'number' } },
+  outputs: { result: { kind: 'string' } },
+};
+
+const ROM_CONFIG_TYPE = {
+  kind: 'object' as const,
+  fields: {
+    base: { kind: 'number' as const },
+    bitWidth: { kind: 'number' as const },
+    rowWidth: { kind: 'number' as const },
+  },
+};
+
+export const SHOWCASE_FLOW: FlowData = {
+  id: 'example-asm-rom-studio',
+  name: 'ASM → ROM Studio',
   version: '1.0.0',
   createdAt: 0,
   nodes: [
-    {
-      id: 'sb-tag',
-      type: 'input',
-      position: { x: 0, y: 0 },
+    // ── Frames (decorative backdrops behind their clusters) ──────────────────
+    { id: 'fr-source', type: 'frame', position: { x: -40, y: -60 },
+      data: { label: 'Source — Switch picks a program, then assemble it', width: 980, height: 300, color: 'indigo', zIndex: -1 } },
+    { id: 'fr-config', type: 'frame', position: { x: -40, y: 260 },
+      data: { label: 'Config — Switch + Bundle a settings struct', width: 760, height: 360, color: 'emerald', zIndex: -1 } },
+    { id: 'fr-perbyte', type: 'frame', position: { x: 800, y: -60 },
+      data: { label: 'Per-byte — Map each byte to hex', width: 520, height: 280, color: 'sky', zIndex: -1 } },
+    { id: 'fr-rom', type: 'frame', position: { x: 800, y: 260 },
+      data: { label: 'ROM — Group: Unbundle → rom-data + rom-schematic', width: 980, height: 360, color: 'amber', zIndex: -1 } },
+
+    // ── Comments (sticky notes) ──────────────────────────────────────────────
+    { id: 'cm-source', type: 'comment', position: { x: 560, y: 160 },
+      data: { label: 'Selector → Switch picks fibonacci / counter / arithmetic → assembler → bytes. Inspect taps the bus.', width: 340, height: 70, zIndex: 1 } },
+    { id: 'cm-switch', type: 'comment', position: { x: 220, y: 540 },
+      data: { label: 'Switch picks hex (base 16) vs binary (base 2) ROM by selector.', width: 320, height: 70, zIndex: 1 } },
+
+    // ── Source ───────────────────────────────────────────────────────────────
+    // Program selector: a number constant (0..2) drives a Switch that picks ONE
+    // of three ARPU programs (case0 = the verified fibonacci, case1 = a counter
+    // loop, case2 = a small arithmetic program). The Switch output is the chosen
+    // program text that gets assembled → ROM, so the Switch demonstrates a
+    // meaningful choice ("which program do we burn?").
+    { id: 'prog', type: 'input', position: { x: 0, y: 40 },
+      data: { label: 'fibonacci', value: ASM_ROM_PROGRAM, dataType: 'string', widgetType: 'textarea', description: 'ARPU assembly (case 0)' } },
+    { id: 'c-prog-counter', type: 'constant', position: { x: 0, y: 70 },
+      data: { label: 'counter loop', dataType: 'string', value: ASM_ROM_COUNTER } },
+    { id: 'c-prog-arith', type: 'constant', position: { x: 0, y: 100 },
+      data: { label: 'arithmetic', dataType: 'string', value: ASM_ROM_ARITH } },
+    { id: 'c-prog-sel', type: 'constant', position: { x: 0, y: 130 },
+      data: { label: 'program selector', dataType: 'number', value: 0 } },
+    { id: 'sw-prog', type: 'switch', position: { x: 300, y: 40 },
+      data: { label: 'which program', caseCount: 3 } },
+    { id: 'asm', type: 'code', position: { x: 560, y: 40 },
+      data: { label: 'ARPU Assembler', ...ASM_ROM('arpu-assembler') } },
+    { id: 'bytes-tap', type: 'inspect', position: { x: 560, y: 230 },
+      data: { label: 'peek bytes' } },
+    { id: 'reroute', type: 'reroute', position: { x: 900, y: 70 },
+      data: { label: 'bytes' } },
+
+    // ── Config ───────────────────────────────────────────────────────────────
+    { id: 'c-base16', type: 'constant', position: { x: 0, y: 300 },
+      data: { label: 'base 16 (hex)', dataType: 'number', value: 16 } },
+    { id: 'c-base2', type: 'constant', position: { x: 0, y: 370 },
+      data: { label: 'base 2 (binary)', dataType: 'number', value: 2 } },
+    { id: 'c-sel', type: 'constant', position: { x: 0, y: 440 },
+      data: { label: 'selector', dataType: 'number', value: 0 } },
+    { id: 'sw-base', type: 'switch', position: { x: 260, y: 370 },
+      data: { label: 'ROM base', caseCount: 2 } },
+    { id: 'c-bitwidth', type: 'constant', position: { x: 0, y: 510 },
+      data: { label: 'bitWidth', dataType: 'number', value: 8 } },
+    { id: 'c-rowwidth', type: 'constant', position: { x: 0, y: 580 },
+      data: { label: 'rowWidth', dataType: 'number', value: 16 } },
+    { id: 'bundle', type: 'bundle', position: { x: 500, y: 420 },
+      data: { label: 'config', bundleFields: [{ name: 'base' }, { name: 'bitWidth' }, { name: 'rowWidth' }] } },
+
+    // ── Per-byte ─────────────────────────────────────────────────────────────
+    { id: 'map-hex', type: 'map', position: { x: 880, y: 40 },
       data: {
-        label: 'tag',
-        value: 'door',
-        dataType: 'string',
-        widgetType: 'text',
-        description: 'Platform tag name to filter by',
-      },
-    },
-    {
-      id: 'sb-limit',
-      type: 'input',
-      position: { x: 0, y: 160 },
+        label: 'hex each byte',
+        subgraph: {
+          nodes: [
+            { id: 'mh-body', type: 'code', position: { x: 0, y: 0 },
+              data: { label: 'Hex', code: ASM_ROM_HEX_SOURCE, contract: ASM_ROM_HEX_CONTRACT } },
+          ],
+          edges: [],
+        },
+        bodyInputs: [
+          { name: 'item', internalNodeId: 'mh-body', internalHandle: 'item', externalNodeId: '', externalHandle: null, type: { kind: 'number' } },
+        ],
+        bodyOutputs: [
+          { name: 'result', internalNodeId: 'mh-body', internalHandle: 'result', externalNodeId: '', externalHandle: null, type: { kind: 'string' } },
+        ],
+        resultPort: 'result',
+      } },
+    { id: 'hex-inspect', type: 'inspect', position: { x: 1140, y: 40 },
+      data: { label: 'peek hex' } },
+    { id: 'hex-out', type: 'output', position: { x: 1140, y: 160 },
+      data: { label: 'hexBytes' } },
+
+    // ── ROM (Group) ──────────────────────────────────────────────────────────
+    { id: 'rom-group', type: 'group', position: { x: 880, y: 330 },
       data: {
-        label: 'limit',
-        value: 10,
-        dataType: 'number',
-        widgetType: 'slider',
-        min: 1,
-        max: 50,
-        step: 1,
-      },
-    },
-    {
-      id: 'sb-search',
-      type: 'code',
-      position: { x: 320, y: 0 },
-      data: {
-        label: 'Schemati Search',
-        code: SCHEMATI_SEARCH_SOURCE,
-        contract: SCHEMATI_SEARCH_CONTRACT,
-        io: contractToIO(SCHEMATI_SEARCH_CONTRACT),
-      },
-    },
-    {
-      id: 'sb-results-viewer',
-      type: 'viewer',
-      position: { x: 800, y: 260 },
-      data: { label: 'Search results', isResizable: true },
-    },
-    {
-      id: 'sb-fetch',
-      type: 'code',
-      position: { x: 800, y: 0 },
-      data: {
-        label: 'Schemati Fetch',
-        code: SCHEMATI_FETCH_SOURCE,
-        contract: SCHEMATI_FETCH_CONTRACT,
-        io: contractToIO(SCHEMATI_FETCH_CONTRACT),
-      },
-    },
-    {
-      id: 'sb-preview',
-      type: 'viewer',
-      position: { x: 1260, y: 0 },
-      data: { label: 'Top match', isResizable: true },
-    },
-    {
-      id: 'sb-out',
-      type: 'output',
-      position: { x: 1260, y: 380 },
-      data: { label: 'schematic' },
-    },
+        label: 'ROM Layout',
+        subgraph: {
+          nodes: [
+            { id: 'rg-unbundle', type: 'unbundle', position: { x: 0, y: 80 },
+              data: { label: 'config', bundleFields: [{ name: 'base' }, { name: 'bitWidth' }, { name: 'rowWidth' }] } },
+            { id: 'rg-romdata', type: 'code', position: { x: 280, y: 0 },
+              data: { label: 'ROM Data', ...ASM_ROM('rom-data') } },
+            { id: 'rg-romsch', type: 'code', position: { x: 280, y: 220 },
+              data: { label: 'ROM Schematic', ...ASM_ROM('rom-schematic') } },
+          ],
+          edges: [
+            // base drives the digit string; bitWidth sizes the schematic cells.
+            { id: 'rg-e-base', source: 'rg-unbundle', target: 'rg-romdata', sourceHandle: 'base', targetHandle: 'base' },
+            { id: 'rg-e-bw', source: 'rg-unbundle', target: 'rg-romsch', sourceHandle: 'bitWidth', targetHandle: 'bitWidth' },
+          ],
+        },
+        groupInputs: [
+          { name: 'bytes', internalNodeId: 'rg-romdata', internalHandle: 'bytes', externalNodeId: 'reroute', externalHandle: 'bytes', type: { kind: 'list', of: { kind: 'number' } } },
+          { name: 'bytesSch', internalNodeId: 'rg-romsch', internalHandle: 'bytes', externalNodeId: 'reroute', externalHandle: 'bytes', type: { kind: 'list', of: { kind: 'number' } } },
+          { name: 'config', internalNodeId: 'rg-unbundle', internalHandle: 'input', externalNodeId: 'bundle', externalHandle: 'output', type: ROM_CONFIG_TYPE },
+        ],
+        groupOutputs: [
+          { name: 'data', internalNodeId: 'rg-romdata', internalHandle: 'data', externalNodeId: 'data-inspect', externalHandle: 'input', type: { kind: 'string' } },
+          { name: 'rom', internalNodeId: 'rg-romsch', internalHandle: 'rom', externalNodeId: 'preview-out', externalHandle: 'input', type: { kind: 'schematic' } },
+        ],
+      } },
+    { id: 'data-inspect', type: 'inspect', position: { x: 1340, y: 360 },
+      data: { label: 'peek digits' } },
+    { id: 'rom-view', type: 'viewer', position: { x: 1560, y: 420 },
+      data: { label: 'ROM preview', isResizable: true } },
+    { id: 'data-out', type: 'output', position: { x: 1560, y: 360 },
+      data: { label: 'romData' } },
+    { id: 'preview-out', type: 'output', position: { x: 1560, y: 540 },
+      data: { label: 'romPreview' } },
   ],
   edges: [
-    { id: 'sb-e1', source: 'sb-tag', target: 'sb-search', sourceHandle: 'output', targetHandle: 'tag' },
-    { id: 'sb-e2', source: 'sb-limit', target: 'sb-search', sourceHandle: 'output', targetHandle: 'limit' },
-    { id: 'sb-e3', source: 'sb-search', target: 'sb-results-viewer', sourceHandle: 'results', targetHandle: 'input' },
-    { id: 'sb-e4', source: 'sb-search', target: 'sb-fetch', sourceHandle: 'firstId', targetHandle: 'id' },
-    { id: 'sb-e5', source: 'sb-fetch', target: 'sb-preview', sourceHandle: 'schematic', targetHandle: 'input' },
-    { id: 'sb-e6', source: 'sb-fetch', target: 'sb-out', sourceHandle: 'schematic', targetHandle: 'input' },
+    // Source — program selector Switch picks one of three ARPU programs.
+    { id: 'sx-psel', source: 'c-prog-sel', target: 'sw-prog', sourceHandle: 'output', targetHandle: 'selector' },
+    { id: 'sx-p0', source: 'prog', target: 'sw-prog', sourceHandle: 'output', targetHandle: 'case0' },
+    { id: 'sx-p1', source: 'c-prog-counter', target: 'sw-prog', sourceHandle: 'output', targetHandle: 'case1' },
+    { id: 'sx-p2', source: 'c-prog-arith', target: 'sw-prog', sourceHandle: 'output', targetHandle: 'case2' },
+    { id: 'sx-pdef', source: 'prog', target: 'sw-prog', sourceHandle: 'output', targetHandle: 'default' },
+    { id: 'sx-prog', source: 'sw-prog', target: 'asm', sourceHandle: 'output', targetHandle: 'program' },
+    { id: 'sx-tap', source: 'asm', target: 'bytes-tap', sourceHandle: 'bytes', targetHandle: 'input' },
+    // Reroute the bytes bus (transparent: outgoing edges keep the `bytes` handle).
+    { id: 'sx-rr', source: 'asm', target: 'reroute', sourceHandle: 'bytes', targetHandle: 'input' },
+
+    // Config → Switch → Bundle
+    { id: 'cf-sel', source: 'c-sel', target: 'sw-base', sourceHandle: 'output', targetHandle: 'selector' },
+    { id: 'cf-c0', source: 'c-base16', target: 'sw-base', sourceHandle: 'output', targetHandle: 'case0' },
+    { id: 'cf-c1', source: 'c-base2', target: 'sw-base', sourceHandle: 'output', targetHandle: 'case1' },
+    { id: 'cf-def', source: 'c-base16', target: 'sw-base', sourceHandle: 'output', targetHandle: 'default' },
+    { id: 'cf-base', source: 'sw-base', target: 'bundle', sourceHandle: 'output', targetHandle: 'base' },
+    { id: 'cf-bw', source: 'c-bitwidth', target: 'bundle', sourceHandle: 'output', targetHandle: 'bitWidth' },
+    { id: 'cf-rw', source: 'c-rowwidth', target: 'bundle', sourceHandle: 'output', targetHandle: 'rowWidth' },
+
+    // Per-byte Map
+    { id: 'pb-map', source: 'reroute', target: 'map-hex', sourceHandle: 'bytes', targetHandle: 'list' },
+    { id: 'pb-insp', source: 'map-hex', target: 'hex-inspect', sourceHandle: 'output', targetHandle: 'input' },
+    { id: 'pb-out', source: 'map-hex', target: 'hex-out', sourceHandle: 'output', targetHandle: 'input' },
+
+    // ROM Group
+    { id: 'rm-bytes', source: 'reroute', target: 'rom-group', sourceHandle: 'bytes', targetHandle: 'bytes' },
+    { id: 'rm-bytes2', source: 'reroute', target: 'rom-group', sourceHandle: 'bytes', targetHandle: 'bytesSch' },
+    { id: 'rm-config', source: 'bundle', target: 'rom-group', sourceHandle: 'output', targetHandle: 'config' },
+    { id: 'rm-data-insp', source: 'rom-group', target: 'data-inspect', sourceHandle: 'data', targetHandle: 'input' },
+    { id: 'rm-data-out', source: 'data-inspect', target: 'data-out', sourceHandle: 'data', targetHandle: 'input' },
+    { id: 'rm-prev', source: 'rom-group', target: 'rom-view', sourceHandle: 'rom', targetHandle: 'input' },
+    { id: 'rm-prev-out', source: 'rom-group', target: 'preview-out', sourceHandle: 'rom', targetHandle: 'input' },
   ],
 };
 
-export const EXAMPLE_FLOWS: FlowData[] = [
-  JULIA_STITCH_FLOW,
-  MAZE_FLOW,
-  CITY_FLOW,
-  TERRAIN_PIPELINE_FLOW,
-  LOGIC_LAB_FLOW,
-  BUILD_REPORT_FLOW,
-  WORLDGEN_FLOW,
-  SCHEMATI_BROWSER_FLOW,
-];
+export const EXAMPLE_FLOWS: FlowData[] = [JULIA_STITCH_FLOW, WORLDGEN_FLOW, SHOWCASE_FLOW];

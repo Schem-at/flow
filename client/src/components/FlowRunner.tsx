@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   Play, Loader2, AlertCircle, Workflow, Pencil, Zap,
@@ -10,6 +10,14 @@ import { Navbar } from './layout/Navbar';
 import { useLocalExecutor } from '../hooks/useLocalExecutor';
 import type { BlockContract, CompiledFlow, FlowLike } from '@flow/core';
 import { defaultInputsForContract, compileFlow, hashFlow, isAssetNodeData, assetNodeValue } from '@flow/core';
+import { EXAMPLE_FLOWS } from '../lib/exampleFlows';
+import {
+  parseContextFromQuery,
+  parseContextMessage,
+  prefillInputsFromContext,
+  EMBED_READY,
+  type EmbedContext,
+} from '../lib/embedContext';
 import SchematicRenderer from './others/SchematicRenderer';
 
 /**
@@ -83,6 +91,42 @@ interface FlowData {
 const INPUT_TYPES = ['number_input', 'text_input', 'boolean_input', 'select_input', 'input', 'file_input'];
 const OUTPUT_TYPES = ['output', 'viewer', 'file_output'];
 
+/**
+ * Normalize a built-in EXAMPLE_FLOWS entry (flat { nodes, edges }) into the same
+ * `FlowData` shape the runner gets back from `/api/flows/:id` (which nests the
+ * graph under `jsonContent`). Examples are ephemeral: no owner, not editable,
+ * and carry no backend id — they're identified by their `example-*` id.
+ *
+ * Example `input` nodes store their widget config INLINE on `data`
+ * (dataType / widgetType / min / max / step / options) rather than under
+ * `data.config`. We project those into `config` so the existing input renderer
+ * + `getInputDefault` pick them up unchanged.
+ */
+function exampleToFlowData(example: (typeof EXAMPLE_FLOWS)[number]): FlowData {
+  const nodes = (example.nodes as unknown as FlowNode[]).map((node) => {
+    if (node.type !== 'input') return node;
+    const d = node.data as Record<string, unknown>;
+    const config: Record<string, unknown> = { ...(node.data.config ?? {}) };
+    for (const key of ['min', 'max', 'step', 'options', 'description', 'default']) {
+      if (d[key] !== undefined && config[key] === undefined) config[key] = d[key];
+    }
+    return { ...node, data: { ...node.data, config } };
+  });
+  return {
+    id: example.id,
+    name: example.name,
+    version: example.version,
+    visibility: 'public',
+    metadata: example.metadata as { description?: string } | undefined,
+    jsonContent: {
+      nodes,
+      edges: example.edges as FlowData['jsonContent']['edges'],
+    },
+    canEdit: false,
+    owner: null,
+  };
+}
+
 function getInputDefault(node: FlowNode): unknown {
   if (node.data.value !== undefined) return node.data.value;
   if (node.data.config?.default !== undefined) return node.data.config.default;
@@ -104,8 +148,15 @@ function getSelectOptions(node: FlowNode): { value: string; label: string }[] {
   });
 }
 
-export function FlowRunner() {
-  const { flowId } = useParams();
+interface FlowRunnerProps {
+  /** Chromeless embed mode: no Navbar / Edit link, suitable for an <iframe>. */
+  embed?: boolean;
+}
+
+export function FlowRunner({ embed = false }: FlowRunnerProps = {}) {
+  const { flowId: urlFlowId } = useParams();
+  const [searchParams] = useSearchParams();
+  const exampleId = searchParams.get('example');
   const { executeScript } = useLocalExecutor();
   const [inputs, setInputs] = useState<Record<string, unknown>>({});
   const [outputs, setOutputs] = useState<Record<string, unknown>>({});
@@ -118,16 +169,58 @@ export function FlowRunner() {
   // Cache node outputs between runs to skip unchanged nodes
   const nodeOutputCacheRef = useRef<Map<string, { inputHash: string; outputs: Record<string, unknown> }>>(new Map());
 
-  const { data, isLoading } = useQuery<FlowData>({
-    queryKey: ['flow-run', flowId],
+  // ── Embed context injection ─────────────────────────────────────────────
+  // Start from the URL-param fallback (always available). postMessage from an
+  // allowed parent origin (see embedContext) overrides it. `user`/`permissions`
+  // are UNTRUSTED display hints — never gate data access on them client-side.
+  const [embedCtx, setEmbedCtx] = useState<EmbedContext>(() =>
+    embed ? parseContextFromQuery(searchParams) : {}
+  );
+  const embedCtxRef = useRef(embedCtx);
+  embedCtxRef.current = embedCtx;
+
+  useEffect(() => {
+    if (!embed) return;
+    // Handshake: tell the parent we're ready to receive context.
+    try {
+      window.parent?.postMessage({ type: EMBED_READY }, '*');
+    } catch {
+      /* cross-origin parent without a listener — ignore */
+    }
+    const onMessage = (event: MessageEvent) => {
+      const ctx = parseContextMessage(event);
+      if (ctx) setEmbedCtx((prev) => ({ ...prev, ...ctx }));
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [embed]);
+
+  // Examples are resolved synchronously; only hit the API for real flow ids.
+  const example = useMemo(() => {
+    const id = exampleId ?? (urlFlowId?.startsWith('example-') ? urlFlowId : null);
+    return id ? EXAMPLE_FLOWS.find((f) => f.id === id) ?? null : null;
+  }, [exampleId, urlFlowId]);
+
+  const apiFlowId = example ? null : urlFlowId ?? null;
+
+  const { data: apiData, isLoading: isApiLoading } = useQuery<FlowData>({
+    queryKey: ['flow-run', apiFlowId],
     queryFn: async () => {
-      const res = await fetch(`${SERVER_URL}/api/flows/${flowId}`, { credentials: 'include' });
+      const res = await fetch(`${SERVER_URL}/api/flows/${apiFlowId}`, { credentials: 'include' });
       const json = await res.json();
       if (!json.success) throw new Error(json.error);
       return json.flow as FlowData;
     },
-    enabled: !!flowId,
+    enabled: !!apiFlowId,
   });
+
+  const data = useMemo<FlowData | undefined>(
+    () => (example ? exampleToFlowData(example) : apiData),
+    [example, apiData]
+  );
+  const isLoading = !example && isApiLoading;
+  // The id used for file caching: examples share their stable example id.
+  const flowId = example ? example.id : urlFlowId;
 
   const { inputNodes, codeNodes, outputNodes, edges } = useMemo(() => {
     if (!data?.jsonContent) return { inputNodes: [], codeNodes: [], outputNodes: [], edges: [] };
@@ -168,6 +261,18 @@ export function FlowRunner() {
     init();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inputNodes, flowId]);
+
+  // Auto-bind embed context → inputs by matching name (PART 3a). Runs whenever
+  // context arrives (postMessage may land after the initial defaults). Only
+  // overrides inputs whose label matches a context key; everything else is left
+  // as the user set it.
+  useEffect(() => {
+    if (!embed || inputNodes.length === 0) return;
+    const keys = Object.keys(embedCtx);
+    if (keys.length === 0) return;
+    const names = inputNodes.map((n) => n.data.label || n.id);
+    setInputs((prev) => prefillInputsFromContext(prev, embedCtx, names));
+  }, [embed, embedCtx, inputNodes]);
 
   // Get topological execution order for code nodes
   const getExecutionOrder = (): FlowNode[] => {
@@ -479,7 +584,7 @@ export function FlowRunner() {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-[#07070a]">
-        <Navbar />
+        {!embed && <Navbar />}
         <div className="flex items-center justify-center py-32">
           <Loader2 className="w-6 h-6 text-green-500 animate-spin" />
         </div>
@@ -490,7 +595,7 @@ export function FlowRunner() {
   if (!data) {
     return (
       <div className="min-h-screen bg-[#07070a]">
-        <Navbar />
+        {!embed && <Navbar />}
         <div className="flex flex-col items-center justify-center py-32">
           <AlertCircle className="w-6 h-6 text-red-500 mb-2" />
           <p className="text-sm text-neutral-400">Flow not found</p>
@@ -504,19 +609,21 @@ export function FlowRunner() {
 
   return (
     <div className="min-h-screen bg-[#07070a]">
-      {/* Dot grid */}
-      <div
-        className="fixed inset-0 opacity-[0.03] pointer-events-none"
-        style={{
-          backgroundImage: 'radial-gradient(circle, #22c55e 0.5px, transparent 0.5px)',
-          backgroundSize: '24px 24px',
-        }}
-      />
+      {/* Dot grid (skipped in embed mode for a flatter iframe surface) */}
+      {!embed && (
+        <div
+          className="fixed inset-0 opacity-[0.03] pointer-events-none"
+          style={{
+            backgroundImage: 'radial-gradient(circle, #22c55e 0.5px, transparent 0.5px)',
+            backgroundSize: '24px 24px',
+          }}
+        />
+      )}
 
       <div className="relative z-10">
-        <Navbar />
+        {!embed && <Navbar />}
 
-        <div className="max-w-3xl mx-auto px-6 pt-8 pb-16">
+        <div className={`max-w-3xl mx-auto px-6 pb-16 ${embed ? 'pt-4' : 'pt-8'}`}>
           {/* Header */}
           <div className="mb-8">
             <div className="flex items-start justify-between">
@@ -541,7 +648,7 @@ export function FlowRunner() {
                   </div>
                 )}
               </div>
-              {data.canEdit && (
+              {!embed && data.canEdit && (
                 <Link
                   to={`/editor/${data.id}`}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-neutral-400 hover:text-white hover:bg-white/5 rounded-md transition-colors"

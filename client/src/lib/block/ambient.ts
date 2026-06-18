@@ -445,6 +445,48 @@ declare const Combinatorics: {
   cartesian<T>(values: T[], n: number): T[][];
   booleanCombos(n: number): boolean[][];
 };
+
+/** Fluent .mcfunction command builder (Mcfunction.build(...) helper). */
+declare const McfunctionBuilder: any;
+
+/** Generic ROM generator (any bytes → roms.py data string / placements) — ISA-agnostic. */
+declare const Rom: {
+  /** Serialise bytes into the flat base-N digit string the schematic-api Basic ROM Generator (roms.py) consumes as its \`data\` parameter. */
+  data(bytes: number[], opts?: { base?: number; bitWidth?: number; padTo?: number; fill?: number }): string;
+  /** Lay bytes out into { x, y, z, value, role } placements mirroring roms.py spatial math — drives an in-editor ROM preview. */
+  layout(bytes: number[], cfg?: { base?: number; bitWidth?: number; xWordCount?: number; zWordCount?: number; xOffsets?: number[]; zOffsets?: number[]; yOffsets?: number[]; xStagger?: 'none' | 'even' | 'odd'; zStagger?: 'none' | 'even' | 'odd'; invertWord?: boolean; solidBlockOn0?: boolean; redstoneBlockOn15?: boolean; staggerIntersectionMode?: 'xor' | 'min' | 'max'; padTo?: number; fill?: number }): Array<{ x: number; y: number; z: number; value: number; role: 'data' | 'zero' | 'fifteen' | 'invalid' }>;
+  /** Like layout() but takes a pre-made base-N digit string (Rom.data / the rom-data node / roms.py data) directly. Same spatial math. */
+  layoutData(data: string, cfg?: { base?: number; bitWidth?: number; xWordCount?: number; zWordCount?: number; xOffsets?: number[]; zOffsets?: number[]; yOffsets?: number[]; xStagger?: 'none' | 'even' | 'odd'; zStagger?: 'none' | 'even' | 'odd'; invertWord?: boolean; solidBlockOn0?: boolean; redstoneBlockOn15?: boolean; staggerIntersectionMode?: 'xor' | 'min' | 'max'; padTo?: number; fill?: number }): Array<{ x: number; y: number; z: number; value: number; role: 'data' | 'zero' | 'fifteen' | 'invalid' }>;
+  /** Base-N digits needed to represent one byte. */
+  digitsPerByte(base: number): number;
+};
+
+/** Assembler construction kit — build an assembler for ANY ISA. */
+declare const Asm: {
+  /** Build a two-pass assembler from a declarative ISA spec. Binary mode → assemble(); IR mode (mode:'ir') → assembleIR(). */
+  define(spec: any): {
+    assemble(src: string): number[];
+    assembleIR(src: string): {
+      instructions: Array<{ mnemonic: string; operands: Array<{ kind: string; value: number; raw: string; symbol?: string }>; offset: number; label?: string; data?: number[] }>;
+      labels: Record<string, number>;
+      headers: Record<string, number | string>;
+    };
+  };
+  /** Parse a numeric token: decimal, 0x hex, 0b binary; underscores allowed. */
+  parseNumber(token: string): number;
+  /** Strip a line comment (default marker '//'). */
+  stripComments(line: string, marker?: string): string;
+  /** Normalise source into trimmed, comment-free, non-empty lines. */
+  normalizeLines(src: string, opts?: { comment?: string }): string[];
+  /** Tokenise source lines by whitespace. */
+  tokenizeLines(src: string, opts?: { comment?: string }): string[][];
+  /** Two-pass label table. */
+  LabelTable: { new (...args: any[]): any };
+  /** Pack bitfields into one integer (default order 'lsb' = first field in low bits). */
+  pack(fields: Array<{ value: number; bits: number }>, opts?: { order?: 'msb' | 'lsb' }): number;
+  /** Split a value into a fixed number of bytes. */
+  packBytes(value: number, byteCount: number, opts?: { endian?: 'le' | 'be' }): number[];
+};
 `;
 
 /**

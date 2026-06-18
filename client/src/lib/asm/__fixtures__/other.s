@@ -1,0 +1,4 @@
+SUB R2 R3
+RSH R4
+MOV R4 R1
+MOV R4 R4 // No operation

@@ -14,8 +14,24 @@ import {
   applyEdgeChanges,
   addEdge,
 } from '@xyflow/react';
-import type { FlowData, IODefinition, NodeData, BlockContract, FlowType } from '@flow/core';
-import { extractSubflowConfig, isTypeCompatible } from '@flow/core';
+import type {
+  FlowData,
+  IODefinition,
+  NodeData,
+  BlockContract,
+  FlowType,
+  GroupNodeData,
+  MapNodeData,
+  GroupNodeLike,
+  GroupEdge,
+} from '@flow/core';
+import {
+  extractSubflowConfig,
+  isTypeCompatible,
+  groupNodes as deriveGroup,
+  ungroup as inlineGroup,
+  nextGroupId,
+} from '@flow/core';
 
 // ============================================================================
 // Types
@@ -85,6 +101,21 @@ export interface FlowNode extends Node {
     options?: string[];        // For select
     placeholder?: string;      // For text inputs
     description?: string;      // Input description
+    // Bundle / unbundle (object meta-nodes): named field list. For a bundle
+    // each field is an INPUT port (packed into one object); for an unbundle
+    // each field is an OUTPUT port (plucked off the incoming object).
+    bundleFields?: Array<{ name: string }>;
+    // Group / subflow meta-node: embedded subgraph + derived boundary contract.
+    subgraph?: GroupNodeData['subgraph'];
+    groupInputs?: GroupNodeData['groupInputs'];
+    groupOutputs?: GroupNodeData['groupOutputs'];
+    // Switch / select meta-node: number of `case` input ports (default 2).
+    caseCount?: number;
+    // Map / iterate meta-node: body boundary contract (reuses the subgraph shape
+    // above). `item`/`index` are body INPUTS; `result` (resultPort) is collected.
+    bodyInputs?: MapNodeData['bodyInputs'];
+    bodyOutputs?: MapNodeData['bodyOutputs'];
+    resultPort?: string;
     // Viewer node specific
     passthrough?: boolean;     // If true, viewer passes value to output
     // File input/output node specific
@@ -179,6 +210,12 @@ interface FlowState {
   updateNodeData: (nodeId: string, data: Partial<FlowNode['data']>) => void;
   deleteNode: (nodeId: string) => void;
   selectNode: (nodeId: string | null) => void;
+
+  // Group / subflow meta-node
+  /** Collapse the given (or currently-selected) nodes into one group node. */
+  groupSelected: (nodeIds?: string[]) => string | null;
+  /** Inline a group node's subgraph back into the parent flow. */
+  ungroupNode: (groupId: string) => void;
   
   // Execution cache
   setNodeExecutionStatus: (nodeId: string, status: NodeExecutionStatus, output?: unknown, error?: ExecutionError, executionTime?: number) => void;
@@ -604,6 +641,124 @@ export const useFlowStore = create<FlowState>((set, get) => ({
 
   selectNode: (nodeId) => {
     set({ selectedNodeId: nodeId });
+  },
+
+  // ── Group / subflow meta-node ───────────────────────────────────────────
+  groupSelected: (nodeIds) => {
+    const state = get();
+    // Resolve the selection: explicit ids → React Flow `selected` → single sel.
+    let ids = nodeIds && nodeIds.length ? nodeIds : state.nodes.filter((n) => n.selected).map((n) => n.id);
+    if (ids.length === 0 && state.selectedNodeId) ids = [state.selectedNodeId];
+    // Need at least 2 nodes to be a meaningful group (1 is allowed but odd).
+    if (ids.length === 0) return null;
+
+    const byId = new Map(state.nodes.map((n) => [n.id, n]));
+    // Producing-port FlowType resolver, so boundary ports carry real types.
+    const typeOf = (sourceId: string, handle: string | null | undefined): FlowType => {
+      const node = byId.get(sourceId);
+      if (!node) return { kind: 'unknown' };
+      const contract = node.data.contract;
+      if (contract) {
+        const keys = Object.keys(contract.outputs);
+        const key = handle && keys.includes(handle) ? handle : keys.length === 1 ? keys[0] : handle ?? '';
+        if (key && contract.outputs[key]) return contract.outputs[key];
+      }
+      if (node.type === 'input' || node.type === 'constant') {
+        const dt = node.data.dataType;
+        if (dt === 'number') return { kind: 'number' };
+        if (dt === 'boolean') return { kind: 'boolean' };
+        return { kind: 'string' };
+      }
+      return { kind: 'unknown' };
+    };
+
+    if (!state.isUndoRedoing) get().pushHistory();
+
+    const groupId = nextGroupId();
+    const result = deriveGroup(
+      state.nodes as unknown as GroupNodeLike[],
+      state.edges as unknown as GroupEdge[],
+      ids,
+      { groupId, label: 'Group', typeOf }
+    );
+
+    // Centroid of the selection for the group node's position.
+    const sel = ids.map((id) => byId.get(id)).filter(Boolean) as FlowNode[];
+    const cx = sel.reduce((s, n) => s + (n.position?.x ?? 0), 0) / sel.length;
+    const cy = sel.reduce((s, n) => s + (n.position?.y ?? 0), 0) / sel.length;
+
+    // The transform returns plain GroupNodeLike objects (no React Flow props);
+    // re-attach position/selected for nodes that survive, and build the group.
+    const surviving = result.nodes
+      .filter((n) => n.id !== groupId)
+      .map((n) => byId.get(n.id))
+      .filter(Boolean) as FlowNode[];
+    const groupNode = result.nodes.find((n) => n.id === groupId)!;
+    const newGroup: FlowNode = {
+      id: groupId,
+      type: 'group',
+      position: { x: cx, y: cy },
+      data: groupNode.data as FlowNode['data'],
+      selected: true,
+    };
+
+    const newCache = { ...state.nodeCache };
+    for (const id of ids) delete newCache[id];
+    newCache[groupId] = { status: 'idle' };
+
+    set({
+      nodes: [...surviving.map((n) => ({ ...n, selected: false })), newGroup],
+      edges: result.edges as unknown as Edge[],
+      selectedNodeId: groupId,
+      nodeCache: newCache,
+    });
+    return groupId;
+  },
+
+  ungroupNode: (groupId) => {
+    const state = get();
+    const group = state.nodes.find((n) => n.id === groupId);
+    if (!group || group.type !== 'group') return;
+    const data = group.data as unknown as GroupNodeData;
+    if (!data.subgraph) return;
+
+    if (!state.isUndoRedoing) get().pushHistory();
+
+    const result = inlineGroup(
+      state.nodes as unknown as GroupNodeLike[],
+      state.edges as unknown as GroupEdge[],
+      groupId
+    );
+
+    // Restore React Flow node props: subgraph nodes carry their own
+    // position/data already (captured at group time); offset them around the
+    // group's current position so they don't all stack at the origin.
+    const gx = group.position?.x ?? 0;
+    const gy = group.position?.y ?? 0;
+    const subIds = new Set(data.subgraph.nodes.map((n) => n.id));
+    const survivors = new Map(state.nodes.filter((n) => n.id !== groupId).map((n) => [n.id, n]));
+
+    let i = 0;
+    const restored: FlowNode[] = result.nodes.map((n) => {
+      const prev = survivors.get(n.id);
+      if (prev) return prev;
+      // Reconstructed subgraph node.
+      const sub = n as unknown as FlowNode;
+      const pos = sub.position ?? { x: gx + (i % 3) * 220, y: gy + Math.floor(i / 3) * 140 };
+      i++;
+      return { ...sub, position: pos, selected: subIds.has(n.id) };
+    });
+
+    const newCache = { ...state.nodeCache };
+    delete newCache[groupId];
+    for (const id of subIds) if (!newCache[id]) newCache[id] = { status: 'idle' };
+
+    set({
+      nodes: restored,
+      edges: result.edges as unknown as Edge[],
+      selectedNodeId: null,
+      nodeCache: newCache,
+    });
   },
 
   // Execution cache

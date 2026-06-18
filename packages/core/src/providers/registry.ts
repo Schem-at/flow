@@ -11,6 +11,8 @@ import { flowlibProvider } from './flowlib.js';
 import { vendorProvider } from './vendor.js';
 import { nucleationProvider } from './nucleation.js';
 import { schematiProvider } from './schemati.js';
+import { romProvider } from './rom.js';
+import { asmProvider } from './asm.js';
 
 export class ProviderRegistry {
   private providers: RuntimeProvider[] = [];
@@ -83,6 +85,11 @@ export function createDefaultRegistry(): ProviderRegistry {
     // flowlib first (math/noise/fields) — Field.fromNoise reads context.Noise lazily.
     .register(flowlibProvider)
     .register(vendorProvider)
+    // Pure-JS, ISA-AGNOSTIC assembler primitives — no deps, order-independent.
+    // Asm: build an assembler for any ISA. Rom: bytes → roms.py ROM. (ARPU is example
+    // content built on these, not a platform primitive — there is no `Arpu` global.)
+    .register(romProvider)
+    .register(asmProvider)
     // After nucleation: Schemati.getSchematic / Field.toTerrain build on Schematic.
     .register(nucleationProvider)
     .register(schematiProvider);

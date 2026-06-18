@@ -20,12 +20,22 @@ import {
   Package,
   Archive,
   Globe,
+  StickyNote,
+  Square,
+  Circle,
+  Pi,
+  PackageOpen,
+  ScanEye,
+  Boxes,
+  GitFork,
+  Repeat,
 } from 'lucide-react';
 import { useFlowStore, type FlowNode } from '../../store/flowStore';
 import { ModuleBrowser } from './ModuleBrowser';
 import { features } from '../../config/features';
 import { DEFAULT_BLOCK_SOURCE, DEFAULT_BLOCK_CONTRACT, contractToIO } from '../../lib/block/io-compat';
 import { EXAMPLE_BLOCKS, EXAMPLE_BLOCK_CONTRACTS } from '../../lib/block/examples';
+import { defaultMapData } from '../../lib/makeMap';
 
 interface NodeTemplate {
   type: string;
@@ -38,6 +48,10 @@ interface NodeTemplate {
   defaultValue?: unknown;
   dataType?: 'number' | 'string' | 'boolean';
   config?: Record<string, unknown>;
+  /** Extra top-level node fields (e.g. zIndex for backdrops). */
+  nodeProps?: Record<string, unknown>;
+  /** Action templates operate on the selection instead of adding a node. */
+  action?: 'group';
 }
 
 const nodeCategories: { name: string; nodes: NodeTemplate[] }[] = [
@@ -143,6 +157,112 @@ const nodeCategories: { name: string; nodes: NodeTemplate[] }[] = [
     ],
   },
   {
+    name: 'Meta',
+    nodes: [
+      {
+        type: 'constant',
+        label: 'Constant',
+        Icon: Pi,
+        description: 'Emit a fixed literal value',
+        color: 'text-neutral-300',
+        bg: 'bg-neutral-500/10',
+        border: 'border-neutral-500/20',
+        defaultValue: 0,
+        config: { dataType: 'number' },
+      },
+      {
+        type: 'reroute',
+        label: 'Reroute',
+        Icon: Circle,
+        description: 'Pass-through dot to tidy wires',
+        color: 'text-neutral-300',
+        bg: 'bg-neutral-500/10',
+        border: 'border-neutral-500/20',
+      },
+      {
+        type: 'bundle',
+        label: 'Bundle',
+        Icon: Package,
+        description: 'Pack named inputs into one object',
+        color: 'text-violet-300',
+        bg: 'bg-violet-500/10',
+        border: 'border-violet-500/20',
+        config: { bundleFields: [{ name: 'a' }, { name: 'b' }] },
+      },
+      {
+        type: 'unbundle',
+        label: 'Unbundle',
+        Icon: PackageOpen,
+        description: 'Split an object into named outputs',
+        color: 'text-violet-300',
+        bg: 'bg-violet-500/10',
+        border: 'border-violet-500/20',
+        config: { bundleFields: [{ name: 'a' }, { name: 'b' }] },
+      },
+      {
+        type: 'inspect',
+        label: 'Inspect',
+        Icon: ScanEye,
+        description: 'Tap a wire to preview its live value',
+        color: 'text-teal-300',
+        bg: 'bg-teal-500/10',
+        border: 'border-teal-500/20',
+      },
+      {
+        type: 'group',
+        label: 'Group Selection',
+        Icon: Boxes,
+        description: 'Collapse the selected nodes into one group',
+        color: 'text-indigo-300',
+        bg: 'bg-indigo-500/10',
+        border: 'border-indigo-500/20',
+        action: 'group',
+      },
+      {
+        type: 'switch',
+        label: 'Switch',
+        Icon: GitFork,
+        description: 'Select one of N inputs by a numeric index',
+        color: 'text-amber-300',
+        bg: 'bg-amber-500/10',
+        border: 'border-amber-500/20',
+        config: { caseCount: 2 },
+      },
+      {
+        type: 'map',
+        label: 'Map',
+        Icon: Repeat,
+        description: 'Run a body over every list item → list of results',
+        color: 'text-cyan-300',
+        bg: 'bg-cyan-500/10',
+        border: 'border-cyan-500/20',
+        config: defaultMapData() as unknown as Record<string, unknown>,
+      },
+      {
+        type: 'comment',
+        label: 'Comment',
+        Icon: StickyNote,
+        description: 'Sticky note (no execution)',
+        color: 'text-amber-300',
+        bg: 'bg-amber-500/10',
+        border: 'border-amber-500/20',
+        config: { label: '' },
+      },
+      {
+        type: 'frame',
+        label: 'Frame',
+        Icon: Square,
+        description: 'Labeled backdrop behind nodes',
+        color: 'text-indigo-300',
+        bg: 'bg-indigo-500/10',
+        border: 'border-indigo-500/20',
+        config: { label: 'Frame' },
+        // Render behind regular nodes.
+        nodeProps: { zIndex: -1 },
+      },
+    ],
+  },
+  {
     // Platform primitives: ready-made blocks that talk to schemati
     // (search / fetch / upload), droppable like any other node.
     name: 'Schemati',
@@ -194,8 +314,9 @@ const visibleCategories = features.schematiNodes
 
 export function Toolbar() {
   const addNode = useFlowStore((state) => state.addNode);
+  const groupSelected = useFlowStore((state) => state.groupSelected);
 
-  const [expandedCategories, setExpandedCategories] = useState<string[]>(['Logic', 'Inputs', 'Outputs', 'Schemati']);
+  const [expandedCategories, setExpandedCategories] = useState<string[]>(['Logic', 'Inputs', 'Outputs', 'Meta', 'Schemati']);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [activeTab, setActiveTab] = useState<'nodes' | 'modules'>('nodes');
 
@@ -208,20 +329,26 @@ export function Toolbar() {
   };
 
   const handleAddNode = useCallback((template: NodeTemplate) => {
+    // Action templates (group) operate on the current selection.
+    if (template.action === 'group') {
+      groupSelected();
+      return;
+    }
     const id = `${template.type}-${uuid().slice(0, 8)}`;
     const newNode: FlowNode = {
       id,
       type: template.type,
       position: { x: 100 + Math.random() * 100, y: 100 + Math.random() * 100 },
-      data: { 
+      data: {
         label: template.label,
         value: template.defaultValue,
         dataType: template.dataType,
         ...template.config
       },
+      ...template.nodeProps,
     };
     addNode(newNode);
-  }, [addNode]);
+  }, [addNode, groupSelected]);
 
   const onDragStart = (event: React.DragEvent, nodeType: string, template?: NodeTemplate) => {
     event.dataTransfer.setData('application/reactflow', nodeType);
@@ -233,6 +360,12 @@ export function Toolbar() {
         dataType: template.dataType,
         ...template.config
       }));
+      if (template.nodeProps) {
+        event.dataTransfer.setData(
+          'application/reactflow-nodeprops',
+          JSON.stringify(template.nodeProps)
+        );
+      }
     }
 
     event.dataTransfer.effectAllowed = 'move';

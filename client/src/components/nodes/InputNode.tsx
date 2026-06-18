@@ -204,11 +204,28 @@ const InputNode = memo(({ id, data, selected, type }: NodeProps & { data: InputN
           <textarea
             value={String(data.value ?? '')}
             onChange={(e) => handleValueChange(e.target.value)}
+            onKeyDown={(e) => {
+              // Keep canvas shortcuts (delete node, etc.) from firing while typing.
+              e.stopPropagation();
+              // Tab inserts two spaces so assembly indentation works in-field.
+              if (e.key === 'Tab') {
+                e.preventDefault();
+                const ta = e.currentTarget;
+                const start = ta.selectionStart;
+                const end = ta.selectionEnd;
+                const v = String(data.value ?? '');
+                handleValueChange(v.slice(0, start) + '  ' + v.slice(end));
+                requestAnimationFrame(() => {
+                  ta.selectionStart = ta.selectionEnd = start + 2;
+                });
+              }
+            }}
             className={`
-              w-full px-3 py-1.5 bg-neutral-800 border border-neutral-700 rounded-lg text-white text-sm font-mono focus:outline-none focus:border-purple-500 resize-none nodrag
-              ${isResized ? 'h-full' : ''}
+              w-full px-3 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-white text-xs font-mono leading-snug focus:outline-none focus:border-purple-500 resize-y nodrag nowheel
+              ${isResized ? 'h-full' : 'min-h-[10rem] max-h-[28rem] overflow-auto'}
             `}
-            rows={isResized ? undefined : 3}
+            spellCheck={false}
+            rows={isResized ? undefined : 10}
             placeholder={data.placeholder || 'Enter text...'}
           />
         );

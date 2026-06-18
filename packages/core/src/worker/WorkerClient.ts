@@ -3,6 +3,7 @@
  * Works with browser WebWorkers
  */
 
+import { reconstructError } from './errorReporting.js';
 import {
   MESSAGE_TYPES,
   WORKER_STATES,
@@ -148,7 +149,9 @@ export class WorkerClient {
         this.pendingMessages.delete(id);
 
         if (error || type === MESSAGE_TYPES.ERROR) {
-          reject(new Error(error || String(payload)));
+          // Rebuild a rich Error: preserves the in-sandbox stack + nodeId/label
+          // and appends a stale-worker hint for missing ambient globals.
+          reject(reconstructError(error ?? payload));
         } else {
           resolve(payload);
         }
@@ -380,6 +383,53 @@ export class WorkerClient {
       handleId,
       options: { fullData: true },
     })) as DataValue | null;
+  }
+
+  /**
+   * Deep-resolve every `{ _schematicHandle: id }` ref nested anywhere in a
+   * worker result (objects, arrays, nested) back to its serialized schematic
+   * value via getData(). This is the CLIENT counterpart to the worker's
+   * deepExtractSchematicHandles — used for the `returnHandles` path (e.g. a
+   * folded `{ __outputs, __trace }` result whose schematics are nested inside
+   * trace values / output fields).
+   *
+   * Bounded by depth + a cycle guard so it can never infinite-loop. A
+   * `resolver` may be injected for testing; defaults to this.getData.
+   */
+  async resolveSchematicHandles<T = unknown>(
+    value: T,
+    resolver: (handleId: string) => Promise<unknown> = (id) => this.getData(id),
+    depth = 0,
+    seen: WeakSet<object> = new WeakSet()
+  ): Promise<T> {
+    if (depth > 16 || value === null || typeof value !== 'object') return value;
+    if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) return value;
+
+    const ref = value as { _schematicHandle?: unknown };
+    if (typeof ref._schematicHandle === 'string') {
+      const resolved = await resolver(ref._schematicHandle);
+      return resolved as T;
+    }
+
+    if (seen.has(value as object)) return value;
+    seen.add(value as object);
+
+    if (Array.isArray(value)) {
+      const out = await Promise.all(
+        value.map((item) => this.resolveSchematicHandles(item, resolver, depth + 1, seen))
+      );
+      return out as unknown as T;
+    }
+
+    const proto = Object.getPrototypeOf(value);
+    if (proto === Object.prototype || proto === null) {
+      const out: Record<string, unknown> = {};
+      for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+        out[key] = await this.resolveSchematicHandles(item, resolver, depth + 1, seen);
+      }
+      return out as unknown as T;
+    }
+    return value;
   }
 
   /**

@@ -3,16 +3,23 @@
  * layered arrangement from the current nodes + edges. Returns new nodes with updated
  * positions; sizes come from each node's measured dimensions when available so the
  * spacing matches what's actually on screen.
+ *
+ * Frames and comments are DECORATIVE — they are excluded from the ELK graph so
+ * they don't get laid out as ordinary boxes (which would shred a frame's
+ * backdrop role and scatter its cluster). Instead the pure `refitFrames` helper
+ * (frameLayout.ts) runs AFTER elk to re-bound each frame around its (now-moved)
+ * members and nudge comments toward their nearest cluster.
  */
 import ELK, { type ElkNode } from 'elkjs/lib/elk.bundled.js';
 import type { Node, Edge } from '@xyflow/react';
+import { isLayoutNode, nodeSize, refitFrames } from './frameLayout';
 
 const elk = new ELK();
 
-const DEFAULT_WIDTH = 280;
-const DEFAULT_HEIGHT = 160;
-
 export type LayoutDirection = 'RIGHT' | 'DOWN';
+
+// Re-export the pure helper so callers/tests can reach it from either module.
+export { refitFrames } from './frameLayout';
 
 export async function layoutWithElk<N extends Node>(
   nodes: N[],
@@ -20,6 +27,13 @@ export async function layoutWithElk<N extends Node>(
   direction: LayoutDirection = 'RIGHT'
 ): Promise<N[]> {
   if (nodes.length === 0) return nodes;
+
+  // Lay out ONLY the real (non-decorative) nodes; frames + comments are refit
+  // afterwards so they keep their backdrop/annotation role.
+  const layoutNodes = nodes.filter(isLayoutNode);
+  if (layoutNodes.length === 0) return nodes;
+
+  const layoutIds = new Set(layoutNodes.map((n) => n.id));
 
   const graph: ElkNode = {
     id: 'root',
@@ -32,23 +46,23 @@ export async function layoutWithElk<N extends Node>(
       'elk.spacing.nodeNode': '60',
       'elk.layered.spacing.edgeNodeBetweenLayers': '40',
     },
-    children: nodes.map((n) => ({
-      id: n.id,
-      width: (n.measured?.width ?? n.width ?? DEFAULT_WIDTH) as number,
-      height: (n.measured?.height ?? n.height ?? DEFAULT_HEIGHT) as number,
-    })),
+    children: layoutNodes.map((n) => {
+      const { width, height } = nodeSize(n);
+      return { id: n.id, width, height };
+    }),
     edges: edges
-      .filter((e) => e.source && e.target)
+      // Only edges between real nodes participate (decorative nodes have no ports).
+      .filter((e) => e.source && e.target && layoutIds.has(e.source) && layoutIds.has(e.target))
       .map((e) => ({ id: e.id, sources: [e.source], targets: [e.target] })),
   };
 
   const laid = await elk.layout(graph);
-  const positions = new Map(
-    (laid.children ?? []).map((c) => [c.id, { x: c.x ?? 0, y: c.y ?? 0 }])
+  const positions = new Map<string, { x: number; y: number }>(
+    (laid.children ?? []).map(
+      (c) => [c.id, { x: c.x ?? 0, y: c.y ?? 0 }] as [string, { x: number; y: number }]
+    )
   );
 
-  return nodes.map((n) => {
-    const p = positions.get(n.id);
-    return p ? { ...n, position: p } : n;
-  });
+  // Refit frames around moved members and nudge comments (pure, testable).
+  return refitFrames(nodes, positions);
 }

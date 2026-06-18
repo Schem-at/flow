@@ -32,10 +32,28 @@ export {
   FlowCompileError,
   contractToTypeScript,
   composeBlockSource,
+  deriveBoundary,
+  groupNodes,
+  ungroup,
+  nextGroupId,
+  isGroupNodeData,
+  isMapNodeData,
   type CompiledBlock,
   type CompileOptions,
   type CompiledFlow,
+  type CompileFlowOptions,
+  type NodeTraceEntry,
+  type TracedResult,
   type FlowLike,
+  type BoundaryPort,
+  type GroupBoundary,
+  type GroupNodeData,
+  type MapNodeData,
+  type GroupSubgraph,
+  type GroupNodeLike,
+  type GroupEdge,
+  type GroupResult,
+  type UngroupResult,
 } from './compile/index.js';
 
 // Flow assets (binary payloads bundled inside flows via asset nodes)
@@ -54,6 +72,68 @@ export { FlowImage, type PaletteName } from './utils/image.js';
 export { Random } from './utils/random.js';
 export { Table } from './utils/table.js';
 export { Mcfunction, McfunctionBuilder } from './utils/mcfunction.js';
+
+// ARPU assembler — an EXAMPLE/reference ISA built on the generic Asm kit. It
+// proves the kit handles a real-world ISA (byte-for-byte vs arpuemu). NOT a
+// platform primitive: there is no `Arpu` ambient global. See asm/examples/arpu.ts.
+export { assemble, toHex, fromHex, ISA } from './asm/examples/arpu.js';
+
+// BatPU-2 assembler — a second EXAMPLE/reference ISA (16-bit Minecraft CPU),
+// hand-rolled on the kit helpers; byte-for-byte vs mattbatwings' assembler.py.
+// See asm/examples/batpu2.ts. (Namespaced so it doesn't collide with ARPU's `assemble`.)
+export { assemble as assembleBatpu2, toBits as batpu2ToBits, BATPU2_OPCODES, batpu2Symbols } from './asm/examples/batpu2.js';
+
+// URCL assembler — a third EXAMPLE, demonstrating the kit's resolved-IR back-end
+// (URCL is a target-independent IL with no fixed encoding). See asm/examples/urcl.ts.
+export { assembleUrcl, formatUrclIR, URCL_MNEMONICS, URCL_PORTS } from './asm/examples/urcl.js';
+
+// IRIS assembler — a fourth EXAMPLE (URCL's real hardware target). BEST-EFFORT:
+// no reference assembler exists, so its encoding is assumed/documented and only
+// its deterministic logic is tested (not hardware-correct bytes). See asm/examples/iris.ts.
+export { assembleIris, lowerIris, encodeIris, IRIS_OPCODES } from './asm/examples/iris.js';
+
+// Provider→endowed-global-names manifest (drives editor ambient-dts drift guards).
+export { PROVIDER_ENDOWMENT_KEYS, PROVIDER_DECLARATIONS } from './runtime-types.js';
+
+// Generic ROM generator (ISA-agnostic) — endowed to blocks as the `Rom` global. See asm/rom.ts.
+export {
+  romString,
+  romData,
+  romLayout,
+  romLayoutData,
+  digitsPerByte,
+  type RomStringOptions,
+  type RomLayoutConfig,
+  type RomPlacement,
+  type RomBlockRole,
+} from './asm/rom.js';
+
+// Assembler construction kit (ISA-agnostic) — endowed to blocks as the `Asm` global.
+// Build an assembler for ANY ISA via `define(spec)`, or compose the primitives. See asm/kit.ts.
+export {
+  define,
+  parseNumber,
+  stripComments,
+  normalizeLines,
+  tokenizeLines,
+  LabelTable,
+  pack,
+  packBytes,
+  AssembleError,
+  ParseError,
+  type IsaSpec,
+  type Assembler,
+  type InstructionDef,
+  type AliasDef,
+  type EncodeContext,
+  type LabelResolveContext,
+  type PackField,
+  type OperandKind,
+  type ResolvedOperand,
+  type AsmInstruction,
+  type AsmIR,
+  type NormalizeOptions,
+} from './asm/kit.js';
 
 // Runtime providers (pluggable endowments: nucleation, standard helpers)
 export {

@@ -254,8 +254,9 @@ export function FlowManager({ isOpen, onClose }: FlowManagerProps) {
                 </div>
                 <button
                   onClick={() => {
-                    loadFlow({ ...example, id: '', createdAt: Date.now() });
-                    useFlowStore.getState().setFlowName(example.name);
+                    // Deep-link the example via the URL so a refresh restores it
+                    // and it's shareable. Editor loads it from EXAMPLE_FLOWS.
+                    navigate(`/editor?example=${encodeURIComponent(example.id)}`);
                     onClose();
                   }}
                   className="flex-none rounded-lg border border-emerald-600/40 bg-emerald-600/15 px-3 py-1.5 text-xs font-medium text-emerald-300 transition hover:bg-emerald-600/25"

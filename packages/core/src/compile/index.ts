@@ -14,8 +14,29 @@ export {
   hashFlow,
   FlowCompileError,
   type CompiledFlow,
+  type CompileFlowOptions,
+  type NodeTraceEntry,
+  type TracedResult,
   type FlowLike,
 } from './flow-compiler.js';
+
+export {
+  deriveBoundary,
+  groupNodes,
+  ungroup,
+  nextGroupId,
+  isGroupNodeData,
+  isMapNodeData,
+  type BoundaryPort,
+  type GroupBoundary,
+  type GroupNodeData,
+  type MapNodeData,
+  type GroupSubgraph,
+  type GroupNodeLike,
+  type GroupEdge,
+  type GroupResult,
+  type UngroupResult,
+} from './group.js';
 
 export { contractToTypeScript, composeBlockSource } from './codegen.js';
 
