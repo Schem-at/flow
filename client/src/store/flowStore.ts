@@ -559,10 +559,14 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     const state = get();
     const node = state.nodes.find(n => n.id === nodeId);
     const isInputNode = node?.type === 'input' || node?.type?.includes('_input');
-    
-    // For input nodes, update the cache with the new value immediately
+    // Constant nodes are value producers too — the compiler bakes their `value`
+    // as a literal, so a value change must re-run the flow in live mode exactly
+    // like an input node (otherwise tweaking a constant does nothing live).
+    const isValueNode = isInputNode || node?.type === 'constant';
+
+    // For input/constant nodes, update the cache with the new value immediately
     // For code nodes, invalidate on code changes
-    const shouldInvalidate = 'code' in data && !isInputNode;
+    const shouldInvalidate = 'code' in data && !isValueNode;
     
     set({
       nodes: state.nodes.map((node) =>
@@ -572,9 +576,9 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       ),
     });
     
-    // For input nodes with value changes, update cache and invalidate downstream
-    // Also check if we should trigger live execution
-    if (isInputNode && 'value' in data) {
+    // For input/constant nodes with value changes, update cache and invalidate
+    // downstream. Also check if we should trigger live execution.
+    if (isValueNode && 'value' in data) {
       get().setNodeOutput(nodeId, { output: data.value });
       get().invalidateDownstream(nodeId);
       

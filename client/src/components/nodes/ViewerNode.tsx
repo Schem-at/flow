@@ -615,7 +615,7 @@ const ViewerNode = memo(({ id, data, selected, width, height }: NodeProps & { da
       return (
         <div className="text-center text-neutral-500 py-6">
           <Eye className="w-8 h-8 mx-auto mb-2 opacity-50" />
-          <div className="text-xs">No input connected</div>
+          <div className="text-xs">{inputEdge ? 'No data yet — run the flow' : 'No input connected'}</div>
         </div>
       );
     }

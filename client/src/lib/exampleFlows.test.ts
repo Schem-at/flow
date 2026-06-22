@@ -117,6 +117,8 @@ describe('EXAMPLE_FLOWS', () => {
       'example-julia-stitch',
       'example-worldgen',
       'example-asm-rom-studio',
+      'example-mandelbrot',
+      'example-carbon',
     ]);
   });
 

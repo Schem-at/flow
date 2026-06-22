@@ -16,11 +16,12 @@
  * Case count lives in `data.caseCount` (defaults to 2).
  */
 
-import { memo, useCallback, useEffect } from 'react';
+import { memo, useCallback, useEffect, useRef } from 'react';
 import { Handle, Position, useUpdateNodeInternals, type NodeProps } from '@xyflow/react';
 import { useShallow } from 'zustand/react/shallow';
 import { GitFork, Plus, X } from 'lucide-react';
 import { useFlowStore } from '../../store/flowStore';
+import { useNodeResizeInternals } from '../../hooks/useNodeResizeInternals';
 
 interface SwitchNodeData {
   label?: string;
@@ -33,6 +34,10 @@ const SwitchNode = memo(({ id, data, selected }: NodeProps & { data: SwitchNodeD
   const selectNode = useFlowStore((state) => state.selectNode);
   const updateNodeData = useFlowStore((state) => state.updateNodeData);
   const updateNodeInternals = useUpdateNodeInternals();
+  const rootRef = useRef<HTMLDivElement>(null);
+  // The single selected-value OUTPUT handle is anchored to the header; re-measure
+  // on any height change (cases added/removed) so it stays on its dot.
+  useNodeResizeInternals(id, rootRef);
 
   // Guard caseCount: clamp to a sane positive integer (legacy/pasted flows may
   // carry NaN, Infinity, a string, or a huge number). Cap the upper bound so a
@@ -70,15 +75,25 @@ const SwitchNode = memo(({ id, data, selected }: NodeProps & { data: SwitchNodeD
         bg-neutral-900/80 backdrop-blur-sm border transition-colors duration-150
         ${selected ? 'border-amber-500 shadow-lg shadow-amber-500/10' : 'border-neutral-700/60'}
       `}
+      ref={rootRef}
       onClick={() => selectNode(id)}
     >
-      {/* Header */}
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-neutral-800/50">
+      {/* Header — the single OUTPUT handle is anchored to this fixed-height row
+          (not 50% of the whole node) so it stays on its dot as cases grow. */}
+      <div className="relative flex items-center gap-2 px-3 py-2 border-b border-neutral-800/50">
         <GitFork className="w-3.5 h-3.5 text-amber-400" />
         <span className="text-xs font-medium text-white truncate flex-1">
           {data?.label || 'Switch'}
         </span>
         <span className="text-[10px] text-amber-400/70 font-mono">sel</span>
+        <Handle
+          type="source"
+          position={Position.Right}
+          id="output"
+          style={{ top: '50%', right: '-6px', transform: 'translateY(-50%)' }}
+          className="!w-3 !h-3 !border-2 !border-neutral-900 !bg-amber-400"
+          title="selected value"
+        />
       </div>
 
       {/* Selector port */}
@@ -175,16 +190,6 @@ const SwitchNode = memo(({ id, data, selected }: NodeProps & { data: SwitchNodeD
           <span className="flex-1 text-[11px] font-mono text-neutral-400">default</span>
         </div>
       </div>
-
-      {/* Single selected-value output */}
-      <Handle
-        type="source"
-        position={Position.Right}
-        id="output"
-        style={{ top: '50%', right: '-6px' }}
-        className="!w-3 !h-3 !border-2 !border-neutral-900 !bg-amber-400"
-        title="selected value"
-      />
     </div>
   );
 });

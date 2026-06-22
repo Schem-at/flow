@@ -475,13 +475,15 @@ const ROM_SCHEMATIC = `// Bytes → ROM Schematic (ISA-AGNOSTIC). Lays ANY byte 
 // is one word, stacked on Y as 'bitWidth' base-N digit cells and tiled across X/Z.
 // A visual preview — the canonical artifact for the API is the digit-string from the
 // 'Bytes → ROM Data' block (feed it the same base + bitWidth).
-// Just two knobs: how tall each word is (bitWidth binary cells) and the block
-// used for set bits. The word grid is auto-sized from the byte count, so you
-// only ever wire up 'bytes'.
+// SIGNAL-STRENGTH ROM: each byte is two base-16 digits (0..15) and every data
+// cell is a container filled to that comparator signal via the '{signal=N}'
+// shorthand (e.g. minecraft:barrel[facing=up]{signal=7}; also works for
+// jukeboxes). The grid is auto-sized from the byte count — only wire up 'bytes'.
+// Knobs: bitWidth (hex digits per word, 2 for a byte) and the data container.
 type Inputs = {
   bytes: number[];
-  bitWidth: NumberField<{ min: 1; max: 64; step: 1; default: 8 }>;
-  dataBlock: Block<{ default: 'minecraft:barrel' }>;
+  bitWidth: NumberField<{ min: 1; max: 64; step: 1; default: 2 }>;
+  dataBlock: Block<{ default: 'minecraft:barrel[facing=up]' }>;
 };
 type Outputs = {
   rom: Schematic;
@@ -495,8 +497,8 @@ function generate(inputs) {
   const xWordCount = Math.min(rowWidth, words) || 1;
   const zWordCount = Math.max(1, Math.ceil(words / rowWidth));
   const placements = Rom.layout(data, {
-    base: 2,
-    bitWidth: inputs.bitWidth || 8,
+    base: 16,
+    bitWidth: inputs.bitWidth || 2,
     xWordCount: xWordCount,
     zWordCount: zWordCount,
     xOffsets: [2],
@@ -506,10 +508,12 @@ function generate(inputs) {
   });
   const rom = new Schematic();
   for (const p of placements) {
+    // role 'zero'/'fifteen' get solid markers (0 and full); the in-between
+    // digits 1..14 are containers filled to comparator signal = the digit.
     const block =
       p.role === 'zero' ? 'minecraft:red_concrete' :
       p.role === 'fifteen' ? 'minecraft:redstone_block' :
-      inputs.dataBlock;
+      inputs.dataBlock + '{signal=' + p.value + '}';
     rom.set_block(p.x, p.y, p.z, block);
   }
   return { rom, words: words };
@@ -780,6 +784,156 @@ function generate(inputs) {
 }
 `;
 
+const CARBON_ASSEMBLE = `// Carbon 1.1 Assembler (EXAMPLE) — assembles tony-ist's Carbon 1.1, an 8-bit ACC-based
+// Minecraft redstone CPU, hand-rolled in plain JS (its pc-space quirks rule out the
+// declarative Asm.define driver). Byte-for-byte vs the Rust reference assembler. Feed
+// 'bytes' to the ROM blocks. opcode<<3 | operand; LIM/CAL/PSI/BSL/BSR add an imm byte;
+// BRC is 3 bytes [word, addr>>7, (addr%128)-2]; an implicit HLT is appended.
+type Inputs = {
+  program: Textarea<{ required: true }>;
+};
+type Outputs = {
+  bytes: number[];
+  words: number;
+  hex: string;
+};
+function generate(inputs) {
+  const OPC = { NOP:0,INC:1,DEC:2,ADD:3,ADR:4,NEG:5,SUB:6,BSB:7,CMP:8,BOR:9,AND:10,XOR:11,BSL:12,BSR:13,LIM:15,RST:16,RLD:17,MST:18,MLD:19,CAL:20,RET:21,BRC:22,JID:23,PSH:24,POP:25,PST:26,PSI:27,PLD:28,PRD:29,HLT:30,FLS:31 };
+  const COND = { JMP:0,EVEN:1,EQ:2,NEQ:3,GT:4,LT:5,GTEQ:6,LTEQ:7 };
+  const FORMS = {
+    NOP:[],RET:[],PSH:[],POP:[],HLT:[],FLS:[],
+    INC:['reg'],DEC:['reg'],ADD:['reg'],ADR:['reg'],NEG:['reg'],SUB:['reg'],BSB:['reg'],CMP:['reg'],BOR:['reg'],AND:['reg'],XOR:['reg'],RST:['reg'],RLD:['reg'],MST:['reg'],MLD:['reg'],JID:['reg'],
+    BSL:['imm'],BSR:['imm'],LIM:['reg','imm'],CAL:['label'],BRC:['cond','label'],PRD:['cond','label'],PST:['addr'],PSI:['addr','imm'],PLD:['addr'],
+  };
+  function isDigit(c) { return c >= '0' && c <= '9'; }
+  function allDigits(s) { if (!s.length) return false; for (let i = 0; i < s.length; i++) if (!isDigit(s.charAt(i))) return false; return true; }
+  function strip(line) {
+    let inStr = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line.charAt(i);
+      if (c === '"') inStr = !inStr;
+      else if (c === '/' && !inStr) return line.slice(0, i);
+    }
+    return line;
+  }
+  function parse(src) {
+    const out = [];
+    const raw = (src || '').split('\\n');
+    for (let li = 0; li < raw.length; li++) {
+      const s = strip(raw[li]).trim();
+      if (!s) continue;
+      if (s === 'FUNC' || s.indexOf('FUNC ') === 0 || s === 'END') throw new Error('FUNC/END subroutine blocks are not supported by this example — use labels + CAL/BRC.');
+      if (s.charAt(0) === '"') {
+        const last = s.lastIndexOf('"');
+        if (last <= 0) throw new Error('Unterminated data string: ' + s);
+        const text = s.slice(1, last);
+        const data = [];
+        for (let k = 0; k < text.length; k++) data.push(text.charCodeAt(k) & 255);
+        out.push({ kind:'data', data: data });
+        continue;
+      }
+      const toks = s.split(/\\s+/);
+      if (toks.length === 1 && toks[0].charAt(0) === '.') { out.push({ kind:'label', name: toks[0] }); continue; }
+      out.push({ kind:'instr', mnemonic: toks[0].toUpperCase(), operands: toks.slice(1), raw: s });
+    }
+    return out;
+  }
+  function pcSize(m, form) {
+    if (m === 'BRC') return 3;
+    let n = 1;
+    for (let i = 0; i < form.length; i++) { const k = form[i]; if (k === 'imm' || k === 'addr' || k === 'label') n++; }
+    return n;
+  }
+  function resolve(kind, tok, labels, raw) {
+    if (kind === 'reg') { const ok = tok.length === 2 && (tok.charAt(0) === 'r' || tok.charAt(0) === 'R') && isDigit(tok.charAt(1)); if (!ok) throw new Error('Expected register rN, got "' + tok + '" — ' + raw); return parseInt(tok.slice(1), 10); }
+    if (kind === 'addr') { const ok = tok.length === 2 && tok.charAt(0) === '$' && isDigit(tok.charAt(1)); if (!ok) throw new Error('Expected port $N, got "' + tok + '" — ' + raw); return parseInt(tok.slice(1), 10); }
+    if (kind === 'imm') { if (!allDigits(tok)) throw new Error('Expected immediate, got "' + tok + '" — ' + raw); const v = parseInt(tok, 10); if (v > 255) throw new Error('Immediate ' + v + ' out of range (0-255) — ' + raw); return v; }
+    if (kind === 'cond') { const c = COND[tok.toUpperCase()]; if (c === undefined) throw new Error('Unknown condition "' + tok + '" — ' + raw); return c; }
+    if (tok.charAt(0) !== '.') throw new Error('Expected label .name, got "' + tok + '" — ' + raw);
+    const a = labels[tok]; if (a === undefined) throw new Error('Reference to undefined label "' + tok + '" — ' + raw); return a;
+  }
+  const lines = parse(inputs.program);
+  const labels = {};
+  let pc = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const ln = lines[i];
+    if (ln.kind === 'label') labels[ln.name] = pc;
+    else if (ln.kind === 'data') pc = (pc + ln.data.length) & 255;
+    else { const f = FORMS[ln.mnemonic]; if (!f) throw new Error('Unknown instruction "' + ln.mnemonic + '"'); pc = (pc + pcSize(ln.mnemonic, f)) & 255; }
+  }
+  const bytes = [];
+  for (let i = 0; i < lines.length; i++) {
+    const ln = lines[i];
+    if (ln.kind === 'label') continue;
+    if (ln.kind === 'data') { for (let k = 0; k < ln.data.length; k++) bytes.push(ln.data[k]); continue; }
+    const m = ln.mnemonic; const form = FORMS[m];
+    if (!form) throw new Error('Unknown instruction "' + m + '"');
+    if (ln.operands.length !== form.length) throw new Error('"' + m + '" expects ' + form.length + ' operand(s), got ' + ln.operands.length + ' — ' + ln.raw);
+    let word = (OPC[m] << 3) & 255;
+    let pushed = false;
+    for (let j = 0; j < form.length; j++) {
+      const kind = form[j];
+      const value = resolve(kind, ln.operands[j], labels, ln.raw);
+      if (kind === 'reg' || kind === 'addr' || kind === 'cond') { word = (word | value) & 255; pushed = true; bytes.push(word); }
+      else {
+        const a = value & 255;
+        if (m === 'BRC') { bytes.push(Math.floor(a / 128) & 255); bytes.push(((a % 128) - 2 + 256) & 255); }
+        else { if (!pushed) { bytes.push(word); pushed = true; } bytes.push(a); }
+      }
+    }
+    if (!pushed) bytes.push(word);
+  }
+  bytes.push((OPC.HLT << 3) & 255);
+  const hex = bytes.map((b) => (b < 16 ? '0' : '') + b.toString(16).toUpperCase()).join(' ');
+  return { bytes: bytes, words: bytes.length, hex: hex };
+}
+`;
+
+const CARBON_ROM = `// Carbon ROM — lays machine-code bytes out as a readable HEX-NIBBLE grid. Each
+// byte becomes two cells: HIGH nibble then LOW nibble, with the cell's comparator
+// signal = the nibble value (0..15) via the {signal=N} barrel shorthand. A 0
+// nibble is solid black concrete (reads as 0). Nibbles run left->right, COLS per
+// row, wrapping DOWNWARD (the first byte sits top-left). A redstone_lamp marks
+// the top-left origin. e.g. 0x78 -> barrel(7), barrel(8); 0x00 -> block, block.
+// (NB: the reference romgen.rs is a broken bit-plane transpose — it emits bogus
+// signals >15 — so this readable nibble layout is used instead.)
+type Inputs = {
+  bytes: number[];
+};
+type Outputs = {
+  rom: Schematic;
+  nibbles: number;
+  bytes: number;
+};
+function generate(inputs) {
+  const data = inputs.bytes || [];
+  const COLS = 16; // nibbles per row (8 bytes)
+  const nibbles = [];
+  for (let i = 0; i < data.length; i++) {
+    const v = (data[i] | 0) & 255;
+    nibbles.push((v >> 4) & 15); // high nibble first
+    nibbles.push(v & 15);        // then low nibble
+  }
+  const rows = Math.max(1, Math.ceil(nibbles.length / COLS));
+  const rom = new Schematic();
+  // Origin/orientation marker at the top-left corner (next to the first nibble).
+  rom.set_block(0, 2 + 2 * (rows - 1), 0, 'minecraft:redstone_lamp');
+  for (let i = 0; i < nibbles.length; i++) {
+    const col = i % COLS;
+    const row = (i / COLS) | 0;
+    const n = nibbles[i];
+    const x = 2 + 2 * col;
+    const y = 2 + 2 * (rows - 1 - row); // row 0 at the top, wrapping downward
+    // A 0 nibble is a solid block (comparator reads 0); else a signal barrel.
+    const block = n === 0
+      ? 'minecraft:black_concrete'
+      : 'minecraft:barrel[facing=north,open=false]{signal=' + n + '}';
+    rom.set_block(x, y, 0, block);
+  }
+  return { rom: rom, nibbles: nibbles.length, bytes: data.length };
+}
+`;
+
 export const EXAMPLE_BLOCKS: ExampleBlock[] = [
   {
     id: 'rom-data',
@@ -836,6 +990,20 @@ export const EXAMPLE_BLOCKS: ExampleBlock[] = [
     description:
       'Example: an assembler for the IRIS 24-bit redstone CPU (the main hardware target URCL compiles to). BEST-EFFORT: its encoding is per the IRIS spec sheet and NOT hardware-verified (no reference assembler exists), so only the deterministic pseudo-op lowering + C/A/B default-fill are faithful. Outputs 24-bit words.',
     source: IRIS_ASSEMBLE,
+  },
+  {
+    id: 'carbon-assembler',
+    name: 'Carbon 1.1 Assembler (example)',
+    description:
+      'Example: an assembler for Carbon 1.1, an 8-bit ACC-based Minecraft redstone CPU (by tony-ist), hand-rolled on plain JS. Verified byte-for-byte against the Rust reference assembler. Outputs machine-code bytes.',
+    source: CARBON_ASSEMBLE,
+  },
+  {
+    id: 'carbon-rom',
+    name: 'Carbon ROM (hex nibbles)',
+    description:
+      'Lays machine-code bytes out as a readable hex-nibble ROM: each byte is a high-nibble then low-nibble cell, comparator signal = nibble value, 0 = solid block. Nibbles run left→right, 16 per row, wrapping down from the top-left origin.',
+    source: CARBON_ROM,
   },
   {
     id: 'julia-grid',
@@ -924,8 +1092,8 @@ export const EXAMPLE_BLOCK_CONTRACTS: Record<string, BlockContract> = {
   'rom-schematic': {
     inputs: {
       bytes: { kind: 'list', of: { kind: 'number' } },
-      bitWidth: { kind: 'number', widget: 'input', min: 1, max: 64, step: 1, default: 8 },
-      dataBlock: { kind: 'block', default: 'minecraft:barrel' },
+      bitWidth: { kind: 'number', widget: 'input', min: 1, max: 64, step: 1, default: 2 },
+      dataBlock: { kind: 'block', default: 'minecraft:barrel[facing=up]' },
     },
     outputs: {
       rom: { kind: 'schematic' },
@@ -978,6 +1146,26 @@ export const EXAMPLE_BLOCK_CONTRACTS: Record<string, BlockContract> = {
     outputs: {
       ir: { kind: 'string' },
       count: { kind: 'number' },
+    },
+  },
+  'carbon-assembler': {
+    inputs: {
+      program: { kind: 'string', multiline: true, required: true },
+    },
+    outputs: {
+      bytes: { kind: 'list', of: { kind: 'number' } },
+      words: { kind: 'number' },
+      hex: { kind: 'string' },
+    },
+  },
+  'carbon-rom': {
+    inputs: {
+      bytes: { kind: 'list', of: { kind: 'number' } },
+    },
+    outputs: {
+      rom: { kind: 'schematic' },
+      nibbles: { kind: 'number' },
+      bytes: { kind: 'number' },
     },
   },
   'iris-assembler': {

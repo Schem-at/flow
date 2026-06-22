@@ -13,11 +13,12 @@
  * Field config lives in `data.bundleFields: { name: string }[]`.
  */
 
-import { memo, useCallback, useEffect } from 'react';
+import { memo, useCallback, useEffect, useRef } from 'react';
 import { Handle, Position, useUpdateNodeInternals, type NodeProps } from '@xyflow/react';
 import { useShallow } from 'zustand/react/shallow';
 import { Package, Plus, X } from 'lucide-react';
 import { useFlowStore } from '../../store/flowStore';
+import { useNodeResizeInternals } from '../../hooks/useNodeResizeInternals';
 
 interface BundleField {
   name: string;
@@ -43,6 +44,10 @@ const BundleNode = memo(({ id, data, selected }: NodeProps & { data: BundleNodeD
   const selectNode = useFlowStore((state) => state.selectNode);
   const updateNodeData = useFlowStore((state) => state.updateNodeData);
   const updateNodeInternals = useUpdateNodeInternals();
+  const rootRef = useRef<HTMLDivElement>(null);
+  // The single object-output handle is anchored to the header; re-measure on any
+  // height change (fields added/removed) so it stays on its visible dot.
+  useNodeResizeInternals(id, rootRef);
 
   // Guard: older/pasted/programmatic flows may carry a missing, non-array, or
   // empty `bundleFields` (or entries without a string `name`). Normalise to a
@@ -98,15 +103,25 @@ const BundleNode = memo(({ id, data, selected }: NodeProps & { data: BundleNodeD
         bg-neutral-900/80 backdrop-blur-sm border transition-colors duration-150
         ${selected ? 'border-violet-500 shadow-lg shadow-violet-500/10' : 'border-neutral-700/60'}
       `}
+      ref={rootRef}
       onClick={() => selectNode(id)}
     >
-      {/* Header */}
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-neutral-800/50">
+      {/* Header — the single object OUTPUT handle is anchored to this fixed-height
+          row (not 50% of the whole node) so it stays on its dot as fields grow. */}
+      <div className="relative flex items-center gap-2 px-3 py-2 border-b border-neutral-800/50">
         <Package className="w-3.5 h-3.5 text-violet-400" />
         <span className="text-xs font-medium text-white truncate flex-1">
           {data?.label || 'Bundle'}
         </span>
         <span className="text-[10px] text-violet-400/70 font-mono">obj</span>
+        <Handle
+          type="source"
+          position={Position.Right}
+          id="output"
+          style={{ top: '50%', right: '-6px', transform: 'translateY(-50%)' }}
+          className="!w-3 !h-3 !border-2 !border-neutral-900 !bg-violet-400"
+          title="object"
+        />
       </div>
 
       {/* Fields (each an input port) */}
@@ -172,16 +187,6 @@ const BundleNode = memo(({ id, data, selected }: NodeProps & { data: BundleNodeD
           <Plus className="w-3 h-3" /> field
         </button>
       </div>
-
-      {/* Single object output */}
-      <Handle
-        type="source"
-        position={Position.Right}
-        id="output"
-        style={{ top: '50%', right: '-6px' }}
-        className="!w-3 !h-3 !border-2 !border-neutral-900 !bg-violet-400"
-        title="object"
-      />
     </div>
   );
 });

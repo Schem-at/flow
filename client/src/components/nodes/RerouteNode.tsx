@@ -6,8 +6,9 @@
  * producer, so it behaves as a direct connection (transparent pass-through).
  */
 
-import { memo, useEffect } from 'react';
+import { memo, useEffect, useRef } from 'react';
 import { Handle, Position, useUpdateNodeInternals, type NodeProps } from '@xyflow/react';
+import { useNodeResizeInternals } from '../../hooks/useNodeResizeInternals';
 
 interface RerouteNodeData {
   label?: string;
@@ -15,15 +16,18 @@ interface RerouteNodeData {
 
 const RerouteNode = memo(({ id, selected }: NodeProps & { data: RerouteNodeData }) => {
   const updateNodeInternals = useUpdateNodeInternals();
+  const rootRef = useRef<HTMLDivElement>(null);
 
-  // Custom-positioned (negative-offset) handles — re-measure on mount so edges
-  // attach to the correct bounds.
+  // The node IS its dot — the in/out handles sit at the dot's centre. Re-measure
+  // on mount and on any size change so edges attach to the correct bounds.
   useEffect(() => {
     updateNodeInternals(id);
   }, [id, updateNodeInternals]);
+  useNodeResizeInternals(id, rootRef);
 
   return (
     <div
+      ref={rootRef}
       className={`
         relative w-3.5 h-3.5 rounded-full
         bg-neutral-400 border-2 transition-colors duration-150

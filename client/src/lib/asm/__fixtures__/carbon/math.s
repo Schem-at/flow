@@ -1,0 +1,11 @@
+LIM R0 7
+RST R1
+LIM R0 5
+CMP R1
+BRC GT .bigger
+LIM R0 0
+PST $1
+HLT
+.bigger
+LIM R0 255
+PST $1

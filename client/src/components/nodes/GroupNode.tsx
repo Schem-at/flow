@@ -12,10 +12,11 @@
  * The "Ungroup" button inlines the subgraph back via the store action.
  */
 
-import { memo, useState, useCallback, useEffect, useMemo } from 'react';
+import { memo, useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Handle, Position, useUpdateNodeInternals, type NodeProps } from '@xyflow/react';
 import { Boxes, ChevronDown, ChevronRight, Ungroup } from 'lucide-react';
 import { useFlowStore } from '../../store/flowStore';
+import { useNodeResizeInternals } from '../../hooks/useNodeResizeInternals';
 import type { GroupNodeData } from '@flow/core';
 
 type GroupData = Partial<GroupNodeData> & { label?: string; expanded?: boolean };
@@ -42,6 +43,10 @@ const GroupNode = memo(({ id, data, selected }: NodeProps & { data: GroupData })
   const cache = useFlowStore((s) => s.nodeCache[id]);
   const executingNodeId = useFlowStore((s) => s.executingNodeId);
   const updateNodeInternals = useUpdateNodeInternals();
+  const rootRef = useRef<HTMLDivElement>(null);
+  // Boundary handles are anchored to their per-port label ROWS; re-measure when
+  // the node's height changes (expand / error / footer) so edges stay on the dots.
+  useNodeResizeInternals(id, rootRef);
 
   const [expanded, setExpanded] = useState(false);
 
@@ -82,40 +87,13 @@ const GroupNode = memo(({ id, data, selected }: NodeProps & { data: GroupData })
           ? 'border-red-500/50'
           : 'border-neutral-700';
 
-  // Vertically distribute boundary handles along each side.
-  const rowY = (i: number, n: number) => `${((i + 1) / (n + 1)) * 100}%`;
-
   return (
     <div
+      ref={rootRef}
       onClick={handleClick}
       onDoubleClick={() => setExpanded((v) => !v)}
       className={`relative rounded-xl border bg-neutral-900/95 backdrop-blur min-w-[220px] ${border} transition-colors`}
     >
-      {/* Boundary INPUT handles (left) */}
-      {inputs.map((port, i) => (
-        <Handle
-          key={`in-${port.name}`}
-          id={port.name}
-          type="target"
-          position={Position.Left}
-          style={{ top: rowY(i, inputs.length) }}
-          className={`!w-3 !h-3 !border-2 !border-neutral-900 ${kindColor(port.type?.kind)}`}
-          title={`${port.name}: ${port.type?.kind ?? 'unknown'}`}
-        />
-      ))}
-      {/* Boundary OUTPUT handles (right) */}
-      {outputs.map((port, i) => (
-        <Handle
-          key={`out-${port.name}`}
-          id={port.name}
-          type="source"
-          position={Position.Right}
-          style={{ top: rowY(i, outputs.length) }}
-          className={`!w-3 !h-3 !border-2 !border-neutral-900 ${kindColor(port.type?.kind)}`}
-          title={`${port.name}: ${port.type?.kind ?? 'unknown'}`}
-        />
-      ))}
-
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2.5 border-b border-neutral-800">
         <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-indigo-500/20 border border-indigo-500/30">
@@ -139,11 +117,21 @@ const GroupNode = memo(({ id, data, selected }: NodeProps & { data: GroupData })
         </button>
       </div>
 
-      {/* Port labels */}
+      {/* Port labels — each row OWNS its boundary handle (anchored to the row's
+          vertical centre, mirroring CodeNode) so the visible dot IS the handle and
+          stays aligned regardless of node height. */}
       <div className="px-3 py-2 flex gap-4 justify-between">
         <div className="space-y-1">
           {inputs.map((port) => (
-            <div key={port.name} className="flex items-center gap-1.5 text-[11px] text-neutral-300">
+            <div key={port.name} className="relative flex items-center gap-1.5 text-[11px] text-neutral-300">
+              <Handle
+                id={port.name}
+                type="target"
+                position={Position.Left}
+                style={{ top: '50%', left: '-18px', transform: 'translateY(-50%)' }}
+                className={`!w-3 !h-3 !border-2 !border-neutral-900 ${kindColor(port.type?.kind)}`}
+                title={`${port.name}: ${port.type?.kind ?? 'unknown'}`}
+              />
               <span className={`w-1.5 h-1.5 rounded-full ${kindColor(port.type?.kind)}`} />
               {port.name}
             </div>
@@ -151,9 +139,17 @@ const GroupNode = memo(({ id, data, selected }: NodeProps & { data: GroupData })
         </div>
         <div className="space-y-1 text-right">
           {outputs.map((port) => (
-            <div key={port.name} className="flex items-center gap-1.5 justify-end text-[11px] text-neutral-300">
+            <div key={port.name} className="relative flex items-center gap-1.5 justify-end text-[11px] text-neutral-300">
               {port.name}
               <span className={`w-1.5 h-1.5 rounded-full ${kindColor(port.type?.kind)}`} />
+              <Handle
+                id={port.name}
+                type="source"
+                position={Position.Right}
+                style={{ top: '50%', right: '-18px', transform: 'translateY(-50%)' }}
+                className={`!w-3 !h-3 !border-2 !border-neutral-900 ${kindColor(port.type?.kind)}`}
+                title={`${port.name}: ${port.type?.kind ?? 'unknown'}`}
+              />
             </div>
           ))}
         </div>

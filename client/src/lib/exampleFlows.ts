@@ -9,6 +9,9 @@
 import type { FlowData, BlockContract } from '@flow/core';
 import { EXAMPLE_BLOCKS, EXAMPLE_BLOCK_CONTRACTS } from './block/examples';
 import { contractToIO } from './block/io-compat';
+// Carbon programs reused as both assembler test fixtures and editor examples.
+import CARBON_FIB from './asm/__fixtures__/carbon/fibonacci.s?raw';
+import CARBON_MANDEL from './asm/__fixtures__/carbon/mandelbrot.s?raw';
 
 const JULIA_SOURCE = EXAMPLE_BLOCKS.find((b) => b.id === 'julia-grid')!.source;
 
@@ -474,20 +477,26 @@ export const SHOWCASE_FLOW: FlowData = {
   createdAt: 0,
   nodes: [
     // ── Frames (decorative backdrops behind their clusters) ──────────────────
-    { id: 'fr-source', type: 'frame', position: { x: -40, y: -60 },
-      data: { label: 'Source — Switch picks a program, then assemble it', width: 980, height: 300, color: 'indigo', zIndex: -1 } },
-    { id: 'fr-config', type: 'frame', position: { x: -40, y: 260 },
-      data: { label: 'Config — Switch + Bundle a settings struct', width: 760, height: 360, color: 'emerald', zIndex: -1 } },
-    { id: 'fr-perbyte', type: 'frame', position: { x: 800, y: -60 },
-      data: { label: 'Per-byte — Map each byte to hex', width: 520, height: 280, color: 'sky', zIndex: -1 } },
-    { id: 'fr-rom', type: 'frame', position: { x: 800, y: 260 },
-      data: { label: 'ROM — Group: Unbundle → rom-data + rom-schematic', width: 980, height: 360, color: 'amber', zIndex: -1 } },
+    // Authored extents are sized to comfortably WRAP each cluster (≈48px padding
+    // + 28px header) and the four clusters occupy DISTINCT, well-separated grid
+    // quadrants (top-left / bottom-left / top-right / bottom-right) so the frames
+    // never overlap. refitFrames() recomputes these same boxes on tidy/auto-
+    // arrange; the authored values mirror that geometry so a freshly-loaded flow
+    // already looks tidy.
+    { id: 'fr-source', type: 'frame', position: { x: -48, y: -36 },
+      data: { label: 'Source — Switch picks a program, then assemble it', width: 1052, height: 594, color: 'indigo', zIndex: -1 } },
+    { id: 'fr-config', type: 'frame', position: { x: -48, y: 564 },
+      data: { label: 'Config — Switch + Bundle a settings struct', width: 866, height: 614, color: 'emerald', zIndex: -1 } },
+    { id: 'fr-perbyte', type: 'frame', position: { x: 1592, y: -16 },
+      data: { label: 'Per-byte — Map each byte to hex', width: 586, height: 354, color: 'sky', zIndex: -1 } },
+    { id: 'fr-rom', type: 'frame', position: { x: 1252, y: 624 },
+      data: { label: 'ROM — Group: Unbundle → rom-data + rom-schematic', width: 956, height: 594, color: 'amber', zIndex: -1 } },
 
-    // ── Comments (sticky notes) ──────────────────────────────────────────────
-    { id: 'cm-source', type: 'comment', position: { x: 560, y: 160 },
-      data: { label: 'Selector → Switch picks fibonacci / counter / arithmetic → assembler → bytes. Inspect taps the bus.', width: 340, height: 70, zIndex: 1 } },
-    { id: 'cm-switch', type: 'comment', position: { x: 220, y: 540 },
-      data: { label: 'Switch picks hex (base 16) vs binary (base 2) ROM by selector.', width: 320, height: 70, zIndex: 1 } },
+    // ── Comments (sticky notes, parked in the gutters between frames) ─────────
+    { id: 'cm-source', type: 'comment', position: { x: 1080, y: 360 },
+      data: { label: 'Selector → Switch picks fibonacci / counter / arithmetic → assembler → bytes. Inspect taps the bus.', width: 340, height: 90, zIndex: 1 } },
+    { id: 'cm-switch', type: 'comment', position: { x: 900, y: 700 },
+      data: { label: 'Switch picks hex (base 16) vs binary (base 2) ROM by selector.', width: 320, height: 90, zIndex: 1 } },
 
     // ── Source ───────────────────────────────────────────────────────────────
     // Program selector: a number constant (0..2) drives a Switch that picks ONE
@@ -497,39 +506,39 @@ export const SHOWCASE_FLOW: FlowData = {
     // meaningful choice ("which program do we burn?").
     { id: 'prog', type: 'input', position: { x: 0, y: 40 },
       data: { label: 'fibonacci', value: ASM_ROM_PROGRAM, dataType: 'string', widgetType: 'textarea', description: 'ARPU assembly (case 0)' } },
-    { id: 'c-prog-counter', type: 'constant', position: { x: 0, y: 70 },
+    { id: 'c-prog-counter', type: 'constant', position: { x: 0, y: 220 },
       data: { label: 'counter loop', dataType: 'string', value: ASM_ROM_COUNTER } },
-    { id: 'c-prog-arith', type: 'constant', position: { x: 0, y: 100 },
+    { id: 'c-prog-arith', type: 'constant', position: { x: 0, y: 320 },
       data: { label: 'arithmetic', dataType: 'string', value: ASM_ROM_ARITH } },
-    { id: 'c-prog-sel', type: 'constant', position: { x: 0, y: 130 },
+    { id: 'c-prog-sel', type: 'constant', position: { x: 0, y: 420 },
       data: { label: 'program selector', dataType: 'number', value: 0 } },
-    { id: 'sw-prog', type: 'switch', position: { x: 300, y: 40 },
+    { id: 'sw-prog', type: 'switch', position: { x: 300, y: 180 },
       data: { label: 'which program', caseCount: 3 } },
-    { id: 'asm', type: 'code', position: { x: 560, y: 40 },
+    { id: 'asm', type: 'code', position: { x: 580, y: 40 },
       data: { label: 'ARPU Assembler', ...ASM_ROM('arpu-assembler') } },
-    { id: 'bytes-tap', type: 'inspect', position: { x: 560, y: 230 },
+    { id: 'bytes-tap', type: 'inspect', position: { x: 580, y: 300 },
       data: { label: 'peek bytes' } },
-    { id: 'reroute', type: 'reroute', position: { x: 900, y: 70 },
+    { id: 'reroute', type: 'reroute', position: { x: 1120, y: 150 },
       data: { label: 'bytes' } },
 
     // ── Config ───────────────────────────────────────────────────────────────
-    { id: 'c-base16', type: 'constant', position: { x: 0, y: 300 },
+    { id: 'c-base16', type: 'constant', position: { x: 0, y: 640 },
       data: { label: 'base 16 (hex)', dataType: 'number', value: 16 } },
-    { id: 'c-base2', type: 'constant', position: { x: 0, y: 370 },
+    { id: 'c-base2', type: 'constant', position: { x: 0, y: 740 },
       data: { label: 'base 2 (binary)', dataType: 'number', value: 2 } },
-    { id: 'c-sel', type: 'constant', position: { x: 0, y: 440 },
+    { id: 'c-sel', type: 'constant', position: { x: 0, y: 840 },
       data: { label: 'selector', dataType: 'number', value: 0 } },
-    { id: 'sw-base', type: 'switch', position: { x: 260, y: 370 },
+    { id: 'sw-base', type: 'switch', position: { x: 280, y: 700 },
       data: { label: 'ROM base', caseCount: 2 } },
-    { id: 'c-bitwidth', type: 'constant', position: { x: 0, y: 510 },
+    { id: 'c-bitwidth', type: 'constant', position: { x: 0, y: 940 },
       data: { label: 'bitWidth', dataType: 'number', value: 8 } },
-    { id: 'c-rowwidth', type: 'constant', position: { x: 0, y: 580 },
+    { id: 'c-rowwidth', type: 'constant', position: { x: 0, y: 1040 },
       data: { label: 'rowWidth', dataType: 'number', value: 16 } },
-    { id: 'bundle', type: 'bundle', position: { x: 500, y: 420 },
+    { id: 'bundle', type: 'bundle', position: { x: 560, y: 760 },
       data: { label: 'config', bundleFields: [{ name: 'base' }, { name: 'bitWidth' }, { name: 'rowWidth' }] } },
 
     // ── Per-byte ─────────────────────────────────────────────────────────────
-    { id: 'map-hex', type: 'map', position: { x: 880, y: 40 },
+    { id: 'map-hex', type: 'map', position: { x: 1640, y: 60 },
       data: {
         label: 'hex each byte',
         subgraph: {
@@ -547,13 +556,13 @@ export const SHOWCASE_FLOW: FlowData = {
         ],
         resultPort: 'result',
       } },
-    { id: 'hex-inspect', type: 'inspect', position: { x: 1140, y: 40 },
+    { id: 'hex-inspect', type: 'inspect', position: { x: 1920, y: 60 },
       data: { label: 'peek hex' } },
-    { id: 'hex-out', type: 'output', position: { x: 1140, y: 160 },
+    { id: 'hex-out', type: 'output', position: { x: 1920, y: 200 },
       data: { label: 'hexBytes' } },
 
     // ── ROM (Group) ──────────────────────────────────────────────────────────
-    { id: 'rom-group', type: 'group', position: { x: 880, y: 330 },
+    { id: 'rom-group', type: 'group', position: { x: 1300, y: 700 },
       data: {
         label: 'ROM Layout',
         subgraph: {
@@ -581,13 +590,13 @@ export const SHOWCASE_FLOW: FlowData = {
           { name: 'rom', internalNodeId: 'rg-romsch', internalHandle: 'rom', externalNodeId: 'preview-out', externalHandle: 'input', type: { kind: 'schematic' } },
         ],
       } },
-    { id: 'data-inspect', type: 'inspect', position: { x: 1340, y: 360 },
+    { id: 'data-inspect', type: 'inspect', position: { x: 1640, y: 720 },
       data: { label: 'peek digits' } },
-    { id: 'rom-view', type: 'viewer', position: { x: 1560, y: 420 },
+    { id: 'rom-view', type: 'viewer', position: { x: 1900, y: 860 },
       data: { label: 'ROM preview', isResizable: true } },
-    { id: 'data-out', type: 'output', position: { x: 1560, y: 360 },
+    { id: 'data-out', type: 'output', position: { x: 1900, y: 700 },
       data: { label: 'romData' } },
-    { id: 'preview-out', type: 'output', position: { x: 1560, y: 540 },
+    { id: 'preview-out', type: 'output', position: { x: 1900, y: 1080 },
       data: { label: 'romPreview' } },
   ],
   edges: [
@@ -599,7 +608,9 @@ export const SHOWCASE_FLOW: FlowData = {
     { id: 'sx-pdef', source: 'prog', target: 'sw-prog', sourceHandle: 'output', targetHandle: 'default' },
     { id: 'sx-prog', source: 'sw-prog', target: 'asm', sourceHandle: 'output', targetHandle: 'program' },
     { id: 'sx-tap', source: 'asm', target: 'bytes-tap', sourceHandle: 'bytes', targetHandle: 'input' },
-    // Reroute the bytes bus (transparent: outgoing edges keep the `bytes` handle).
+    // Reroute the bytes bus. NOTE: passthrough nodes (reroute/inspect) render a
+    // single `output` handle — edges LEAVING them must use sourceHandle 'output'
+    // (the compiler still resolves transparently to the upstream value).
     { id: 'sx-rr', source: 'asm', target: 'reroute', sourceHandle: 'bytes', targetHandle: 'input' },
 
     // Config → Switch → Bundle
@@ -612,19 +623,279 @@ export const SHOWCASE_FLOW: FlowData = {
     { id: 'cf-rw', source: 'c-rowwidth', target: 'bundle', sourceHandle: 'output', targetHandle: 'rowWidth' },
 
     // Per-byte Map
-    { id: 'pb-map', source: 'reroute', target: 'map-hex', sourceHandle: 'bytes', targetHandle: 'list' },
+    { id: 'pb-map', source: 'reroute', target: 'map-hex', sourceHandle: 'output', targetHandle: 'list' },
     { id: 'pb-insp', source: 'map-hex', target: 'hex-inspect', sourceHandle: 'output', targetHandle: 'input' },
     { id: 'pb-out', source: 'map-hex', target: 'hex-out', sourceHandle: 'output', targetHandle: 'input' },
 
     // ROM Group
-    { id: 'rm-bytes', source: 'reroute', target: 'rom-group', sourceHandle: 'bytes', targetHandle: 'bytes' },
-    { id: 'rm-bytes2', source: 'reroute', target: 'rom-group', sourceHandle: 'bytes', targetHandle: 'bytesSch' },
+    { id: 'rm-bytes', source: 'reroute', target: 'rom-group', sourceHandle: 'output', targetHandle: 'bytes' },
+    { id: 'rm-bytes2', source: 'reroute', target: 'rom-group', sourceHandle: 'output', targetHandle: 'bytesSch' },
     { id: 'rm-config', source: 'bundle', target: 'rom-group', sourceHandle: 'output', targetHandle: 'config' },
     { id: 'rm-data-insp', source: 'rom-group', target: 'data-inspect', sourceHandle: 'data', targetHandle: 'input' },
-    { id: 'rm-data-out', source: 'data-inspect', target: 'data-out', sourceHandle: 'data', targetHandle: 'input' },
+    { id: 'rm-data-out', source: 'data-inspect', target: 'data-out', sourceHandle: 'output', targetHandle: 'input' },
     { id: 'rm-prev', source: 'rom-group', target: 'rom-view', sourceHandle: 'rom', targetHandle: 'input' },
     { id: 'rm-prev-out', source: 'rom-group', target: 'preview-out', sourceHandle: 'rom', targetHandle: 'input' },
   ],
 };
 
-export const EXAMPLE_FLOWS: FlowData[] = [JULIA_STITCH_FLOW, WORLDGEN_FLOW, SHOWCASE_FLOW];
+// ─── Mandelbrot ─────────────────────────────────────────────────────────────
+// Escape-time Mandelbrot rendered as a FLAT (1 block tall) concrete pixel wall.
+// You pick the iteration count, the complex-plane window (reMin/reMax/imMin/
+// imMax) and the output resolution (width × height in blocks). Each block is one
+// pixel: black = inside the set, a cool→warm concrete gradient = escape speed.
+export const MANDELBROT_SOURCE = `type Inputs = {
+  iterations: Slider<{ min: 16; max: 256; default: 80 }>;
+  reMin: number;
+  reMax: number;
+  imMin: number;
+  imMax: number;
+  width: Slider<{ min: 16; max: 256; default: 128 }>;
+  height: Slider<{ min: 16; max: 192; default: 96 }>;
+};
+
+type Outputs = {
+  schematic: Schematic;
+  preview: Image;
+};
+
+// Cool -> warm concrete by escape speed; black = the set interior.
+const GRADIENT = [
+  'minecraft:blue_concrete',
+  'minecraft:cyan_concrete',
+  'minecraft:light_blue_concrete',
+  'minecraft:lime_concrete',
+  'minecraft:yellow_concrete',
+  'minecraft:orange_concrete',
+  'minecraft:red_concrete',
+  'minecraft:white_concrete',
+];
+
+function generate(inputs) {
+  const maxIter = (inputs.iterations | 0) || 80;
+  const W = Math.max(1, inputs.width | 0);
+  const H = Math.max(1, inputs.height | 0);
+  // Plane window — defaults frame the whole set if an input is missing.
+  const reMin = inputs.reMin ?? -2.5;
+  const reMax = inputs.reMax ?? 1.0;
+  const imMin = inputs.imMin ?? -1.25;
+  const imMax = inputs.imMax ?? 1.25;
+
+  const schem = new Schematic();
+  const field = [];
+  let anyEscaped = false;
+
+  for (let pz = 0; pz < H; pz++) {
+    if (pz % 8 === 0) Progress.report((pz / H) * 100, 'mandelbrot row ' + pz + '/' + H);
+    const rowField = [];
+    // Flip the imaginary axis so +im is at the top (pz = 0).
+    const cIm = imMax - (H > 1 ? pz / (H - 1) : 0.5) * (imMax - imMin);
+    for (let px = 0; px < W; px++) {
+      const cRe = reMin + (W > 1 ? px / (W - 1) : 0.5) * (reMax - reMin);
+      let zx = 0, zy = 0, it = 0;
+      while (zx * zx + zy * zy <= 4 && it < maxIter) {
+        const xt = zx * zx - zy * zy + cRe;
+        zy = 2 * zx * zy + cIm;
+        zx = xt;
+        it++;
+      }
+      let block;
+      let t;
+      if (it >= maxIter) {
+        block = 'minecraft:black_concrete';
+        t = 0; // interior -> dark in the preview
+      } else {
+        anyEscaped = true;
+        t = it / maxIter;
+        block = GRADIENT[Math.min(GRADIENT.length - 1, Math.floor(t * GRADIENT.length))];
+      }
+      schem.set_block(px, 0, pz, block); // flat: single y = 0 plane
+      rowField.push(t);
+    }
+    field.push(rowField);
+  }
+
+  // A single-palette schematic trips a divide-by-zero in nucleation's region
+  // packing (same guard as the Julia tile) — vary one block when all interior.
+  if (!anyEscaped) {
+    schem.set_block(0, 0, 0, 'minecraft:gray_concrete');
+  }
+
+  return { schematic: schem, preview: Image.fromField(field, 'magma') };
+}
+`;
+
+const MANDELBROT_CONTRACT: BlockContract = {
+  inputs: {
+    iterations: { kind: 'number', widget: 'slider', min: 16, max: 256, default: 80 },
+    // Plain `number` annotations in the source carry no default (the input nodes
+    // supply the values); keep these bare so the embedded contract matches what
+    // the parser derives — see exampleFlows.test.ts.
+    reMin: { kind: 'number' },
+    reMax: { kind: 'number' },
+    imMin: { kind: 'number' },
+    imMax: { kind: 'number' },
+    width: { kind: 'number', widget: 'slider', min: 16, max: 256, default: 128 },
+    height: { kind: 'number', widget: 'slider', min: 16, max: 192, default: 96 },
+  },
+  outputs: {
+    schematic: { kind: 'schematic' },
+    preview: { kind: 'image' },
+  },
+};
+
+const MB_IN = (
+  id: string,
+  label: string,
+  value: number,
+  y: number,
+  extra: Record<string, unknown> = {}
+): FlowData['nodes'][number] => ({
+  id,
+  type: 'input',
+  position: { x: 0, y },
+  data: { label, value, dataType: 'number', widgetType: 'number', ...extra },
+});
+
+export const MANDELBROT_FLOW: FlowData = {
+  id: 'example-mandelbrot',
+  name: 'Mandelbrot',
+  version: '1.0.0',
+  createdAt: 0,
+  nodes: [
+    MB_IN('m-iter', 'iterations', 80, 0, { widgetType: 'slider', min: 16, max: 256 }),
+    MB_IN('m-remin', 'reMin', -2.5, 110, { step: 0.05 }),
+    MB_IN('m-remax', 'reMax', 1.0, 190, { step: 0.05 }),
+    MB_IN('m-immin', 'imMin', -1.25, 270, { step: 0.05 }),
+    MB_IN('m-immax', 'imMax', 1.25, 350, { step: 0.05 }),
+    MB_IN('m-width', 'width', 128, 430, { widgetType: 'slider', min: 16, max: 256 }),
+    MB_IN('m-height', 'height', 96, 540, { widgetType: 'slider', min: 16, max: 192 }),
+    {
+      id: 'm-gen',
+      type: 'code',
+      position: { x: 360, y: 180 },
+      data: {
+        label: 'Mandelbrot',
+        code: MANDELBROT_SOURCE,
+        contract: MANDELBROT_CONTRACT,
+        io: contractToIO(MANDELBROT_CONTRACT),
+      },
+    },
+    {
+      id: 'm-preview',
+      type: 'viewer',
+      position: { x: 820, y: 60 },
+      data: { label: 'Preview (magma)', isResizable: true },
+    },
+    {
+      id: 'm-out',
+      type: 'output',
+      position: { x: 820, y: 420 },
+      data: { label: 'mandelbrot' },
+    },
+  ],
+  edges: [
+    { id: 'me-iter', source: 'm-iter', target: 'm-gen', sourceHandle: 'output', targetHandle: 'iterations' },
+    { id: 'me-remin', source: 'm-remin', target: 'm-gen', sourceHandle: 'output', targetHandle: 'reMin' },
+    { id: 'me-remax', source: 'm-remax', target: 'm-gen', sourceHandle: 'output', targetHandle: 'reMax' },
+    { id: 'me-immin', source: 'm-immin', target: 'm-gen', sourceHandle: 'output', targetHandle: 'imMin' },
+    { id: 'me-immax', source: 'm-immax', target: 'm-gen', sourceHandle: 'output', targetHandle: 'imMax' },
+    { id: 'me-width', source: 'm-width', target: 'm-gen', sourceHandle: 'output', targetHandle: 'width' },
+    { id: 'me-height', source: 'm-height', target: 'm-gen', sourceHandle: 'output', targetHandle: 'height' },
+    { id: 'me-prev', source: 'm-gen', target: 'm-preview', sourceHandle: 'preview', targetHandle: 'input' },
+    { id: 'me-out', source: 'm-gen', target: 'm-out', sourceHandle: 'schematic', targetHandle: 'input' },
+  ],
+};
+
+// ─── Carbon 1.1 ─────────────────────────────────────────────────────────────
+// Build a program for tony-ist's Carbon 1.1 (8-bit ACC-based redstone CPU): a
+// selector picks one of three real Carbon programs, the Carbon assembler turns
+// it into machine-code bytes (byte-exact vs the Rust reference), and the bytes
+// drive a ROM schematic. The case-0 program is an editable textarea.
+const CARBON_COUNTER = `LIM R1 0       // counter = 0
+.loop
+RLD R1         // acc = counter
+PST $0         // emit on port 0
+INC R1         // counter++
+BRC JMP .loop  // forever`;
+
+const CARBON_LINE = `LIM R3 0       // X
+PLD $0
+RST R1         // slope
+PLD $1
+RST R2         // y-intercept
+.loop
+RLD R1
+RST R4
+.inner
+RLD R2
+PST $6         // port Y
+INC R2
+DEC R4
+BRC NEQ .inner
+INC R3
+RLD R3
+PST $7         // port X
+BRC JMP .loop`;
+
+const CARBON_MATH = `LIM R0 7
+RST R1         // R1 = 7
+LIM R0 5       // acc = 5
+CMP R1         // flags = acc - R1
+BRC GT .bigger
+LIM R0 0
+PST $1
+HLT
+.bigger
+LIM R0 255
+PST $1`;
+
+export const CARBON_FLOW: FlowData = {
+  id: 'example-carbon',
+  name: 'Carbon 1.1 ASM → ROM',
+  version: '1.0.0',
+  createdAt: 0,
+  nodes: [
+    { id: 'cb-prog', type: 'input', position: { x: 0, y: 40 },
+      data: { label: 'fibonacci', value: CARBON_FIB, dataType: 'string', widgetType: 'textarea', description: 'Carbon assembly (case 0) — the simple validator' } },
+    { id: 'cb-counter', type: 'constant', position: { x: 0, y: 300 },
+      data: { label: 'counter', dataType: 'string', value: CARBON_COUNTER } },
+    { id: 'cb-math', type: 'constant', position: { x: 0, y: 380 },
+      data: { label: 'compare', dataType: 'string', value: CARBON_MATH } },
+    { id: 'cb-line', type: 'constant', position: { x: 0, y: 460 },
+      data: { label: 'line / slope', dataType: 'string', value: CARBON_LINE } },
+    { id: 'cb-mandel', type: 'constant', position: { x: 0, y: 540 },
+      data: { label: 'mandelbrot (BatPU-2 port)', dataType: 'string', value: CARBON_MANDEL } },
+    { id: 'cb-sel', type: 'constant', position: { x: 0, y: 620 },
+      data: { label: 'program selector', dataType: 'number', value: 0 } },
+    { id: 'cb-switch', type: 'switch', position: { x: 320, y: 240 },
+      data: { label: 'which program', caseCount: 5 } },
+    { id: 'cb-asm', type: 'code', position: { x: 620, y: 60 },
+      data: { label: 'Carbon 1.1 Assembler', ...ASM_ROM('carbon-assembler') } },
+    { id: 'cb-hex', type: 'viewer', position: { x: 960, y: 40 },
+      data: { label: 'hex', isResizable: true } },
+    { id: 'cb-bytes', type: 'inspect', position: { x: 960, y: 320 },
+      data: { label: 'peek bytes' } },
+    { id: 'cb-rom', type: 'code', position: { x: 1240, y: 220 },
+      data: { label: 'Carbon ROM', ...ASM_ROM('carbon-rom') } },
+    { id: 'cb-romview', type: 'viewer', position: { x: 1560, y: 80 },
+      data: { label: 'ROM preview', isResizable: true } },
+    { id: 'cb-out', type: 'output', position: { x: 1560, y: 420 },
+      data: { label: 'carbonRom' } },
+  ],
+  edges: [
+    { id: 'cbe-sel', source: 'cb-sel', target: 'cb-switch', sourceHandle: 'output', targetHandle: 'selector' },
+    { id: 'cbe-c0', source: 'cb-prog', target: 'cb-switch', sourceHandle: 'output', targetHandle: 'case0' },
+    { id: 'cbe-c1', source: 'cb-counter', target: 'cb-switch', sourceHandle: 'output', targetHandle: 'case1' },
+    { id: 'cbe-c2', source: 'cb-math', target: 'cb-switch', sourceHandle: 'output', targetHandle: 'case2' },
+    { id: 'cbe-c3', source: 'cb-line', target: 'cb-switch', sourceHandle: 'output', targetHandle: 'case3' },
+    { id: 'cbe-c4', source: 'cb-mandel', target: 'cb-switch', sourceHandle: 'output', targetHandle: 'case4' },
+    { id: 'cbe-prog', source: 'cb-switch', target: 'cb-asm', sourceHandle: 'output', targetHandle: 'program' },
+    { id: 'cbe-hex', source: 'cb-asm', target: 'cb-hex', sourceHandle: 'hex', targetHandle: 'input' },
+    { id: 'cbe-bytes', source: 'cb-asm', target: 'cb-bytes', sourceHandle: 'bytes', targetHandle: 'input' },
+    { id: 'cbe-rom', source: 'cb-asm', target: 'cb-rom', sourceHandle: 'bytes', targetHandle: 'bytes' },
+    { id: 'cbe-romview', source: 'cb-rom', target: 'cb-romview', sourceHandle: 'rom', targetHandle: 'input' },
+    { id: 'cbe-out', source: 'cb-rom', target: 'cb-out', sourceHandle: 'rom', targetHandle: 'input' },
+  ],
+};
+
+export const EXAMPLE_FLOWS: FlowData[] = [JULIA_STITCH_FLOW, WORLDGEN_FLOW, SHOWCASE_FLOW, MANDELBROT_FLOW, CARBON_FLOW];

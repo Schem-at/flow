@@ -23,10 +23,11 @@
  * are TODO; for now bodies are authored programmatically (`makeMap`).
  */
 
-import { memo, useState, useCallback, useEffect, useMemo } from 'react';
+import { memo, useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Handle, Position, useUpdateNodeInternals, type NodeProps } from '@xyflow/react';
 import { Repeat, ChevronDown, ChevronRight } from 'lucide-react';
 import { useFlowStore } from '../../store/flowStore';
+import { useNodeResizeInternals } from '../../hooks/useNodeResizeInternals';
 import type { MapNodeData } from '@flow/core';
 
 type MapData = Partial<MapNodeData> & { label?: string };
@@ -36,6 +37,10 @@ const MapNode = memo(({ id, data, selected }: NodeProps & { data: MapData }) => 
   const cache = useFlowStore((s) => s.nodeCache[id]);
   const executingNodeId = useFlowStore((s) => s.executingNodeId);
   const updateNodeInternals = useUpdateNodeInternals();
+  const rootRef = useRef<HTMLDivElement>(null);
+  // Re-measure when the node's height changes (expand toggle / error body) so the
+  // header-anchored handles stay attached to their visible dots.
+  useNodeResizeInternals(id, rootRef);
 
   const [expanded, setExpanded] = useState(false);
 
@@ -77,31 +82,33 @@ const MapNode = memo(({ id, data, selected }: NodeProps & { data: MapData }) => 
 
   return (
     <div
+      ref={rootRef}
       onClick={handleClick}
       onDoubleClick={() => setExpanded((v) => !v)}
       className={`relative rounded-xl border bg-neutral-900/95 backdrop-blur min-w-[220px] ${border} transition-colors`}
     >
-      {/* List input (left) */}
-      <Handle
-        id="list"
-        type="target"
-        position={Position.Left}
-        style={{ top: '50%' }}
-        className={`!w-3 !h-3 !border-2 !border-neutral-900 ${connected ? '!bg-cyan-500' : '!bg-neutral-600'}`}
-        title="list"
-      />
-      {/* Mapped-list output (right) */}
-      <Handle
-        id="output"
-        type="source"
-        position={Position.Right}
-        style={{ top: '50%' }}
-        className="!w-3 !h-3 !border-2 !border-neutral-900 !bg-cyan-400"
-        title="mapped list"
-      />
-
-      {/* Header */}
-      <div className="flex items-center gap-2 px-3 py-2.5 border-b border-neutral-800">
+      {/* Header — the single in/out handles are anchored to THIS fixed-height row
+          (not 50% of the whole node) so they stay on their visible dots when the
+          body grows (expand / error). */}
+      <div className="relative flex items-center gap-2 px-3 py-2.5 border-b border-neutral-800">
+        {/* List input (left), anchored to the header row's vertical centre */}
+        <Handle
+          id="list"
+          type="target"
+          position={Position.Left}
+          style={{ top: '50%', left: '-6px', transform: 'translateY(-50%)' }}
+          className={`!w-3 !h-3 !border-2 !border-neutral-900 ${connected ? '!bg-cyan-500' : '!bg-neutral-600'}`}
+          title="list"
+        />
+        {/* Mapped-list output (right), anchored to the header row's centre */}
+        <Handle
+          id="output"
+          type="source"
+          position={Position.Right}
+          style={{ top: '50%', right: '-6px', transform: 'translateY(-50%)' }}
+          className="!w-3 !h-3 !border-2 !border-neutral-900 !bg-cyan-400"
+          title="mapped list"
+        />
         <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-cyan-500/20 border border-cyan-500/30">
           <Repeat className="w-4 h-4 text-cyan-400" />
         </div>

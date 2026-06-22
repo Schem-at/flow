@@ -92,6 +92,11 @@ export { assembleUrcl, formatUrclIR, URCL_MNEMONICS, URCL_PORTS } from './asm/ex
 // its deterministic logic is tested (not hardware-correct bytes). See asm/examples/iris.ts.
 export { assembleIris, lowerIris, encodeIris, IRIS_OPCODES } from './asm/examples/iris.js';
 
+// Carbon 1.1 assembler — a fifth EXAMPLE (8-bit ACC-based Minecraft CPU by
+// tony-ist), hand-rolled on the kit helpers; byte-for-byte vs the Rust reference.
+// See asm/examples/carbon.ts.
+export { assemble as assembleCarbon, toHex as carbonToHex, CARBON_OPCODES, CARBON_CONDITIONS } from './asm/examples/carbon.js';
+
 // Provider→endowed-global-names manifest (drives editor ambient-dts drift guards).
 export { PROVIDER_ENDOWMENT_KEYS, PROVIDER_DECLARATIONS } from './runtime-types.js';
 

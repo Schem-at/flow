@@ -14,6 +14,8 @@ describe('EXAMPLE_BLOCKS', () => {
       'batpu2-assembler',
       'urcl-assembler',
       'iris-assembler',
+      'carbon-assembler',
+      'carbon-rom',
       'julia-grid',
       'schemati-search',
       'schemati-fetch',

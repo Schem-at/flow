@@ -448,20 +448,28 @@ function compileGraph(flow: FlowLike, options: CompileOptions): CompiledFlow {
   const orderNodes = [...codeNodes, ...bundleNodes, ...unbundleNodes, ...groupNodes, ...switchNodes, ...mapNodes];
   const indegree = new Map<string, number>(orderNodes.map((n) => [n.id, 0]));
   const downstream = new Map<string, string[]>();
-  const resolveThroughViewers = (sourceId: string): string | null => {
-    // Walk upward through passthrough viewers to the real producing node.
+  const resolveThroughViewers = (
+    sourceId: string,
+    sourceHandle?: string | null
+  ): { node: string; handle: string | null | undefined } | null => {
+    // Walk upward through passthrough viewers/reroutes/inspects to the real
+    // producing node, carrying the handle of the edge that ACTUALLY produced the
+    // value — a passthrough's single `output` handle is NOT the upstream's output
+    // name (e.g. a reroute fed by asm.bytes must resolve to (asm, 'bytes')).
     let current = sourceId;
+    let handle: string | null | undefined = sourceHandle;
     for (let i = 0; i < 32 && viewerNodes.has(current); i++) {
       const incoming = flow.edges.find((e) => e.target === current);
       if (!incoming) return null;
       current = incoming.source;
+      handle = incoming.sourceHandle;
     }
-    return viewerNodes.has(current) ? null : current;
+    return viewerNodes.has(current) ? null : { node: current, handle };
   };
 
   for (const edge of flow.edges) {
     if (!indegree.has(edge.target)) continue;
-    const realSource = resolveThroughViewers(edge.source);
+    const realSource = resolveThroughViewers(edge.source)?.node ?? null;
     if (realSource && indegree.has(realSource)) {
       indegree.set(edge.target, (indegree.get(edge.target) ?? 0) + 1);
       downstream.set(realSource, [...(downstream.get(realSource) ?? []), edge.target]);
@@ -555,8 +563,10 @@ function compileGraph(flow: FlowLike, options: CompileOptions): CompiledFlow {
   };
 
   /** FlowType of the value flowing out of `sourceId.sourceHandle`. */
-  const sourceType = (sourceId: string, sourceHandle: string | null | undefined): FlowType => {
-    const real = resolveThroughViewers(sourceId);
+  const sourceType = (sourceId: string, rawHandle: string | null | undefined): FlowType => {
+    const resolved = resolveThroughViewers(sourceId, rawHandle);
+    const real = resolved?.node;
+    const sourceHandle = resolved?.handle;
     const node = real ? nodes.get(real) : undefined;
     if (!node) return { kind: 'unknown' };
     if (INPUT_TYPES.has(node.type)) return inputNodeFlowType(node);
@@ -613,9 +623,11 @@ function compileGraph(flow: FlowLike, options: CompileOptions): CompiledFlow {
   };
 
   /** Expression that yields the value flowing out of `sourceId.sourceHandle`. */
-  const sourceExpression = (sourceId: string, sourceHandle: string | null | undefined): string => {
-    const real = resolveThroughViewers(sourceId);
-    if (!real) throw new FlowCompileError(`Viewer chain from "${sourceId}" has no producer`);
+  const sourceExpression = (sourceId: string, rawHandle: string | null | undefined): string => {
+    const resolved = resolveThroughViewers(sourceId, rawHandle);
+    if (!resolved) throw new FlowCompileError(`Viewer chain from "${sourceId}" has no producer`);
+    const real = resolved.node;
+    const sourceHandle = resolved.handle;
     const node = nodes.get(real);
     if (!node) throw new FlowCompileError(`Edge references unknown node "${real}"`);
 

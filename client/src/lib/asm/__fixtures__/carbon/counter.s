@@ -1,0 +1,6 @@
+LIM R1 0
+.loop
+RLD R1
+PST $0
+INC R1
+BRC JMP .loop
