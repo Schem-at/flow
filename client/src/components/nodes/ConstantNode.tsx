@@ -8,7 +8,7 @@
 
 import { memo, useCallback, useState } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import { Hash, Type, ToggleLeft, Box, Move3d, List, Braces } from 'lucide-react';
+import { Hash, Type, ToggleLeft, Box, Move3d, List, Braces, X, Plus } from 'lucide-react';
 import { useFlowStore } from '../../store/flowStore';
 
 type ConstantType = 'number' | 'string' | 'boolean' | 'vec3' | 'block' | 'list' | 'object';
@@ -82,6 +82,46 @@ const JsonWidget = ({
   );
 };
 
+/** Inline editor for `list` constants — number/text chips with add/remove
+ *  instead of raw JSON. Item kind is inferred from the existing values. */
+const ListWidget = ({ value, onChange }: { value: unknown; onChange: (v: unknown) => void }) => {
+  const items = Array.isArray(value) ? (value as unknown[]) : [];
+  const numeric = items.length === 0 || items.every((v) => typeof v === 'number');
+  const setItem = (i: number, raw: string) => {
+    const next = items.slice();
+    next[i] = numeric ? (raw === '' || raw === '-' ? 0 : Number(raw)) : raw;
+    onChange(next);
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-1 nodrag">
+      {items.map((it, i) => (
+        <span key={i} className="flex items-center">
+          <input
+            type={numeric ? 'number' : 'text'}
+            value={String(it ?? '')}
+            onChange={(e) => setItem(i, e.target.value)}
+            className="w-12 px-1.5 py-0.5 bg-neutral-800 border border-neutral-700 rounded text-white text-xs font-mono focus:outline-none focus:border-cyan-500"
+          />
+          <button
+            onClick={() => onChange(items.filter((_, j) => j !== i))}
+            className="ml-0.5 text-neutral-600 hover:text-red-400"
+            title="Remove item"
+          >
+            <X className="w-3 h-3" />
+          </button>
+        </span>
+      ))}
+      <button
+        onClick={() => onChange([...items, numeric ? 0 : ''])}
+        className="flex items-center gap-0.5 rounded border border-neutral-700 px-1.5 py-0.5 text-[11px] text-cyan-300 hover:border-cyan-500"
+        title="Add item"
+      >
+        <Plus className="w-3 h-3" /> add
+      </button>
+    </div>
+  );
+};
+
 const ConstantNode = memo(({ id, data, selected }: NodeProps & { data: ConstantNodeData }) => {
   const updateNodeData = useFlowStore((state) => state.updateNodeData);
   const selectNode = useFlowStore((state) => state.selectNode);
@@ -148,8 +188,9 @@ const ConstantNode = memo(({ id, data, selected }: NodeProps & { data: ConstantN
           </div>
         );
       case 'list':
+        return <ListWidget value={data.value} onChange={setValue} />;
       case 'object':
-        return <JsonWidget value={data.value} onChange={setValue} kind={dataType} />;
+        return <JsonWidget value={data.value} onChange={setValue} kind="object" />;
       case 'block':
       default:
         return (

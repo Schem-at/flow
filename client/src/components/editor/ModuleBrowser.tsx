@@ -10,8 +10,7 @@ import {
   GripVertical
 } from 'lucide-react';
 import { useFlowStore } from '../../store/flowStore';
-import { parseBlockSource } from '../../lib/block/parser';
-import { ioToContract } from '../../lib/block/io-compat';
+import { hydrateModuleToGroup, type ModuleResolvePayload } from '../../lib/moduleHydrate';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL ?? '';
 
@@ -61,27 +60,25 @@ export function ModuleBrowser() {
   });
 
   const handleInsertModule = useCallback(async (module: ModuleItem) => {
-    // Fetch IO schema + contract from the module. The code is the source of
-    // truth (folded sources carry type declarations); legacy modules without
-    // parseable types fall back to the stored io schema.
-    let io = null;
-    let contract = null;
+    // A module is a published group-subgraph: resolve it, hydrate into a `group`
+    // node (boundary derived from io schema; legacy code blobs are wrapped into a
+    // single-code-node subgraph), and insert it. It then folds like any group.
+    let payload: ModuleResolvePayload | null = null;
     try {
       const res = await fetch(`${SERVER_URL}/api/modules/${module.id}/resolve`, { credentials: 'include' });
       const json = await res.json();
       if (json.success && json.ioSchema) {
-        io = json.ioSchema;
+        payload = {
+          subgraph: json.subgraph ?? undefined,
+          ioSchema: json.ioSchema,
+          code: json.code ?? undefined,
+          version: json.version,
+        };
       }
-      if (json.success && json.code) {
-        try {
-          const parsed = await parseBlockSource(json.code);
-          if (Object.keys(parsed.contract.inputs).length || Object.keys(parsed.contract.outputs).length) {
-            contract = parsed.contract;
-          }
-        } catch {}
-      }
-      if (!contract && io) contract = ioToContract(io);
     } catch {}
+    if (!payload) return;
+
+    const groupData = hydrateModuleToGroup(payload, { id: module.id, slug: module.slug });
 
     const maxX = nodes.reduce((max, n) => Math.max(max, (n.position?.x || 0)), 0);
     const centerY = nodes.length > 0
@@ -90,28 +87,21 @@ export function ModuleBrowser() {
 
     addNode({
       id: `module-${module.slug}-${Date.now()}`,
-      type: 'code',
+      type: 'group',
       position: { x: maxX + 300, y: centerY },
       data: {
         label: module.name,
-        code: undefined,
-        moduleRef: {
-          id: module.id,
-          slug: module.slug,
-          version: module.version,
-          pinned: false,
-        },
-        io,
-        contract: contract ?? undefined,
+        ...groupData,
       },
     });
   }, [addNode, nodes]);
 
   const handleDragStart = useCallback((event: React.DragEvent, module: ModuleItem) => {
-    event.dataTransfer.setData('application/reactflow', 'code');
+    // Dropped as a `group` carrying a moduleRef; FlowRunner resolves + hydrates
+    // the subgraph at run time (and the canvas drop handler may hydrate eagerly).
+    event.dataTransfer.setData('application/reactflow', 'group');
     event.dataTransfer.setData('application/reactflow-data', JSON.stringify({
       label: module.name,
-      code: undefined,
       moduleRef: {
         id: module.id,
         slug: module.slug,

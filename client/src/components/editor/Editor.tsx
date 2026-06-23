@@ -19,7 +19,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import type { Edge } from '@xyflow/react';
 import type { TracedResult } from '@flow/core';
-import { isAssetNodeData, assetNodeValue, compileFlow, FlowCompileError } from '@flow/core';
+import { isAssetNodeData, assetNodeValue, compileFlow, compileBlock, FlowCompileError } from '@flow/core';
 import { type FlowNode } from '../../store/flowStore';
 import {
   collectFlowInputs,
@@ -63,6 +63,7 @@ import { CommandPalette } from '../ui/CommandPalette';
 import { MobileNodeDrawer } from './MobileNodeDrawer';
 import { useLocalExecutor } from '../../hooks/useLocalExecutor';
 import { parseExecutionError, createSimpleError } from '../../lib/utils';
+import { compileCulprits } from '../../lib/compileCulprits';
 import { EXAMPLE_FLOWS } from '../../lib/exampleFlows';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL ?? '';
@@ -741,6 +742,23 @@ export function Editor() {
         }
       }
 
+      // A folded run can fail as ONE script (e.g. a type-strip / syntax error in
+      // a single node's body). Attribute it to the SPECIFIC culprit node(s) by
+      // re-compiling each node's source, instead of flagging every code node.
+      const flagFoldedError = (execError: ReturnType<typeof parseExecutionError>) => {
+        const culprits = compileCulprits(nodes, compileBlock);
+        if (culprits.length) {
+          for (const c of culprits) {
+            setNodeExecutionStatus(c.id, 'error', undefined, parseExecutionError(c.error));
+          }
+        } else {
+          // No single node is at fault — the failure is in the fold itself.
+          for (const node of nodes.filter((n) => n.type === 'code')) {
+            setNodeExecutionStatus(node.id, 'error', undefined, execError);
+          }
+        }
+      };
+
       // 3. EXECUTE the folded source once on the shared worker.
       let result;
       try {
@@ -748,10 +766,7 @@ export function Editor() {
       } catch (err) {
         const execError = parseExecutionError(err as Error);
         addExecutionLog(`[ERROR] ${execError.message}`);
-        // Surface on code nodes (the executable ones) — leave the rest intact.
-        for (const node of nodes.filter((n) => n.type === 'code')) {
-          setNodeExecutionStatus(node.id, 'error', undefined, execError);
-        }
+        flagFoldedError(execError);
         setIsExecuting(false);
         setExecutingNodeId(null);
         return;
@@ -762,9 +777,7 @@ export function Editor() {
           ? parseExecutionError(result.error)
           : createSimpleError('Unknown execution error');
         addExecutionLog(`[ERROR] ${execError.message}`);
-        for (const node of nodes.filter((n) => n.type === 'code')) {
-          setNodeExecutionStatus(node.id, 'error', undefined, execError);
-        }
+        flagFoldedError(execError);
         setIsExecuting(false);
         setExecutingNodeId(null);
         return;

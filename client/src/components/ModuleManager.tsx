@@ -145,7 +145,7 @@ export function ModuleManager() {
             <div className="flex flex-col items-center py-24">
               <Package className="w-8 h-8 text-neutral-700 mb-3" />
               <p className="text-sm text-neutral-400 mb-1">{search ? 'No matches' : 'No modules yet'}</p>
-              <p className="text-xs text-neutral-600 mb-4">Extract code from any flow node to create a module</p>
+              <p className="text-xs text-neutral-600 mb-4">Publish a flow or group as a module to reuse it across flows</p>
             </div>
           )}
 

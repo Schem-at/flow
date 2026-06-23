@@ -495,13 +495,27 @@ const ViewerNode = memo(({ id, data, selected, width, height }: NodeProps & { da
     let upstreamType: FlowType | null = null;
     if (inputEdge) {
       const sourceNode = state.nodes.find(n => n.id === inputEdge.source);
-      const contract = (sourceNode?.data as { contract?: BlockContract } | undefined)?.contract;
+      const data = sourceNode?.data as {
+        contract?: BlockContract;
+        groupOutputs?: Array<{ name: string; type?: FlowType }>;
+        bodyOutputs?: Array<{ name: string; type?: FlowType }>;
+      } | undefined;
+      const contract = data?.contract;
       if (contract) {
         if (inputEdge.sourceHandle && contract.outputs[inputEdge.sourceHandle]) {
           upstreamType = contract.outputs[inputEdge.sourceHandle];
         } else {
           const outputs = Object.values(contract.outputs);
           if (outputs.length === 1) upstreamType = outputs[0];
+        }
+      } else {
+        // Group / map / subflow meta-nodes carry typed boundary ports instead of
+        // a `contract` — resolve the output FlowType from those so the typed
+        // viewer (e.g. schematic gallery) works when the source is a group.
+        const ports = data?.groupOutputs ?? data?.bodyOutputs;
+        if (Array.isArray(ports) && inputEdge.sourceHandle) {
+          const port = ports.find((p) => p.name === inputEdge.sourceHandle);
+          if (port?.type) upstreamType = port.type;
         }
       }
     }

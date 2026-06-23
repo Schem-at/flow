@@ -60,14 +60,55 @@ export function Vec3Viewer({ value }: ViewerProps) {
   );
 }
 
+/**
+ * Coerce a (possibly worker-serialized) byte payload into a Uint8Array.
+ * A schematic's bytes cross the worker / cache boundary in several shapes:
+ *   - a real Uint8Array / ArrayBuffer (structured clone),
+ *   - a plain number[] (Array.from somewhere),
+ *   - a numeric-keyed object {0:31,1:139,…} (JSON-serialized typed array —
+ *     this is what each tile in a Schematic[][] becomes),
+ *   - a string (raw NBT text, matching SchematicPreview's encode path).
+ * Returns null only when there are genuinely no bytes.
+ */
+function coerceBytes(d: unknown): Uint8Array | null {
+  if (d instanceof Uint8Array) return d;
+  if (d instanceof ArrayBuffer) return new Uint8Array(d);
+  if (ArrayBuffer.isView(d)) return new Uint8Array((d as ArrayBufferView).buffer);
+  if (Array.isArray(d)) return Uint8Array.from(d as number[]);
+  if (typeof d === 'string') return new TextEncoder().encode(d);
+  // A LIVE wasm-bindgen Schematic object (e.g. each tile in a Schematic[][])
+  // exposes no `data` field — serialize it via `to_schematic()` (same pattern as
+  // the schemati provider: `source.to_schematic?.() ?? source.data`).
+  if (d && typeof (d as { to_schematic?: unknown }).to_schematic === 'function') {
+    try {
+      const bytes = (d as { to_schematic: () => Uint8Array }).to_schematic();
+      if (bytes instanceof Uint8Array) return new Uint8Array(bytes);
+    } catch {
+      /* fall through to other shapes */
+    }
+  }
+  if (d && typeof d === 'object') {
+    const keys = Object.keys(d as Record<string, unknown>);
+    if (keys.length && keys.every((k) => /^\d+$/.test(k))) {
+      let max = -1;
+      for (const k of keys) { const n = Number(k); if (n > max) max = n; }
+      const rec = d as Record<string, number>;
+      const out = new Uint8Array(max + 1);
+      for (const k of keys) out[Number(k)] = rec[k];
+      return out;
+    }
+  }
+  return null;
+}
+
 /** Coerce worker-returned schematic values into renderer bytes. */
-function toBytes(value: unknown): Uint8Array | null {
-  if (value instanceof Uint8Array) return value;
-  if (value instanceof ArrayBuffer) return new Uint8Array(value);
+export function toBytes(value: unknown): Uint8Array | null {
+  const direct = coerceBytes(value);
+  if (direct) return direct;
   if (value && typeof value === 'object') {
     const obj = value as Record<string, unknown>;
-    if (obj.data instanceof Uint8Array) return obj.data;
-    if (obj.data instanceof ArrayBuffer) return new Uint8Array(obj.data);
+    const fromData = coerceBytes(obj.data);
+    if (fromData) return fromData;
     if ('buffer' in obj) {
       try {
         return new Uint8Array((obj as { buffer: ArrayBufferLike }).buffer);
@@ -107,7 +148,20 @@ export function SchematicViewer({ value, getData }: ViewerProps) {
     return <p className="text-xs text-neutral-500">Loading schematic…</p>;
   }
   if (!bytes) {
-    return <p className="text-xs text-neutral-500">No schematic data</p>;
+    // Diagnostic: surface the actual value shape so a "No schematic data" cell
+    // tells us WHY coercion failed (handle vs data-type) without a console.
+    const v = value as Record<string, unknown> | null;
+    const hint =
+      v && typeof v === 'object'
+        ? v._schematicHandle
+          ? 'handle'
+          : `data:${Array.isArray(v.data) ? 'array' : typeof v.data} · {${Object.keys(v).slice(0, 4).join(',')}}`
+        : String(typeof value);
+    return (
+      <p className="text-xs text-neutral-500">
+        No schematic data <span className="text-neutral-700">({hint})</span>
+      </p>
+    );
   }
   return (
     <div className="h-64 overflow-hidden rounded-md border border-neutral-800">

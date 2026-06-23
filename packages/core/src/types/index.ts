@@ -162,6 +162,7 @@ export type NodeType =
   // Semantic object meta-nodes
   | 'bundle'            // Packs named inputs into one object
   | 'unbundle'          // Splits an object into named outputs
+  | 'form'              // Dense multi-field input form (expands to input + bundle)
   // Group / subflow meta-node (collapses a selection into a nested subgraph)
   | 'group'             // Embedded subgraph with a derived boundary contract
   // Control-flow meta-nodes

@@ -24,11 +24,23 @@ export function composeBlockSource(contract: BlockContract, bodyText: string): s
   return body.length > 0 ? `${contractSource}\n\n${body}\n` : `${contractSource}\n`;
 }
 
+/**
+ * A property name usable as a bare TS key, else JSON-quoted. Input/field names
+ * come from user labels and may contain spaces ("world size") or other
+ * non-identifier characters — those MUST be quoted or the emitted `type Inputs`
+ * is invalid TS and stripping the whole folded source fails. The generate body
+ * already reads inputs via bracket access (`inputs["world size"]`), so quoting
+ * the declaration is sufficient.
+ */
+function propKey(name: string): string {
+  return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name) ? name : JSON.stringify(name);
+}
+
 /** Top-level record: multiline with 2-space indent (or `{}` when empty). */
 function emitRecord(fields: Record<string, FlowType>): string {
   const entries = Object.entries(fields);
   if (entries.length === 0) return '{}';
-  const lines = entries.map(([name, type]) => `  ${name}: ${emitType(type)};`);
+  const lines = entries.map(([name, type]) => `  ${propKey(name)}: ${emitType(type)};`);
   return `{\n${lines.join('\n')}\n}`;
 }
 
@@ -67,7 +79,7 @@ function emitType(type: FlowType): string {
     case 'object': {
       const entries = Object.entries(type.fields);
       if (entries.length === 0) return '{}';
-      const members = entries.map(([name, field]) => `${name}: ${emitType(field)}`);
+      const members = entries.map(([name, field]) => `${propKey(name)}: ${emitType(field)}`);
       return `{ ${members.join('; ')} }`;
     }
     case 'unknown':

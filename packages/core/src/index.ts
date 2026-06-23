@@ -56,6 +56,14 @@ export {
   type UngroupResult,
 } from './compile/index.js';
 
+// Form meta-node (dense multi-field input form; expands to input + bundle nodes)
+export {
+  expandFormNodes,
+  isFormNodeData,
+  type FormField,
+  type FormNodeData,
+} from './compile/form.js';
+
 // Flow assets (binary payloads bundled inside flows via asset nodes)
 export {
   assetNodeValue,

@@ -111,6 +111,9 @@ export interface FlowNode extends Node {
     groupOutputs?: GroupNodeData['groupOutputs'];
     // Switch / select meta-node: number of `case` input ports (default 2).
     caseCount?: number;
+    // Form meta-node: dense multi-field input form (expands to input + bundle).
+    fields?: import('@flow/core').FormField[];
+    bundle?: { enabled?: boolean; name?: string };
     // Map / iterate meta-node: body boundary contract (reuses the subgraph shape
     // above). `item`/`index` are body INPUTS; `result` (resultPort) is collected.
     bodyInputs?: MapNodeData['bodyInputs'];
@@ -563,6 +566,11 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     // as a literal, so a value change must re-run the flow in live mode exactly
     // like an input node (otherwise tweaking a constant does nothing live).
     const isValueNode = isInputNode || node?.type === 'constant';
+    // Form nodes are value producers too (they expand to input + bundle nodes at
+    // compile), but their values live under `fields`/`bundle`, not `value` — so a
+    // field tweak must invalidate + re-run in live mode just like an input.
+    const isFormNode = node?.type === 'form';
+    const formChanged = isFormNode && ('fields' in data || 'bundle' in data);
 
     // For input/constant nodes, update the cache with the new value immediately
     // For code nodes, invalidate on code changes
@@ -578,10 +586,10 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     
     // For input/constant nodes with value changes, update cache and invalidate
     // downstream. Also check if we should trigger live execution.
-    if (isValueNode && 'value' in data) {
-      get().setNodeOutput(nodeId, { output: data.value });
+    if ((isValueNode && 'value' in data) || formChanged) {
+      if (isValueNode && 'value' in data) get().setNodeOutput(nodeId, { output: data.value });
       get().invalidateDownstream(nodeId);
-      
+
       // Emit event for live execution if in live mode (debounced)
       const currentTimer = get().liveExecutionTimer;
       if (currentTimer) {
@@ -597,7 +605,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
         }
         set({ liveExecutionTimer: null });
       }, 300);
-      
+
       set({ liveExecutionTimer: timer });
     } else if (shouldInvalidate) {
       get().invalidateNode(nodeId);
@@ -657,6 +665,62 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     if (ids.length === 0) return null;
 
     const byId = new Map(state.nodes.map((n) => [n.id, n]));
+
+    // All-inputs selection → collapse into a dense FORM node (each input becomes
+    // a field; its outgoing edges rewire to the form's per-field handle). Denser
+    // than N input nodes; folds identically via expandFormNodes.
+    const selectedNodes = ids.map((id) => byId.get(id)).filter((n): n is FlowNode => !!n);
+    if (selectedNodes.length >= 2 && selectedNodes.every((n) => n.type === 'input')) {
+      if (!state.isUndoRedoing) get().pushHistory();
+      const formId = nextGroupId();
+      const usedNames = new Set<string>();
+      const fieldNameById = new Map<string, string>();
+      const fields = selectedNodes.map((n) => {
+        const base = String(n.data.label || 'field').replace(/\s+/g, '_').replace(/[^\w]/g, '') || 'field';
+        let name = base, k = 2;
+        while (usedNames.has(name)) name = `${base}_${k++}`;
+        usedNames.add(name);
+        fieldNameById.set(n.id, name);
+        const hasOpts = Array.isArray(n.data.options) && (n.data.options as unknown[]).length > 0;
+        const dataType = hasOpts ? ('enum' as const) : ((n.data.dataType as 'number' | 'string' | 'boolean' | undefined) ?? 'string');
+        const wt = n.data.widgetType;
+        const widgetType =
+          wt === 'slider' ? ('slider' as const)
+          : (hasOpts || wt === 'select') ? ('select' as const)
+          : dataType === 'boolean' ? ('toggle' as const)
+          : dataType === 'number' ? ('number' as const)
+          : ('text' as const);
+        return {
+          name, label: n.data.label, dataType, widgetType, value: n.data.value,
+          min: n.data.min, max: n.data.max, step: n.data.step,
+          options: n.data.options as string[] | undefined,
+        };
+      });
+      const cx = selectedNodes.reduce((s, n) => s + (n.position?.x ?? 0), 0) / selectedNodes.length;
+      const cy = selectedNodes.reduce((s, n) => s + (n.position?.y ?? 0), 0) / selectedNodes.length;
+      const removed = new Set(ids);
+      const formNode: FlowNode = {
+        id: formId, type: 'form', position: { x: cx, y: cy },
+        data: { label: 'Form', fields, bundle: { enabled: false, name: 'values' } },
+        selected: true,
+      };
+      const formEdges = state.edges
+        .filter((e) => !removed.has(e.target))
+        .map((e) => removed.has(e.source)
+          ? { ...e, source: formId, sourceHandle: fieldNameById.get(e.source) ?? e.sourceHandle }
+          : e);
+      const formCache = { ...state.nodeCache };
+      for (const id of removed) delete formCache[id];
+      formCache[formId] = { status: 'idle' };
+      set({
+        nodes: [...state.nodes.filter((n) => !removed.has(n.id)).map((n) => ({ ...n, selected: false })), formNode],
+        edges: formEdges,
+        selectedNodeId: formId,
+        nodeCache: formCache,
+      });
+      return formId;
+    }
+
     // Producing-port FlowType resolver, so boundary ports carry real types.
     const typeOf = (sourceId: string, handle: string | null | undefined): FlowType => {
       const node = byId.get(sourceId);
@@ -721,8 +785,46 @@ export const useFlowStore = create<FlowState>((set, get) => ({
 
   ungroupNode: (groupId) => {
     const state = get();
-    const group = state.nodes.find((n) => n.id === groupId);
-    if (!group || group.type !== 'group') return;
+    const node = state.nodes.find((n) => n.id === groupId);
+    if (!node) return;
+
+    // A FORM node expands back into individual input nodes (the inverse of the
+    // all-inputs collapse); per-field edges rewire to each input's `output`.
+    if (node.type === 'form') {
+      const fields = (node.data.fields ?? []) as import('@flow/core').FormField[];
+      if (!state.isUndoRedoing) get().pushHistory();
+      const bx = node.position?.x ?? 0, by = node.position?.y ?? 0;
+      const inputIdByField = new Map<string, string>();
+      const newInputs: FlowNode[] = fields.map((f, i) => {
+        const inId = `${groupId}_in_${f.name}`;
+        inputIdByField.set(f.name, inId);
+        const widgetType = f.widgetType === 'toggle' ? 'boolean' : f.widgetType;
+        const dataType = f.dataType === 'enum' ? 'string' : f.dataType;
+        return {
+          id: inId, type: 'input', position: { x: bx, y: by + i * 80 },
+          data: { label: f.label || f.name, dataType, widgetType, value: f.value, min: f.min, max: f.max, step: f.step, options: f.options },
+          selected: false,
+        } as FlowNode;
+      });
+      const expandedEdges = state.edges
+        .map((e) => (e.source === groupId && e.sourceHandle && inputIdByField.has(e.sourceHandle))
+          ? { ...e, source: inputIdByField.get(e.sourceHandle)!, sourceHandle: 'output' }
+          : e)
+        .filter((e) => e.source !== groupId && e.target !== groupId);
+      const expandCache = { ...state.nodeCache };
+      delete expandCache[groupId];
+      for (const inId of inputIdByField.values()) expandCache[inId] = { status: 'idle' };
+      set({
+        nodes: [...state.nodes.filter((n) => n.id !== groupId), ...newInputs],
+        edges: expandedEdges,
+        selectedNodeId: null,
+        nodeCache: expandCache,
+      });
+      return;
+    }
+
+    const group = node;
+    if (group.type !== 'group') return;
     const data = group.data as unknown as GroupNodeData;
     if (!data.subgraph) return;
 

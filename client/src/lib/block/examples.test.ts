@@ -6,16 +6,6 @@ import { parseBlockSource } from './parser';
 describe('EXAMPLE_BLOCKS', () => {
   it('contains the built-in examples', () => {
     expect(EXAMPLE_BLOCKS.map((b) => b.id)).toEqual([
-      'rom-data',
-      'rom-schematic',
-      'rom-generator',
-      'arpu-assembler',
-      'custom-isa',
-      'batpu2-assembler',
-      'urcl-assembler',
-      'iris-assembler',
-      'carbon-assembler',
-      'carbon-rom',
       'julia-grid',
       'schemati-search',
       'schemati-fetch',

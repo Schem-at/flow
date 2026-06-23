@@ -13,13 +13,20 @@
  */
 
 import { memo, useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Handle, Position, useUpdateNodeInternals, type NodeProps } from '@xyflow/react';
 import { Boxes, ChevronDown, ChevronRight, Ungroup } from 'lucide-react';
 import { useFlowStore } from '../../store/flowStore';
 import { useNodeResizeInternals } from '../../hooks/useNodeResizeInternals';
+import { GroupSubgraphPreview } from './GroupSubgraphPreview';
 import type { GroupNodeData } from '@flow/core';
 
-type GroupData = Partial<GroupNodeData> & { label?: string; expanded?: boolean };
+type GroupData = Partial<GroupNodeData> & {
+  label?: string;
+  expanded?: boolean;
+  /** Present when this group is an instance of a published module. */
+  moduleRef?: { id?: string; slug?: string; version?: string; pinned?: boolean };
+};
 
 /** Map a FlowType kind to a port dot colour (mirrors the other nodes). */
 function kindColor(kind?: string): string {
@@ -49,6 +56,27 @@ const GroupNode = memo(({ id, data, selected }: NodeProps & { data: GroupData })
   useNodeResizeInternals(id, rootRef);
 
   const [expanded, setExpanded] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  // The peek popover is PORTALED to document.body (outside the canvas DOM) so
+  // its nested React Flow renders in a clean context — the outer canvas can't
+  // steal its wheel/pan events and its handles measure (so edges connect). We
+  // anchor it to the node's current screen rect.
+  const [peekRect, setPeekRect] = useState<{ left: number; bottom: number } | null>(null);
+  // Hover "safety": a short close delay bridges the gap between the node and the
+  // popover so you can move the cursor into the preview (to pan/zoom it).
+  const peekTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const openPeek = useCallback(() => {
+    if (peekTimer.current) clearTimeout(peekTimer.current);
+    if (rootRef.current) {
+      const r = rootRef.current.getBoundingClientRect();
+      setPeekRect({ left: r.left, bottom: r.bottom });
+    }
+    setHovered(true);
+  }, []);
+  const closePeek = useCallback(() => {
+    if (peekTimer.current) clearTimeout(peekTimer.current);
+    peekTimer.current = setTimeout(() => setHovered(false), 180);
+  }, []);
 
   // Guard every boundary/subgraph collection with Array.isArray: a present-but-
   // non-array value (malformed/legacy/pasted flow) would pass `?? []` and then
@@ -92,15 +120,59 @@ const GroupNode = memo(({ id, data, selected }: NodeProps & { data: GroupData })
       ref={rootRef}
       onClick={handleClick}
       onDoubleClick={() => setExpanded((v) => !v)}
+      onMouseEnter={openPeek}
+      onMouseLeave={closePeek}
       className={`relative rounded-xl border bg-neutral-900/95 backdrop-blur min-w-[220px] ${border} transition-colors`}
     >
+      {/* Hover peek: a read-only mini-graph of the nested subgraph, without
+          expanding / ungrouping. */}
+      {/* Peek popover is PORTALED to document.body so the nested React Flow lives
+          OUTSIDE the canvas — events aren't stolen and handles measure (edges
+          connect). Anchored to the node's screen rect (position: fixed). */}
+      {hovered && !expanded && subNodes.length > 0 && peekRect &&
+        createPortal(
+          <div
+            onMouseEnter={openPeek}
+            onMouseLeave={closePeek}
+            onClick={(e) => e.stopPropagation()}
+            style={{ position: 'fixed', left: peekRect.left, top: peekRect.bottom + 8, zIndex: 1000 }}
+            className="rounded-lg border border-neutral-700 bg-neutral-900/98 p-2 shadow-2xl backdrop-blur"
+          >
+            <div className="mb-1 flex items-center justify-between text-[10px] uppercase tracking-wider text-neutral-500">
+              <span>Subgraph</span>
+              <span className="normal-case tracking-normal text-neutral-600">drag to pan · scroll to zoom</span>
+            </div>
+            <GroupSubgraphPreview
+              nodes={subNodes as unknown as Parameters<typeof GroupSubgraphPreview>[0]['nodes']}
+              edges={subEdges as unknown as Parameters<typeof GroupSubgraphPreview>[0]['edges']}
+              width={380}
+              height={250}
+            />
+            <div className="mt-1 text-[10px] text-neutral-600">
+              {subNodes.length} node{subNodes.length === 1 ? '' : 's'} · {subEdges.length} edge
+              {subEdges.length === 1 ? '' : 's'} · {inputs.length} in · {outputs.length} out
+            </div>
+          </div>,
+          document.body
+        )}
+
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2.5 border-b border-neutral-800">
         <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-indigo-500/20 border border-indigo-500/30">
           <Boxes className="w-4 h-4 text-indigo-400" />
         </div>
         <div className="flex-1 min-w-0">
-          <div className="font-semibold text-sm text-white truncate">{data?.label || 'Group'}</div>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <div className="font-semibold text-sm text-white truncate">{data?.label || 'Group'}</div>
+            {data?.moduleRef && (
+              <span
+                className="shrink-0 px-1.5 py-0.5 rounded text-[9px] font-medium text-cyan-300 bg-cyan-500/15 border border-cyan-500/30"
+                title={`Shared module ${data.moduleRef.slug ?? ''}${data.moduleRef.version ? '@' + data.moduleRef.version : ''}`}
+              >
+                module{data.moduleRef.version ? ` @${data.moduleRef.version}` : ''}
+              </span>
+            )}
+          </div>
           <div className="text-[10px] text-neutral-500">
             {subNodes.length} node{subNodes.length === 1 ? '' : 's'} · {inputs.length} in · {outputs.length} out
           </div>

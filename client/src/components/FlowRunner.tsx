@@ -9,8 +9,9 @@ import Markdown from 'react-markdown';
 import { Navbar } from './layout/Navbar';
 import { useLocalExecutor } from '../hooks/useLocalExecutor';
 import type { BlockContract, CompiledFlow, FlowLike } from '@flow/core';
-import { defaultInputsForContract, compileFlow, hashFlow, isAssetNodeData, assetNodeValue } from '@flow/core';
+import { defaultInputsForContract, compileFlow, hashFlow, isAssetNodeData, assetNodeValue, expandFormNodes } from '@flow/core';
 import { EXAMPLE_FLOWS } from '../lib/exampleFlows';
+import { hydrateModuleToGroup, type ModuleResolvePayload } from '../lib/moduleHydrate';
 import {
   parseContextFromQuery,
   parseContextMessage,
@@ -23,8 +24,9 @@ import SchematicRenderer from './others/SchematicRenderer';
 /**
  * Tool-mode flow folding: compile the whole graph into ONE script per content
  * hash and run it in a single worker call — no per-node serialization
- * round-trips. Falls back to the per-node walk when folding isn't possible
- * (e.g. module-ref nodes whose code lives on the server).
+ * round-trips. Falls back to the per-node walk when folding isn't possible.
+ * Module instances are hydrated into group nodes (see resolveModuleNodes) before
+ * folding, so they fold statically rather than forcing the per-node fallback.
  */
 const foldCache = new Map<string, CompiledFlow>();
 function getFoldedFlowCached(flow: FlowLike | null): CompiledFlow | null {
@@ -41,6 +43,45 @@ function getFoldedFlowCached(flow: FlowLike | null): CompiledFlow | null {
     console.log('[FlowRunner] folding unavailable:', (error as Error).message);
     return null;
   }
+}
+
+/**
+ * Module instances are `group` nodes carrying a `moduleRef`. Before folding,
+ * resolve any that aren't yet hydrated (drag-dropped refs, or legacy `code`
+ * nodes with a moduleRef from before the group consolidation) into a hydrated
+ * group subgraph — so the whole flow folds statically and there's no per-node
+ * module fetch at run time. Already-hydrated module groups pass through.
+ */
+const moduleResolveCache = new Map<string, ModuleResolvePayload>();
+async function resolveModuleNodes(nodes: FlowNode[]): Promise<FlowNode[]> {
+  const out: FlowNode[] = [];
+  for (const node of nodes) {
+    const ref = node.data.moduleRef;
+    const alreadyHydrated =
+      node.type === 'group' && Array.isArray(node.data.subgraph?.nodes) && node.data.subgraph!.nodes.length > 0;
+    if (!ref?.id || alreadyHydrated) {
+      out.push(node);
+      continue;
+    }
+    const key = `${ref.id}@${ref.version || 'latest'}`;
+    let payload = moduleResolveCache.get(key);
+    if (!payload) {
+      const params = ref.version ? `?version=${encodeURIComponent(ref.version)}` : '';
+      const res = await fetch(`${SERVER_URL}/api/modules/${ref.id}/resolve${params}`, { credentials: 'include' });
+      const json = await res.json();
+      if (!json.success || !json.ioSchema) throw new Error(`Failed to load module: ${ref.id}`);
+      payload = {
+        subgraph: json.subgraph ?? undefined,
+        ioSchema: json.ioSchema,
+        code: json.code ?? undefined,
+        version: json.version,
+      };
+      moduleResolveCache.set(key, payload);
+    }
+    const g = hydrateModuleToGroup(payload, { id: ref.id, slug: ref.slug ?? ref.id });
+    out.push({ ...node, type: 'group', data: { ...node.data, ...g } } as FlowNode);
+  }
+  return out;
 }
 import { cacheFile, getCachedFile } from '../lib/fileCache';
 
@@ -66,6 +107,10 @@ interface FlowNode {
     code?: string;
     dataType?: string;
     moduleRef?: { id: string; slug?: string; version?: string; pinned?: boolean };
+    // Group/module instances carry a hydrated subgraph + boundary.
+    subgraph?: { nodes: unknown[]; edges: unknown[] };
+    groupInputs?: unknown[];
+    groupOutputs?: unknown[];
     config?: Record<string, unknown>;
     io?: {
       inputs: Record<string, IOPort>;
@@ -225,8 +270,24 @@ export function FlowRunner({ embed = false }: FlowRunnerProps = {}) {
   const { inputNodes, codeNodes, outputNodes, edges } = useMemo(() => {
     if (!data?.jsonContent) return { inputNodes: [], codeNodes: [], outputNodes: [], edges: [] };
     const nodes = data.jsonContent.nodes;
+    // Form nodes expand into one synthetic `input` per field so the run panel
+    // lists each field. (The fold path stays on RAW nodes/edges below; compileFlow
+    // expands forms itself.) Synthetic inputs carry inline widget config, so we
+    // project it into `config` the same way exampleToFlowData does.
+    const expandedInputs = (expandFormNodes({ nodes, edges: data.jsonContent.edges } as FlowLike)
+      .nodes as unknown as FlowNode[])
+      .filter((n) => INPUT_TYPES.includes(n.type))
+      .map((node) => {
+        const d = node.data as Record<string, unknown>;
+        if (d.config || ['min', 'max', 'step', 'options'].every((k) => d[k] === undefined)) return node;
+        const config: Record<string, unknown> = { ...(node.data.config ?? {}) };
+        for (const key of ['min', 'max', 'step', 'options', 'description', 'default']) {
+          if (d[key] !== undefined && config[key] === undefined) config[key] = d[key];
+        }
+        return { ...node, data: { ...node.data, config } };
+      });
     return {
-      inputNodes: nodes.filter(n => INPUT_TYPES.includes(n.type)),
+      inputNodes: expandedInputs,
       codeNodes: nodes.filter(n => n.type === 'code'),
       outputNodes: nodes.filter(n => OUTPUT_TYPES.includes(n.type)),
       edges: data.jsonContent.edges,
@@ -417,11 +478,11 @@ export function FlowRunner({ embed = false }: FlowRunnerProps = {}) {
       // ── folded fast path: one worker call for the whole graph ────────────
       // (?fold=0 forces the per-node walk, for comparison/debugging)
       const foldDisabled = new URLSearchParams(window.location.search).get('fold') === '0';
+      // Hydrate module-ref group nodes (and legacy code-node moduleRefs) before folding.
+      const resolvedNodes = data?.jsonContent ? await resolveModuleNodes(data.jsonContent.nodes) : null;
       const folded = foldDisabled
         ? null
-        : getFoldedFlowCached(
-            data?.jsonContent ? ({ nodes: data.jsonContent.nodes, edges } as FlowLike) : null
-          );
+        : getFoldedFlowCached(resolvedNodes ? ({ nodes: resolvedNodes, edges } as FlowLike) : null);
       if (folded) {
         console.log(`[FlowRunner] folded run ${folded.hash}: ${folded.nodeOrder.join(' → ')}`);
         const rawResult = await executeScript(folded.source, preparedInputs);
@@ -435,24 +496,10 @@ export function FlowRunner({ embed = false }: FlowRunnerProps = {}) {
 
       const executionOrder = getExecutionOrder();
       const nodeOutputs = new Map<string, Record<string, unknown>>();
-      const moduleCodeCache = new Map<string, string>();
 
-      // Resolve module references — fetch code from API for module instances
-      const resolveCode = async (node: FlowNode): Promise<string> => {
-        const ref = node.data.moduleRef as { id: string; version?: string; pinned?: boolean } | undefined;
-        if (!ref?.id) return node.data.code || '';
-
-        const cacheKey = `${ref.id}@${ref.version || 'latest'}`;
-        if (moduleCodeCache.has(cacheKey)) return moduleCodeCache.get(cacheKey)!;
-
-        const params = ref.version ? `?version=${encodeURIComponent(ref.version)}` : '';
-        const res = await fetch(`${SERVER_URL}/api/modules/${ref.id}/resolve${params}`, { credentials: 'include' });
-        const json = await res.json();
-        if (!json.success) throw new Error(`Failed to load module: ${ref.id}`);
-
-        moduleCodeCache.set(cacheKey, json.code);
-        return json.code;
-      };
+      // Per-node fallback walk (used only when folding is disabled/unavailable).
+      // Modules no longer resolve here — they fold as hydrated group nodes above.
+      const resolveCode = async (node: FlowNode): Promise<string> => node.data.code || '';
 
       // Execute code nodes in order, skipping nodes whose inputs haven't changed
       for (const node of executionOrder) {

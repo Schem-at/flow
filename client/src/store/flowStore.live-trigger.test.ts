@@ -48,6 +48,19 @@ describe('updateNodeData → live execution trigger', () => {
     expect(fireCountOnValueChange('n1', 'number_input')).toBe(1);
   });
 
+  it('fires when a FORM field changes (fields, not value)', () => {
+    useFlowStore.setState({
+      nodes: [{ id: 'f1', type: 'form', position: { x: 0, y: 0 }, data: { fields: [{ name: 'a', value: 0 }] } }] as never,
+      edges: [],
+    });
+    const spy = vi.fn();
+    window.addEventListener('polymerase:liveExecutionTrigger', spy);
+    useFlowStore.getState().updateNodeData('f1', { fields: [{ name: 'a', value: 7 }] } as never);
+    vi.advanceTimersByTime(350);
+    window.removeEventListener('polymerase:liveExecutionTrigger', spy);
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
   it('does NOT fire for a non-value node (e.g. viewer)', () => {
     expect(fireCountOnValueChange('v1', 'viewer')).toBe(0);
   });

@@ -57,3 +57,53 @@ describe('romLayoutData (string entrypoint)', () => {
     expect(romLayoutData(data, cfg)).toEqual(romLayout(bytes, cfg));
   });
 });
+
+// roms.py fidelity — expected values computed independently from the reference
+// algorithm in schematic-api api/generators/generator_repository/roms.py.
+describe('romLayoutData — roms.py fidelity', () => {
+  it('base16, bitWidth 2, 2x2 words, defaults: zero/data/fifteen roles + invert', () => {
+    expect(romLayoutData('012F', { base: 16, bitWidth: 2, xWordCount: 2, zWordCount: 2 })).toEqual([
+      { x: 0, y: 0, z: 0, value: 0, role: 'zero' },
+      { x: 0, y: -2, z: 0, value: 1, role: 'data' },
+      { x: 2, y: 0, z: 0, value: 2, role: 'data' },
+      { x: 2, y: -2, z: 0, value: 15, role: 'fifteen' },
+    ]);
+  });
+
+  it('xStagger=even, zStagger=odd, intersection=xor, invertWord=false', () => {
+    expect(
+      romLayoutData('1234', {
+        base: 16,
+        bitWidth: 2,
+        xWordCount: 2,
+        zWordCount: 2,
+        xStagger: 'even',
+        zStagger: 'odd',
+        staggerIntersectionMode: 'xor',
+        invertWord: false,
+      })
+    ).toEqual([
+      { x: 0, y: 1, z: 0, value: 1, role: 'data' },
+      { x: 0, y: 3, z: 0, value: 2, role: 'data' },
+      { x: 2, y: 0, z: 0, value: 3, role: 'data' },
+      { x: 2, y: 2, z: 0, value: 4, role: 'data' },
+    ]);
+  });
+
+  it('multi-element xOffsets cycle [2,3]', () => {
+    expect(
+      romLayoutData('101101', { base: 2, bitWidth: 1, xWordCount: 4, zWordCount: 1, xOffsets: [2, 3] })
+    ).toEqual([
+      { x: 0, y: 0, z: 0, value: 1, role: 'data' },
+      { x: 2, y: 0, z: 0, value: 0, role: 'zero' },
+      { x: 5, y: 0, z: 0, value: 1, role: 'data' },
+      { x: 7, y: 0, z: 0, value: 1, role: 'data' },
+    ]);
+  });
+
+  it('invalid digit (out of base) → role "invalid"', () => {
+    const out = romLayoutData('G', { base: 16, bitWidth: 1, xWordCount: 1, zWordCount: 1 });
+    expect(out).toHaveLength(1);
+    expect(out[0].role).toBe('invalid');
+  });
+});

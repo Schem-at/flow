@@ -23,14 +23,39 @@ interface InspectNodeData {
   label?: string;
 }
 
+const SCHEMATIC_FORMATS = ['schem', 'litematic', 'schematic', 'nbt', 'mock'];
+
+/**
+ * The value on the wire = the producer's cached output, INDEXED by the edge's
+ * source handle. A code node caches its whole result object ({tiles:…}); the tap
+ * shows the specific handle's value, not the wrapper object.
+ */
+export function tappedValue(output: unknown, sourceHandle: string | null | undefined): unknown {
+  if (
+    sourceHandle &&
+    output &&
+    typeof output === 'object' &&
+    !Array.isArray(output) &&
+    sourceHandle in (output as object)
+  ) {
+    return (output as Record<string, unknown>)[sourceHandle];
+  }
+  return output;
+}
+
 /** Best-effort compact preview of an arbitrary runtime value. */
-function previewValue(value: unknown): { text: string; kind: string } {
+export function previewValue(value: unknown): { text: string; kind: string } {
   if (value === undefined || value === null) return { text: '—', kind: 'empty' };
 
   // Domain objects (live WASM schematics, image buffers) — describe, don't dump.
   if (typeof value === 'object') {
     const v = value as Record<string, unknown>;
-    if ('_schematicHandle' in v || typeof (v as { get_dimensions?: unknown }).get_dimensions === 'function') {
+    const fmt = typeof v.format === 'string' ? (v.format as string) : undefined;
+    if (
+      '_schematicHandle' in v ||
+      typeof (v as { get_dimensions?: unknown }).get_dimensions === 'function' ||
+      (fmt !== undefined && 'data' in v && SCHEMATIC_FORMATS.includes(fmt))
+    ) {
       return { text: 'Schematic', kind: 'schematic' };
     }
     if ('width' in v && 'height' in v && 'data' in v) {
@@ -73,7 +98,7 @@ const InspectNode = memo(({ id, data, selected }: NodeProps & { data: InspectNod
       if (!inputEdge) return { value: undefined, status: 'idle', hasInput: false };
       const sourceCache = state.nodeCache[inputEdge.source];
       return {
-        value: sourceCache?.output,
+        value: tappedValue(sourceCache?.output, inputEdge.sourceHandle),
         status: sourceCache?.status ?? 'idle',
         hasInput: true,
       };

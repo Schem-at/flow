@@ -4,6 +4,7 @@
 
 import CodeNode from './CodeNode';
 import InputNode from './InputNode';
+import FormNode from './FormNode';
 import OutputNode from './OutputNode';
 import SchematicNode from './SchematicNode';
 import ViewerNode from './ViewerNode';
@@ -45,6 +46,9 @@ export const nodeTypes = {
 
   // Unified input node - handles primitive data types
   input: wrap(InputNode),
+
+  // Dense multi-field input form (expands to input + bundle nodes at compile)
+  form: wrap(FormNode),
 
   // Viewer node - accepts any input
   viewer: wrap(ViewerNode),

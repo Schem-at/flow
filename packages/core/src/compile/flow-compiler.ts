@@ -15,6 +15,7 @@
  */
 
 import { stripTypes, positionalInputNames } from './index.js';
+import { expandFormNodes } from './form.js';
 import { contractToTypeScript } from './codegen.js';
 import type { BlockContract, FlowType } from '../types/flow-type.js';
 import { defaultValueForType } from '../types/flow-type.js';
@@ -197,6 +198,7 @@ function constantNodeFlowType(node: FlowNodeLike): FlowType {
 
 /** Stable FNV-1a hash over the execution-relevant parts of the flow. */
 export function hashFlow(flow: FlowLike): string {
+  flow = expandFormNodes(flow);
   const relevant = {
     nodes: [...flow.nodes]
       .map((n) => ({
@@ -325,6 +327,7 @@ export interface TracedResult {
 }
 
 export function compileFlow(flow: FlowLike, options?: CompileFlowOptions): CompiledFlow {
+  flow = expandFormNodes(flow);
   return compileGraph(flow, { trace: options?.trace });
 }
 

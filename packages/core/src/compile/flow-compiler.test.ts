@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { compileFlow, hashFlow, FlowCompileError, type FlowLike } from './flow-compiler.js';
+import { expandFormNodes } from './form.js';
 import { compileBlock } from './index.js';
 import { bytesToBase64 } from '../utils/base64.js';
 
@@ -1190,5 +1191,63 @@ describe('hashFlow', () => {
     expect(hashFlow(wiringChange)).not.toBe(base);
 
     // Position-only changes (not part of FlowLike) can't affect the hash by construction.
+  });
+});
+
+// ── form meta-node (dense input form → input + bundle expansion) ─────────────
+describe('compileFlow — form meta-node', () => {
+  function formFlow(): FlowLike {
+    return {
+      nodes: [
+        {
+          id: 'f',
+          type: 'form',
+          data: {
+            label: 'params',
+            fields: [
+              { name: 'a', dataType: 'number', value: 5 },
+              { name: 'b', dataType: 'number', value: 3 },
+            ],
+            bundle: { enabled: true, name: 'cfg' },
+          },
+        },
+        { id: 'add', type: 'code', data: { label: 'Add', code: ADDER, contract: adderContract } },
+        { id: 'sum-out', type: 'output', data: { label: 'sum' } },
+        { id: 'cfg-out', type: 'output', data: { label: 'cfg' } },
+      ],
+      edges: [
+        { source: 'f', target: 'add', sourceHandle: 'a', targetHandle: 'a' },
+        { source: 'f', target: 'add', sourceHandle: 'b', targetHandle: 'b' },
+        { source: 'add', target: 'sum-out', sourceHandle: 'sum', targetHandle: 'input' },
+        { source: 'f', target: 'cfg-out', sourceHandle: 'cfg', targetHandle: 'input' },
+      ],
+    };
+  }
+
+  it('expands a form into synthetic input + bundle nodes and rewires edges', () => {
+    const expanded = expandFormNodes(formFlow());
+    expect(expanded.nodes.some((n) => n.type === 'form')).toBe(false);
+    expect(expanded.nodes.filter((n) => n.type === 'input').map((n) => n.id)).toEqual(['f__f_a', 'f__f_b']);
+    expect(expanded.nodes.some((n) => n.type === 'bundle' && n.id === 'f__bundle')).toBe(true);
+    // the per-field edge now comes from the synthetic input, not the form
+    const aEdge = expanded.edges.find((e) => e.target === 'add' && e.targetHandle === 'a');
+    expect(aEdge!.source).toBe('f__f_a');
+    expect(aEdge!.sourceHandle).toBe('output');
+  });
+
+  it('folds per-field handles and the bundled object, and runs', async () => {
+    const folded = compileFlow(formFlow());
+    expect(folded.contract.inputs.a?.kind).toBe('number');
+    expect(folded.contract.inputs.b?.kind).toBe('number');
+    const result = await runFolded(folded.source, { a: 5, b: 3 });
+    expect(result.sum).toBe(8); // add(a, b)
+    expect(result.cfg).toEqual({ a: 5, b: 3 }); // bundled object handle
+  });
+
+  it('field value/config changes change the flow hash', () => {
+    const base = hashFlow(formFlow());
+    const changed = formFlow();
+    (changed.nodes[0].data as { fields: { value: number }[] }).fields[0].value = 99;
+    expect(hashFlow(changed)).not.toBe(base);
   });
 });

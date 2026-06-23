@@ -326,7 +326,7 @@ export class MessageHandler {
   private deepExtractSchematicHandles(
     value: unknown,
     depth = 0,
-    seen: WeakSet<object> = new WeakSet()
+    memo: WeakMap<object, unknown> = new WeakMap()
   ): unknown {
     if (depth > 16 || value === null || typeof value !== 'object') return value;
     if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) return value;
@@ -344,12 +344,19 @@ export class MessageHandler {
       }
     }
 
-    // Cycle guard: skip objects already visited on this walk.
-    if (seen.has(value as object)) return value;
-    seen.add(value as object);
+    // Shared/cyclic reference: return the SAME EXTRACTED result we already
+    // produced — NOT the raw value. Returning the raw value would carry its
+    // nested live wrappers across postMessage un-marshalled (they arrive as
+    // dead `{__wbg_ptr}` on the client). The Julia tiles bus, feeding two
+    // consumers, references the same array twice — exactly this case.
+    const memoized = memo.get(value as object);
+    if (memoized !== undefined) return memoized;
 
     if (Array.isArray(value)) {
-      return value.map((item) => this.deepExtractSchematicHandles(item, depth + 1, seen));
+      const out: unknown[] = [];
+      memo.set(value as object, out); // memoize BEFORE recursing → cycle-safe
+      for (const item of value) out.push(this.deepExtractSchematicHandles(item, depth + 1, memo));
+      return out;
     }
 
     // Only walk plain objects — leave class instances (other WASM wrappers,
@@ -357,8 +364,9 @@ export class MessageHandler {
     const proto = Object.getPrototypeOf(value);
     if (proto === Object.prototype || proto === null) {
       const out: Record<string, unknown> = {};
+      memo.set(value as object, out); // memoize BEFORE recursing → cycle-safe
       for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-        out[key] = this.deepExtractSchematicHandles(item, depth + 1, seen);
+        out[key] = this.deepExtractSchematicHandles(item, depth + 1, memo);
       }
       return out;
     }

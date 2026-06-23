@@ -68,10 +68,13 @@ const InputNode = memo(({ id, data, selected, type }: NodeProps & { data: InputN
      data.inputType === 'number' ? 'number' :
      data.inputType === 'boolean' ? 'boolean' : 'string');
   
-  // Determine widget type (default based on data type)
-  const widgetType: InputWidgetType = data.widgetType || 
-    (dataType === 'number' ? 'number' : 
-     dataType === 'boolean' ? 'boolean' : 
+  // Determine widget type (default based on data type). Normalize the Form-node
+  // vocabulary ('toggle') to the input vocabulary ('boolean') so a boolean
+  // input always renders a toggle instead of falling through to a text field.
+  const rawWidget = (data.widgetType as string) === 'toggle' ? 'boolean' : data.widgetType;
+  const widgetType: InputWidgetType = rawWidget ||
+    (dataType === 'number' ? 'number' :
+     dataType === 'boolean' ? 'boolean' :
      data.options?.length ? 'select' : 'text');
   
   const isConstant = data.isConstant ?? false;

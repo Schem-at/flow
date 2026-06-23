@@ -78,6 +78,27 @@ describe('worker: deepExtractSchematicHandles (recursive)', () => {
     expect(workerDataStore.get(rTrace)).toBe(b);
   });
 
+  it('extracts schematics in a SHARED array/object referenced more than once', () => {
+    // The Julia tiles bus feeds two consumers, so the SAME `tiles` array is
+    // referenced from two places in the {__outputs,__trace} tree. A cycle guard
+    // that returns the raw value on revisit would leave the second occurrence's
+    // live wrappers un-marshalled → dead {__wbg_ptr} on the client.
+    const h = makeHandler();
+    const tile = mockSchematic('shared-tile');
+    const tiles = [tile]; // one shared array reference
+    const out = h.deepExtractSchematicHandles({
+      __outputs: { a: tiles },
+      __trace: { n: { value: { tiles }, ms: 1, status: 'ok' } },
+    }) as {
+      __outputs: { a: unknown[] };
+      __trace: { n: { value: { tiles: unknown[] } } };
+    };
+
+    expect(isHandleRef(out.__outputs.a[0])).toBe(true);
+    // The SECOND occurrence must ALSO be a handle ref, not the live wrapper.
+    expect(isHandleRef(out.__trace.n.value.tiles[0])).toBe(true);
+  });
+
   it('leaves typed arrays / ArrayBuffers and primitives untouched', () => {
     const h = makeHandler();
     const ta = new Uint8Array([9, 8, 7]);
