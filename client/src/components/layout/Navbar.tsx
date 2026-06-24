@@ -67,6 +67,16 @@ export function Navbar() {
           >
             Editor
           </Link>
+          {user?.isAdmin && (
+            <Link
+              to="/review"
+              className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                isActive('/review') ? 'bg-amber-500/15 text-amber-300' : 'text-amber-400/70 hover:text-amber-300 hover:bg-amber-500/10'
+              }`}
+            >
+              Review
+            </Link>
+          )}
         </div>
       </div>
 

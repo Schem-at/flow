@@ -1,26 +1,37 @@
-import { uuid } from '../../lib/uuid';
 /**
- * FlowManager - Manage flows from database
+ * FlowManager — open, create, import and manage flows.
+ *
+ * Tabbed (My Flows / Examples), searchable, brand-consistent. No native
+ * alert()/confirm() — errors go through the toast surface and deletes use an
+ * inline confirm. Fixed-height body so the layout never shifts as content
+ * loads or panels expand.
  */
 
-import { useState, useRef } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { 
-  FolderOpen, 
-  Plus, 
-  Trash2, 
-  Clock, 
-  FileCode, 
-  Loader2, 
-  AlertCircle, 
+import {
+  FolderOpen,
+  Plus,
+  Trash2,
+  Clock,
+  FileCode,
+  Loader2,
+  AlertCircle,
   Upload,
+  Play,
+  Pencil,
+  Search,
+  Workflow,
+  Boxes,
 } from 'lucide-react';
 import { useFlowStore } from '../../store/flowStore';
 import { Modal } from '../ui/Modal';
 import { EXAMPLE_FLOWS } from '../../lib/exampleFlows';
+import { toast } from '../../lib/toast';
+import { uuid } from '../../lib/uuid';
 
-// Use empty string for dev (Vite proxy handles /api), or VITE_SERVER_URL for production
+// Empty string in dev (Vite proxies /api); VITE_SERVER_URL in prod.
 const SERVER_URL = import.meta.env.VITE_SERVER_URL ?? '';
 
 interface FlowListItem {
@@ -29,7 +40,6 @@ interface FlowListItem {
   version: string;
   createdAt: number;
   updatedAt?: number;
-  metadata?: Record<string, unknown>;
 }
 
 interface FlowManagerProps {
@@ -37,376 +47,282 @@ interface FlowManagerProps {
   onClose: () => void;
 }
 
+type Tab = 'flows' | 'examples';
+
 export function FlowManager({ isOpen, onClose }: FlowManagerProps) {
   const navigate = useNavigate();
-  const [showNewFlow, setShowNewFlow] = useState(false);
-  const [newFlowName, setNewFlowName] = useState('');
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
-  
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { loadFlow, clearFlow, flowId } = useFlowStore();
 
-  // Import flow from file
-  const handleImportFromFile = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+  const [tab, setTab] = useState<Tab>('flows');
+  const [search, setSearch] = useState('');
+  const [newName, setNewName] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const content = e.target?.result as string;
-        const flowData = JSON.parse(content);
-        
-        // Validate basic structure
-        if (!flowData.nodes || !flowData.edges) {
-          throw new Error('Invalid flow file: missing nodes or edges');
-        }
-        
-        // Generate new IDs to avoid conflicts
-        const idMap = new Map<string, string>();
-        
-        // Map old node IDs to new ones
-        flowData.nodes.forEach((node: { id: string; type?: string }) => {
-          const newId = `${node.type || 'node'}-${uuid().slice(0, 8)}`;
-          idMap.set(node.id, newId);
-        });
-        
-        // Update node IDs
-        const newNodes = flowData.nodes.map((node: { id: string; [key: string]: unknown }) => ({
-          ...node,
-          id: idMap.get(node.id) || node.id,
-        }));
-        
-        // Update edge source/target IDs
-        const newEdges = flowData.edges.map((edge: { id: string; source: string; target: string; [key: string]: unknown }) => ({
-          ...edge,
-          id: `edge-${uuid().slice(0, 8)}`,
-          source: idMap.get(edge.source) || edge.source,
-          target: idMap.get(edge.target) || edge.target,
-        }));
-        
-        // Load the flow with new IDs
-        loadFlow({
-          ...flowData,
-          id: uuid(),
-          name: flowData.name || 'Imported Flow',
-          version: flowData.version || '1.0.0',
-          createdAt: flowData.createdAt || Date.now(),
-          nodes: newNodes,
-          edges: newEdges,
-        });
-        
-        // Set flowId to null so it's treated as unsaved
-        useFlowStore.getState().setFlowId(null);
-        
-        onClose();
-      } catch (err) {
-        console.error('Failed to import flow:', err);
-        alert('Failed to import flow: ' + (err as Error).message);
-      }
-    };
-    reader.readAsText(file);
-    
-    // Reset file input
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  };
-
-  // Fetch all flows
-  const { data, isLoading, error } = useQuery({
+  // ---- data ----------------------------------------------------------------
+  const { data: flows = [], isLoading, error } = useQuery({
     queryKey: ['flows'],
     queryFn: async () => {
-      const res = await fetch(`${SERVER_URL}/api/flows`);
+      const res = await fetch(`${SERVER_URL}/api/flows`, { credentials: 'include' });
       const json = await res.json();
-      if (!json.success) throw new Error(json.error);
+      if (!json.success) throw new Error(json.error || 'Request failed');
       return json.flows as FlowListItem[];
     },
     enabled: isOpen,
   });
 
-  // Create new flow
   const createMutation = useMutation({
     mutationFn: async (name: string) => {
       const res = await fetch(`${SERVER_URL}/api/flows`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name,
-          nodes: [],
-          edges: [],
-        }),
+        credentials: 'include',
+        body: JSON.stringify({ name, nodes: [], edges: [] }),
       });
       const json = await res.json();
-      if (!json.success) throw new Error(json.error);
+      if (!json.success) throw new Error(json.error || 'Could not create flow');
       return json.flow;
     },
     onSuccess: (flow) => {
       queryClient.invalidateQueries({ queryKey: ['flows'] });
-      setNewFlowName('');
-      setShowNewFlow(false);
-      // Load the new flow
-      loadFlow({
-        id: flow.id,
-        name: flow.name,
-        version: flow.version || '1.0.0',
-        nodes: [],
-        edges: [],
-        createdAt: new Date(flow.createdAt).getTime(),
-        updatedAt: new Date(flow.updatedAt).getTime(),
-      });
+      setNewName('');
+      loadFlow({ id: flow.id, name: flow.name, version: flow.version || '1.0.0', nodes: [], edges: [], createdAt: Date.now() });
       useFlowStore.getState().setFlowId(flow.id);
       useFlowStore.getState().setFlowName(flow.name);
       navigate(`/flow/${flow.id}`);
       onClose();
     },
+    onError: (e) => toast(`Could not create flow: ${(e as Error).message}`, 'error'),
   });
 
-  // Delete a flow
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const res = await fetch(`${SERVER_URL}/api/flows/${id}`, {
-        method: 'DELETE',
-      });
+      const res = await fetch(`${SERVER_URL}/api/flows/${id}`, { method: 'DELETE', credentials: 'include' });
       const json = await res.json();
-      if (!json.success) throw new Error(json.error);
+      if (!json.success) throw new Error(json.error || 'Could not delete flow');
       return id;
     },
     onSuccess: (id) => {
-      if (flowId === id) {
-        clearFlow();
-      }
+      if (flowId === id) clearFlow();
+      setConfirmDelete(null);
       queryClient.invalidateQueries({ queryKey: ['flows'] });
+      toast('Flow deleted', 'success');
     },
+    onError: (e) => toast(`Could not delete flow: ${(e as Error).message}`, 'error'),
   });
 
-  const formatDate = (timestamp: number) => {
-    return new Date(timestamp).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+  // ---- import from file ----------------------------------------------------
+  const handleImport = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const flowData = JSON.parse(e.target?.result as string);
+        if (!flowData.nodes || !flowData.edges) throw new Error('missing nodes or edges');
+
+        // Remap ids so an imported flow never collides with the open one.
+        const idMap = new Map<string, string>();
+        flowData.nodes.forEach((n: { id: string; type?: string }) =>
+          idMap.set(n.id, `${n.type || 'node'}-${uuid().slice(0, 8)}`),
+        );
+        loadFlow({
+          ...flowData,
+          id: '',
+          name: flowData.name || 'Imported Flow',
+          version: flowData.version || '1.0.0',
+          createdAt: Date.now(),
+          nodes: flowData.nodes.map((n: { id: string; [k: string]: unknown }) => ({ ...n, id: idMap.get(n.id) || n.id })),
+          edges: flowData.edges.map((edge: { source: string; target: string; [k: string]: unknown }) => ({
+            ...edge,
+            id: `edge-${uuid().slice(0, 8)}`,
+            source: idMap.get(edge.source) || edge.source,
+            target: idMap.get(edge.target) || edge.target,
+          })),
+        });
+        useFlowStore.getState().setFlowId(null);
+        onClose();
+        toast(`Imported "${flowData.name || 'flow'}" — Save to keep it`, 'success');
+      } catch (err) {
+        toast(`Import failed: ${(err as Error).message}`, 'error');
+      }
+    };
+    reader.readAsText(file);
   };
 
-  return (
-    <Modal
-      isOpen={isOpen}
-      onClose={onClose}
-      title="Flow Manager"
-      subtitle="Create, load, and manage your flows"
-      icon={<FolderOpen className="w-5 h-5" />}
-      iconColor="text-blue-400"
-      size="lg"
-    >
-      <div className="p-6">
-        {/* Hidden file input for import */}
-        <input
-          type="file"
-          ref={fileInputRef}
-          onChange={handleImportFromFile}
-          accept=".json,.polyflow.json"
-          className="hidden"
-        />
+  // ---- derived -------------------------------------------------------------
+  const q = search.trim().toLowerCase();
+  const filteredFlows = useMemo(
+    () => (q ? flows.filter((f) => f.name.toLowerCase().includes(q)) : flows),
+    [flows, q],
+  );
+  const filteredExamples = useMemo(
+    () => (q ? EXAMPLE_FLOWS.filter((e) => e.name.toLowerCase().includes(q)) : EXAMPLE_FLOWS),
+    [q],
+  );
 
-        {/* Header Actions */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-          <div className="flex items-center gap-2 w-full sm:w-auto">
+  const formatDate = (ts: number) =>
+    new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+  const openFlow = (id: string, name: string) => {
+    useFlowStore.getState().setFlowId(id);
+    useFlowStore.getState().setFlowName(name);
+    navigate(`/flow/${id}`);
+    onClose();
+  };
+
+  const goExample = (id: string, mode: 'editor' | 'run') => {
+    navigate(`/${mode === 'editor' ? 'editor' : 'run'}?example=${encodeURIComponent(id)}`);
+    onClose();
+  };
+
+  // ---- ui ------------------------------------------------------------------
+  const tabBtn = (id: Tab, label: string, count: number) => (
+    <button
+      onClick={() => setTab(id)}
+      className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+        tab === id ? 'bg-brand-500/15 text-brand-300' : 'text-neutral-400 hover:text-neutral-200 hover:bg-white/5'
+      }`}
+    >
+      {label}
+      <span className={`text-[10px] font-mono px-1.5 py-px rounded ${tab === id ? 'bg-brand-500/20 text-brand-300' : 'bg-neutral-800 text-neutral-500'}`}>
+        {count}
+      </span>
+    </button>
+  );
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Flows" subtitle="Open, create, and manage your flows" icon={<FolderOpen className="w-5 h-5" />} iconColor="text-brand-400" size="lg">
+      <input type="file" ref={fileInputRef} onChange={handleImport} accept=".json,.polyflow.json" className="hidden" />
+
+      <div className="flex h-[68vh] max-h-[620px] flex-col">
+        {/* Tabs + search */}
+        <div className="flex items-center gap-3 px-5 py-3 border-b border-neutral-800/60">
+          <div className="flex items-center gap-1">
+            {tabBtn('flows', 'My Flows', flows.length)}
+            {tabBtn('examples', 'Examples', EXAMPLE_FLOWS.length)}
+          </div>
+          <div className="relative ml-auto w-56">
+            <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-neutral-600" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={`Search ${tab === 'flows' ? 'flows' : 'examples'}…`}
+              className="w-full bg-neutral-900/60 border border-neutral-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-neutral-200 placeholder:text-neutral-600 focus:outline-none focus:border-brand-500/50 transition-colors"
+            />
+          </div>
+        </div>
+
+        {/* Create / import row (My Flows only) */}
+        {tab === 'flows' && (
+          <div className="flex items-center gap-2 px-5 py-3 border-b border-neutral-800/40">
+            <input
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && newName.trim() && createMutation.mutate(newName.trim())}
+              placeholder="Name a new flow…"
+              className="flex-1 bg-neutral-900/60 border border-neutral-800 rounded-lg px-3 py-1.5 text-sm text-neutral-200 placeholder:text-neutral-600 focus:outline-none focus:border-brand-500/50 transition-colors"
+            />
             <button
-              onClick={() => setShowNewFlow(true)}
-              className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg bg-blue-600 hover:bg-blue-500 transition-all shadow-lg shadow-blue-900/20"
+              onClick={() => newName.trim() && createMutation.mutate(newName.trim())}
+              disabled={!newName.trim() || createMutation.isPending}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white rounded-lg bg-brand-600 hover:bg-brand-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
-              <Plus className="w-4 h-4" />
-              New Flow
+              {createMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+              Create
             </button>
-            
-            <div className="h-8 w-px bg-neutral-800 mx-2 hidden sm:block" />
-            
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-neutral-300 rounded-lg bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 transition-all"
-              title="Import from file"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-neutral-300 rounded-lg border border-neutral-800 hover:bg-white/5 hover:text-white transition-colors"
+              title="Import a flow from a .json file"
             >
-              <Upload className="w-4 h-4" />
-              <span className="hidden sm:inline">Import</span>
+              <Upload className="w-4 h-4" /> Import
             </button>
-          </div>
-
-          {/* Search / Filter could go here */}
-        </div>
-
-        {/* Example flows */}
-        <div className="mb-6">
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">
-            Examples
-          </h3>
-          <div className="space-y-2">
-            {EXAMPLE_FLOWS.map((example) => (
-              <div
-                key={example.id}
-                className="flex items-center justify-between gap-3 rounded-xl border border-neutral-800 bg-neutral-900/60 px-4 py-3"
-              >
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-white">{example.name}</p>
-                  <p className="truncate text-xs text-neutral-500">
-                    {example.nodes.length} nodes · multi-step block pipeline
-                  </p>
-                </div>
-                <div className="flex flex-none items-center gap-2">
-                  <button
-                    onClick={() => {
-                      // Open the example in the read-only run-as-tool player.
-                      navigate(`/run?example=${encodeURIComponent(example.id)}`);
-                      onClose();
-                    }}
-                    className="rounded-lg border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 transition hover:border-neutral-500 hover:text-white"
-                    title="Open as a read-only tool"
-                  >
-                    Tool
-                  </button>
-                  <button
-                    onClick={() => {
-                      // Deep-link the example via the URL so a refresh restores it
-                      // and it's shareable. Editor loads it from EXAMPLE_FLOWS.
-                      navigate(`/editor?example=${encodeURIComponent(example.id)}`);
-                      onClose();
-                    }}
-                    className="rounded-lg border border-emerald-600/40 bg-emerald-600/15 px-3 py-1.5 text-xs font-medium text-emerald-300 transition hover:bg-emerald-600/25"
-                  >
-                    Load example
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* New Flow Input */}
-        {showNewFlow && (
-          <div className="mb-6 p-4 rounded-xl bg-neutral-900 border border-blue-500/30 animate-in slide-in-from-top-2 duration-200">
-            <h3 className="text-sm font-medium text-blue-400 mb-3">Create New Flow</h3>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={newFlowName}
-                onChange={(e) => setNewFlowName(e.target.value)}
-                placeholder="Enter flow name..."
-                className="flex-1 bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
-                autoFocus
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && newFlowName.trim()) {
-                    createMutation.mutate(newFlowName.trim());
-                  }
-                }}
-              />
-              <button
-                onClick={() => {
-                  if (newFlowName.trim()) createMutation.mutate(newFlowName.trim());
-                }}
-                disabled={!newFlowName.trim() || createMutation.isPending}
-                className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                {createMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Create'}
-              </button>
-              <button
-                onClick={() => {
-                  setShowNewFlow(false);
-                  setNewFlowName('');
-                }}
-                className="px-4 py-2 bg-neutral-800 text-neutral-400 text-sm font-medium rounded-lg hover:bg-neutral-700 hover:text-white transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
           </div>
         )}
 
-        {/* Flow List */}
-        <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
-          {isLoading ? (
-            <div className="flex flex-col items-center justify-center py-12 text-neutral-500 gap-3">
-              <Loader2 className="w-8 h-8 animate-spin text-blue-500/50" />
-              <p className="text-sm">Loading flows...</p>
-            </div>
-          ) : error ? (
-            <div className="flex flex-col items-center justify-center py-12 text-red-400 gap-3 bg-red-500/5 rounded-xl border border-red-500/10">
-              <AlertCircle className="w-8 h-8" />
-              <p className="text-sm">Failed to load flows</p>
-            </div>
-          ) : data?.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-neutral-500 gap-4 border-2 border-dashed border-neutral-800 rounded-xl">
-              <div className="w-16 h-16 rounded-full bg-neutral-900 flex items-center justify-center">
-                <FolderOpen className="w-8 h-8 opacity-50" />
-              </div>
-              <div className="text-center">
-                <p className="text-lg font-medium text-neutral-300">No flows found</p>
-                <p className="text-sm mt-1">Create a new flow to get started</p>
-              </div>
-              <button
-                onClick={() => setShowNewFlow(true)}
-                className="mt-2 px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-white text-sm font-medium rounded-lg transition-colors"
-              >
-                Create Flow
-              </button>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-3">
-              {data?.map((flow) => (
-                <div
-                  key={flow.id}
-                  className={`
-                    group relative flex items-center justify-between p-4 rounded-xl border transition-all duration-200
-                    ${flow.id === flowId 
-                      ? 'bg-blue-500/10 border-blue-500/30 shadow-[0_0_15px_-5px_rgba(59,130,246,0.2)]' 
-                      : 'bg-neutral-900/50 border-neutral-800 hover:border-neutral-700 hover:bg-neutral-800/50'
-                    }
-                  `}
-                >
-                  <div 
-                    className="flex-1 cursor-pointer min-w-0"
-                    onClick={() => {
-                      if (flow.id !== flowId) {
-                        useFlowStore.getState().setFlowId(flow.id);
-                        useFlowStore.getState().setFlowName(flow.name);
-                        navigate(`/flow/${flow.id}`);
-                        onClose();
-                      }
-                    }}
-                  >
-                    <div className="flex items-center gap-3 mb-1">
-                      <h3 className={`font-medium truncate ${flow.id === flowId ? 'text-blue-400' : 'text-neutral-200 group-hover:text-white'}`}>
-                        {flow.name}
-                      </h3>
-                      {flow.id === flowId && (
-                        <span className="px-2 py-0.5 text-[10px] font-medium bg-blue-500/20 text-blue-300 rounded-full border border-blue-500/20">
-                          Active
-                        </span>
+        {/* Scrollable list */}
+        <div className="flex-1 overflow-y-auto custom-scrollbar p-3">
+          {tab === 'flows' ? (
+            isLoading ? (
+              <Centered><Loader2 className="w-7 h-7 animate-spin text-brand-500/50" /><span className="text-sm text-neutral-500">Loading flows…</span></Centered>
+            ) : error ? (
+              <Centered><AlertCircle className="w-7 h-7 text-red-400" /><span className="text-sm text-red-400">Couldn't load your flows</span><span className="text-xs text-neutral-600">You may need to sign in</span></Centered>
+            ) : filteredFlows.length === 0 ? (
+              <Centered>
+                <div className="w-12 h-12 rounded-xl bg-neutral-900 border border-neutral-800/60 flex items-center justify-center"><FolderOpen className="w-6 h-6 text-neutral-700" /></div>
+                <span className="text-sm text-neutral-400">{q ? 'No matching flows' : 'No flows yet'}</span>
+                {!q && <span className="text-xs text-neutral-600">Name one above and hit Create</span>}
+              </Centered>
+            ) : (
+              <div className="space-y-1.5">
+                {filteredFlows.map((flow) => {
+                  const active = flow.id === flowId;
+                  const confirming = confirmDelete === flow.id;
+                  return (
+                    <div
+                      key={flow.id}
+                      onClick={() => !confirming && openFlow(flow.id, flow.name)}
+                      className={`group flex items-center gap-3 rounded-xl border px-3.5 py-2.5 cursor-pointer transition-colors ${
+                        active ? 'bg-brand-500/10 border-brand-500/30' : 'bg-neutral-900/40 border-neutral-800/60 hover:border-neutral-700 hover:bg-neutral-800/40'
+                      }`}
+                    >
+                      <div className={`w-8 h-8 shrink-0 rounded-lg flex items-center justify-center border ${active ? 'bg-brand-500/15 border-brand-500/20' : 'bg-neutral-800/60 border-neutral-800'}`}>
+                        <Workflow className={`w-4 h-4 ${active ? 'text-brand-400' : 'text-neutral-500'}`} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <h3 className={`text-sm font-medium truncate ${active ? 'text-brand-300' : 'text-neutral-200 group-hover:text-white'}`}>{flow.name}</h3>
+                          {active && <span className="text-[9px] font-medium px-1.5 py-px rounded-full bg-brand-500/20 text-brand-300 border border-brand-500/20">OPEN</span>}
+                        </div>
+                        <div className="flex items-center gap-3 mt-0.5 text-[11px] text-neutral-600">
+                          <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{formatDate(flow.updatedAt || flow.createdAt)}</span>
+                          <span className="flex items-center gap-1"><FileCode className="w-3 h-3" />v{flow.version}</span>
+                        </div>
+                      </div>
+
+                      {confirming ? (
+                        <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                          <span className="text-[11px] text-neutral-400">Delete?</span>
+                          <button onClick={() => deleteMutation.mutate(flow.id)} disabled={deleteMutation.isPending} className="px-2 py-1 text-[11px] font-medium rounded-md bg-red-600/90 text-white hover:bg-red-600 transition-colors">Yes</button>
+                          <button onClick={() => setConfirmDelete(null)} className="px-2 py-1 text-[11px] font-medium rounded-md bg-neutral-800 text-neutral-300 hover:bg-neutral-700 transition-colors">No</button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+                          <IconBtn title="Run as tool" onClick={() => { navigate(`/run/${flow.id}`); onClose(); }}><Play className="w-3.5 h-3.5 text-green-500" /></IconBtn>
+                          <IconBtn title="Delete" onClick={() => setConfirmDelete(flow.id)} danger><Trash2 className="w-3.5 h-3.5" /></IconBtn>
+                        </div>
                       )}
                     </div>
-                    <div className="flex items-center gap-4 text-xs text-neutral-500">
-                      <span className="flex items-center gap-1.5">
-                        <Clock className="w-3 h-3" />
-                        {formatDate(flow.updatedAt || flow.createdAt)}
-                      </span>
-                      <span className="flex items-center gap-1.5">
-                        <FileCode className="w-3 h-3" />
-                        v{flow.version}
-                      </span>
-                    </div>
+                  );
+                })}
+              </div>
+            )
+          ) : filteredExamples.length === 0 ? (
+            <Centered>
+              <div className="w-12 h-12 rounded-xl bg-neutral-900 border border-neutral-800/60 flex items-center justify-center"><Boxes className="w-6 h-6 text-neutral-700" /></div>
+              <span className="text-sm text-neutral-400">No matching examples</span>
+            </Centered>
+          ) : (
+            <div className="space-y-1.5">
+              {filteredExamples.map((ex) => (
+                <div key={ex.id} className="group flex items-center gap-3 rounded-xl border border-neutral-800/60 bg-neutral-900/40 px-3.5 py-2.5 hover:border-neutral-700 hover:bg-neutral-800/40 transition-colors">
+                  <div className="w-8 h-8 shrink-0 rounded-lg bg-brand-500/[0.07] border border-brand-500/10 flex items-center justify-center">
+                    <Boxes className="w-4 h-4 text-brand-500/60" />
                   </div>
-
-                  <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (confirm('Are you sure you want to delete this flow?')) {
-                          deleteMutation.mutate(flow.id);
-                        }
-                      }}
-                      className="p-2 text-neutral-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
-                      title="Delete flow"
-                    >
-                      <Trash2 className="w-4 h-4" />
+                  <div className="min-w-0 flex-1">
+                    <h3 className="text-sm font-medium text-neutral-200 group-hover:text-white truncate">{ex.name}</h3>
+                    <div className="text-[11px] text-neutral-600 mt-0.5">{ex.nodes.length} nodes · {ex.edges.length} edges</div>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button onClick={() => goExample(ex.id, 'run')} className="flex items-center gap-1.5 rounded-lg border border-neutral-800 px-2.5 py-1.5 text-[11px] font-medium text-neutral-300 hover:bg-white/5 hover:text-white transition-colors" title="Open as a read-only tool">
+                      <Play className="w-3 h-3 text-green-500" /> Tool
+                    </button>
+                    <button onClick={() => goExample(ex.id, 'editor')} className="flex items-center gap-1.5 rounded-lg border border-brand-500/30 bg-brand-500/10 px-2.5 py-1.5 text-[11px] font-medium text-brand-300 hover:bg-brand-500/20 transition-colors">
+                      <Pencil className="w-3 h-3" /> Open
                     </button>
                   </div>
                 </div>
@@ -419,3 +335,18 @@ export function FlowManager({ isOpen, onClose }: FlowManagerProps) {
   );
 }
 
+function Centered({ children }: { children: React.ReactNode }) {
+  return <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">{children}</div>;
+}
+
+function IconBtn({ children, title, onClick, danger }: { children: React.ReactNode; title: string; onClick: () => void; danger?: boolean }) {
+  return (
+    <button
+      title={title}
+      onClick={onClick}
+      className={`p-1.5 rounded-lg transition-colors ${danger ? 'text-neutral-500 hover:text-red-400 hover:bg-red-500/10' : 'text-neutral-500 hover:text-white hover:bg-white/5'}`}
+    >
+      {children}
+    </button>
+  );
+}

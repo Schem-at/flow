@@ -171,15 +171,24 @@ export function Editor() {
     if (!example) return;
     hasLoadedFlowRef.current = key;
     loadFlow({ ...example, id: '', createdAt: Date.now() });
+    // Examples are ephemeral — force flowId null so "Save" creates a fresh flow
+    // AND so the store→URL sync below doesn't think we have a saved flow to
+    // redirect to (it would otherwise bounce us back to the previous /flow/:id).
+    setFlowId(null);
     setFlowName(example.name);
-  }, [urlFlowId, exampleId, loadFlow, setFlowName]);
+  }, [urlFlowId, exampleId, loadFlow, setFlowId, setFlowName]);
 
   // Sync URL with store state
   // Only sync FROM store TO URL when store has a new flow that wasn't loaded from URL
   useEffect(() => {
     // Don't navigate while a flow is loading from the URL
     if (isFlowLoading) return;
-    
+
+    // A deep-linked example owns the URL (?example=<id>); never sync the store's
+    // (stale, previous) flowId back onto it — that's what bounced "Load example"
+    // back to the flow you came from.
+    if (exampleId) return;
+
     // If store has a flow ID that differs from URL, and we're not loading that URL's flow,
     // it means the store was updated independently (e.g., new flow created, imported)
     if (flowId && flowId !== urlFlowId && !flowData) {
@@ -188,7 +197,7 @@ export function Editor() {
       // If store has no ID but URL does, and we failed to load it, navigate to new editor
       navigate('/editor', { replace: true });
     }
-  }, [flowId, urlFlowId, navigate, isFlowLoading, flowData]);
+  }, [flowId, urlFlowId, navigate, isFlowLoading, flowData, exampleId]);
 
   // Modal states
   const [showFlowManager, setShowFlowManager] = useState(false);
@@ -1408,12 +1417,16 @@ export function Editor() {
         </div>
       )}
 
-      {/* Main Area — Toolbar + Canvas */}
-      <div className="flex-1 flex relative">
+      {/* Main Area — Toolbar + Canvas.
+          min-h-0 lets this row shrink to the viewport instead of growing to the
+          sidebar's full content height — otherwise the Toolbar's `h-full` can't
+          resolve to a bounded height and its internal scroll never engages,
+          stretching the whole page past 100vh. */}
+      <div className="flex-1 flex relative min-h-0">
         {/* Node Toolbar - Desktop sidebar */}
         {!isMobile && <Toolbar />}
 
-        <div className="flex-1 relative">
+        <div className="flex-1 relative min-w-0">
         {flowError && (
           <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-red-500/20 border border-red-500/40 rounded-lg text-red-400 text-sm">
             Failed to load flow: {(flowError as Error).message}

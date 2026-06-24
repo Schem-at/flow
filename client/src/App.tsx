@@ -12,6 +12,7 @@ import { EditorErrorBoundary } from './components/editor/EditorErrorBoundary';
 import { Home } from './components/Home';
 import { FlowRunner } from './components/FlowRunner';
 import { ModuleManager } from './components/ModuleManager';
+import { ReviewQueue } from './components/ReviewQueue';
 import Workbench from './components/Workbench';
 import { DocsModal } from './components/editor/DocsModal';
 import { Toaster } from './components/Toaster';
@@ -53,6 +54,8 @@ function App() {
 						<Route path="/" element={<Home />} />
 						<Route path="/workbench" element={<Workbench />} />
 						{features.modules && <Route path="/modules" element={<ModuleManager />} />}
+						{/* Admin moderation queue (self-gates to admins). */}
+						<Route path="/review" element={<ReviewQueue />} />
 						{/* Top-level boundary so a non-node editor crash shows a
 						    recoverable error screen with a reload button, not a white page. */}
 						<Route path="/editor" element={<EditorErrorBoundary><Editor /></EditorErrorBoundary>} />

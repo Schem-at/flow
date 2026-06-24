@@ -18,14 +18,20 @@ import {
   Globe,
   Loader2,
   Download,
-  Search,
   Settings,
   ExternalLink,
   Package,
+  Plus,
+  Upload,
+  Copy,
+  FileText,
 } from 'lucide-react';
 import { useFlowStore } from '../../store/flowStore';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { features } from '../../config/features';
+import { toast } from '../../lib/toast';
+import { uuid } from '../../lib/uuid';
+import { MenuItem } from './MenuItem';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL ?? '';
 
@@ -81,11 +87,13 @@ export function TopBar({
     setFlowName, 
     flowId, 
     setFlowId, 
-    exportFlow, 
-    undo, 
-    redo, 
-    canUndo, 
-    canRedo, 
+    exportFlow,
+    loadFlow,
+    clearFlow,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
     debugMode, 
     toggleDebugMode,
     executionSettings,
@@ -102,8 +110,7 @@ export function TopBar({
   const [showRunMenu, setShowRunMenu] = useState(false);
   const [showFileMenu, setShowFileMenu] = useState(false);
   const [showViewMenu, setShowViewMenu] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  
+
   const nameInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
 
@@ -131,13 +138,11 @@ export function TopBar({
     enabled: showFileMenu,
   });
 
-  const filteredFlows = useMemo(() => {
-    if (!flowsData) return [];
-    if (!searchQuery) return flowsData;
-    return flowsData.filter(flow => 
-      flow.name.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-  }, [flowsData, searchQuery]);
+  // Most-recently-updated first, for the menu's compact "Recent" section.
+  const filteredFlows = useMemo(
+    () => [...(flowsData ?? [])].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)),
+    [flowsData],
+  );
 
   // Save mutation with safety check
   const saveMutation = useMutation({
@@ -168,7 +173,33 @@ export function TopBar({
     onSuccess: (flow) => {
       setFlowId(flow.id);
       queryClient.invalidateQueries({ queryKey: ['flows'] });
+      toast('Flow saved', 'success');
     },
+    onError: (e) => toast((e as Error).message || 'Save failed', 'error'),
+  });
+
+  // Save a Copy — fork the current canvas into a brand-new saved flow.
+  const saveCopyMutation = useMutation({
+    mutationFn: async () => {
+      const flowData = exportFlow();
+      const res = await fetch(`${SERVER_URL}/api/flows`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ ...flowData, name: `${flowData.name} (copy)` }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || 'Could not copy flow');
+      return json.flow;
+    },
+    onSuccess: (flow) => {
+      setFlowId(flow.id);
+      setFlowName(flow.name);
+      queryClient.invalidateQueries({ queryKey: ['flows'] });
+      navigate(`/flow/${flow.id}`);
+      toast('Saved a copy', 'success');
+    },
+    onError: (e) => toast((e as Error).message || 'Copy failed', 'error'),
   });
 
   // Keyboard shortcuts
@@ -219,6 +250,52 @@ export function TopBar({
       setPublishState('error');
       setTimeout(() => setPublishState('idle'), 4000);
     }
+  };
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleNewFlow = () => {
+    setShowFileMenu(false);
+    clearFlow();
+    setFlowId(null);
+    navigate('/editor');
+  };
+
+  const handleImportFromFile = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const flowData = JSON.parse(e.target?.result as string);
+        if (!flowData.nodes || !flowData.edges) throw new Error('missing nodes or edges');
+        // Remap ids so an import never collides with the open flow.
+        const idMap = new Map<string, string>();
+        flowData.nodes.forEach((n: { id: string; type?: string }) =>
+          idMap.set(n.id, `${n.type || 'node'}-${uuid().slice(0, 8)}`));
+        loadFlow({
+          ...flowData,
+          id: '',
+          name: flowData.name || 'Imported Flow',
+          version: flowData.version || '1.0.0',
+          createdAt: Date.now(),
+          nodes: flowData.nodes.map((n: { id: string; [k: string]: unknown }) => ({ ...n, id: idMap.get(n.id) || n.id })),
+          edges: flowData.edges.map((edge: { source: string; target: string; [k: string]: unknown }) => ({
+            ...edge,
+            id: `edge-${uuid().slice(0, 8)}`,
+            source: idMap.get(edge.source) || edge.source,
+            target: idMap.get(edge.target) || edge.target,
+          })),
+        });
+        setFlowId(null);
+        navigate('/editor');
+        toast(`Imported "${flowData.name || 'flow'}" — Save to keep it`, 'success');
+      } catch (err) {
+        toast(`Import failed: ${(err as Error).message}`, 'error');
+      }
+    };
+    reader.readAsText(file);
   };
 
   const handleExportToFile = () => {
@@ -320,72 +397,50 @@ export function TopBar({
               </button>
               {showFileMenu && (
                 <>
+                  <input type="file" ref={fileInputRef} onChange={handleImportFromFile} accept=".json,.polyflow.json" className="hidden" />
                   <div className="fixed inset-0 z-40" onClick={() => setShowFileMenu(false)} />
-                  <div className="absolute top-full left-0 mt-1 w-72 bg-[#0a0a0a] border border-neutral-800 rounded-lg shadow-2xl z-50 py-1 overflow-hidden">
-                    <div className="px-3 py-2 border-b border-neutral-800 mb-1">
-                      <div className="relative">
-                        <Search className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-neutral-500" />
-                        <input
-                          type="text"
-                          placeholder="Search flows..."
-                          value={searchQuery}
-                          onChange={(e) => setSearchQuery(e.target.value)}
-                          className="w-full bg-neutral-900 border border-neutral-800 rounded px-2 py-1 pl-7 text-xs text-white focus:outline-none focus:border-neutral-700 placeholder:text-neutral-600"
-                          autoFocus
-                        />
-                      </div>
-                    </div>
-                    
-                    <div className="max-h-64 overflow-y-auto custom-scrollbar">
-                      {filteredFlows.length > 0 ? (
-                        <>
-                          <div className="px-3 py-1 text-[10px] font-semibold text-neutral-500 uppercase tracking-wider">Recent Flows</div>
-                          {filteredFlows.map(flow => (
+                  <div className="absolute top-full left-0 mt-1 w-64 bg-[#0a0a0a] border border-neutral-800 rounded-lg shadow-2xl z-50 py-1 overflow-hidden">
+                    {/* Primary actions */}
+                    <MenuItem icon={<Plus className="w-4 h-4" />} label="New flow" onClick={handleNewFlow} />
+                    <MenuItem icon={<FolderOpen className="w-4 h-4" />} label="Open / manage…" onClick={() => { onShowFlowManager(); setShowFileMenu(false); }} />
+
+                    <div className="h-px bg-neutral-800 my-1" />
+
+                    <MenuItem icon={<Save className="w-4 h-4" />} label="Save" shortcut="⌘S" disabled={saveMutation.isPending}
+                      onClick={() => { saveMutation.mutate(); setShowFileMenu(false); }} />
+                    <MenuItem icon={<Copy className="w-4 h-4" />} label="Save a copy" disabled={saveCopyMutation.isPending}
+                      onClick={() => { saveCopyMutation.mutate(); setShowFileMenu(false); }} />
+
+                    <div className="h-px bg-neutral-800 my-1" />
+
+                    <MenuItem icon={<Upload className="w-4 h-4" />} label="Import from file…" onClick={() => fileInputRef.current?.click()} />
+                    <MenuItem icon={<Download className="w-4 h-4" />} label="Export JSON" onClick={handleExportToFile} />
+                    {features.modules && (
+                      <MenuItem icon={<Package className="w-4 h-4 text-cyan-400" />} label="Publish as module" onClick={handlePublishAsModule}
+                        title="Fold the whole flow into one typed block and publish it as a reusable module" />
+                    )}
+
+                    {/* Recent flows — quick switch (full list lives in Open / manage) */}
+                    {filteredFlows.length > 0 && (
+                      <>
+                        <div className="h-px bg-neutral-800 my-1" />
+                        <div className="px-3 py-1 text-[10px] font-semibold text-neutral-600 uppercase tracking-wider">Recent</div>
+                        <div className="max-h-44 overflow-y-auto custom-scrollbar">
+                          {filteredFlows.slice(0, 6).map(flow => (
                             <button
                               key={flow.id}
-                              onClick={() => {
-                                navigate(`/editor/${flow.id}`);
-                                setShowFileMenu(false);
-                              }}
-                              className="w-full text-left px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-800 hover:text-white flex items-center justify-between group/item transition-colors"
+                              onClick={() => { navigate(`/flow/${flow.id}`); setShowFileMenu(false); }}
+                              className="w-full text-left px-3 py-1.5 text-sm text-neutral-300 hover:bg-neutral-800 hover:text-white flex items-center justify-between transition-colors"
                             >
-                              <div className="flex flex-col overflow-hidden">
-                                <span className="truncate">{flow.name}</span>
-                                <span className="text-[10px] text-neutral-600 truncate">
-                                  Updated {new Date(flow.updatedAt || Date.now()).toLocaleDateString()}
-                                </span>
-                              </div>
+                              <span className="truncate flex items-center gap-2">
+                                <FileText className="w-3.5 h-3.5 text-neutral-600 shrink-0" />
+                                {flow.name}
+                              </span>
                               {flow.id === flowId && <span className="w-1.5 h-1.5 rounded-full bg-green-500 shrink-0 ml-2" />}
                             </button>
                           ))}
-                        </>
-                      ) : (
-                        <div className="px-3 py-4 text-center text-xs text-neutral-500">
-                          {searchQuery ? 'No flows found' : 'No saved flows'}
                         </div>
-                      )}
-                    </div>
-
-                    <div className="h-px bg-neutral-800 my-1" />
-                    
-                    <button onClick={() => { onShowFlowManager(); setShowFileMenu(false); }} className="w-full text-left px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-800 hover:text-white flex items-center gap-2 transition-colors">
-                      <FolderOpen className="w-4 h-4" /> Manage Flows...
-                    </button>
-                    <button onClick={() => { saveMutation.mutate(); setShowFileMenu(false); }} className="w-full text-left px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-800 hover:text-white flex items-center gap-2 justify-between transition-colors">
-                      <span className="flex items-center gap-2"><Save className="w-4 h-4" /> Save</span>
-                      <span className="text-xs text-neutral-600 font-mono">⌘S</span>
-                    </button>
-                    <button onClick={handleExportToFile} className="w-full text-left px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-800 hover:text-white flex items-center gap-2 transition-colors">
-                      <Download className="w-4 h-4" /> Export JSON
-                    </button>
-                    {features.modules && (
-                      <button
-                        onClick={handlePublishAsModule}
-                        className="w-full text-left px-3 py-2 text-sm text-cyan-300 hover:bg-neutral-800 hover:text-cyan-200 flex items-center gap-2 transition-colors"
-                        title="Fold the whole flow into one typed block and publish it as a reusable module"
-                      >
-                        <Package className="w-4 h-4" /> Publish flow as module
-                      </button>
+                      </>
                     )}
                   </div>
                 </>
