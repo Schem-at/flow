@@ -557,10 +557,10 @@ export const MANDELBROT_FLOW: FlowData = {
 // fifteen → redstone block, invalid → sponge.
 export const ROM_BUILD_SOURCE = `type Inputs = {
   data: string;
-  base: Slider<{ min: 2; max: 16; default: 16 }>;
+  sourceBase: Slider<{ min: 2; max: 64; default: 16 }>;
+  targetBase: Slider<{ min: 2; max: 16; default: 16 }>;
   bitWidth: Slider<{ min: 1; max: 64; default: 2 }>;
-  xWordCount: Slider<{ min: 1; max: 64; default: 8 }>;
-  zWordCount: Slider<{ min: 1; max: 64; default: 1 }>;
+  wordsPerRow: Slider<{ min: 1; max: 64; default: 8 }>;
   xOffsets: number[];
   yOffsets: number[];
   zOffsets: number[];
@@ -575,11 +575,46 @@ export const ROM_BUILD_SOURCE = `type Inputs = {
 type Outputs = { rom: Schematic };
 
 function generate(inputs) {
+  // Convert the data from sourceBase (compact input, up to 64) to targetBase
+  // (<= 16, so every digit fits one comparator barrel: signal 0..15). The data
+  // is treated as one number, so leading zeros aren't preserved. Digits use
+  // 0-9 a-z A-Z + / (so a single char can address up to base 64).
+  const ALPHA = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ+/';
+  const sourceBase = Math.max(2, Math.min(64, inputs.sourceBase | 0));
+  const targetBase = Math.max(2, Math.min(16, inputs.targetBase | 0));
+  const raw = String(inputs.data).replace(/\\s+/g, '');
+  let digitStr;
+  if (sourceBase === targetBase) {
+    digitStr = raw.toLowerCase();
+  } else {
+    let v = 0n;
+    const sb = BigInt(sourceBase);
+    for (const ch of raw) {
+      const d = ALPHA.indexOf(ch);
+      if (d < 0 || d >= sourceBase) continue; // skip whitespace / invalid digits
+      v = v * sb + BigInt(d);
+    }
+    if (v === 0n) {
+      digitStr = '0';
+    } else {
+      const tb = BigInt(targetBase);
+      let out = '';
+      while (v > 0n) { out = ALPHA[Number(v % tb)] + out; v = v / tb; }
+      digitStr = out;
+    }
+  }
+
+  // The ROM is sized by the (converted) DATA, not a fixed word count: it wraps
+  // at \`wordsPerRow\` words per X row, then rolls over down Z for as many rows
+  // as the data needs.
+  const bitWidth = Math.max(1, inputs.bitWidth);
+  const wordsPerRow = Math.max(1, inputs.wordsPerRow);
+  const words = Math.max(1, Math.ceil(digitStr.length / bitWidth));
   const cfg = {
-    base: inputs.base,
-    bitWidth: inputs.bitWidth,
-    xWordCount: inputs.xWordCount,
-    zWordCount: inputs.zWordCount,
+    base: targetBase,
+    bitWidth: bitWidth,
+    xWordCount: wordsPerRow,
+    zWordCount: Math.max(1, Math.ceil(words / wordsPerRow)),
     xOffsets: inputs.xOffsets,
     yOffsets: inputs.yOffsets,
     zOffsets: inputs.zOffsets,
@@ -590,7 +625,7 @@ function generate(inputs) {
     solidBlockOn0: inputs.solidBlockOn0,
     redstoneBlockOn15: inputs.redstoneBlockOn15,
   };
-  const placements = Rom.layoutData(inputs.data, cfg);
+  const placements = Rom.layoutData(digitStr, cfg);
   const rom = new Schematic();
   for (const p of placements) {
     const block =
@@ -609,10 +644,10 @@ function generate(inputs) {
 export const ROM_BUILD_CONTRACT: BlockContract = {
   inputs: {
     data: { kind: 'string' },
-    base: { kind: 'number', widget: 'slider', min: 2, max: 16, default: 16 },
+    sourceBase: { kind: 'number', widget: 'slider', min: 2, max: 64, default: 16 },
+    targetBase: { kind: 'number', widget: 'slider', min: 2, max: 16, default: 16 },
     bitWidth: { kind: 'number', widget: 'slider', min: 1, max: 64, default: 2 },
-    xWordCount: { kind: 'number', widget: 'slider', min: 1, max: 64, default: 8 },
-    zWordCount: { kind: 'number', widget: 'slider', min: 1, max: 64, default: 1 },
+    wordsPerRow: { kind: 'number', widget: 'slider', min: 1, max: 64, default: 8 },
     xOffsets: { kind: 'list', of: { kind: 'number' } },
     yOffsets: { kind: 'list', of: { kind: 'number' } },
     zOffsets: { kind: 'list', of: { kind: 'number' } },
@@ -634,10 +669,10 @@ export const ROM_BUILD_CONTRACT: BlockContract = {
 // kept as separate list constants — the Form widget has no list field.)
 const ROM_FORM_FIELDS = [
   { name: 'data', dataType: 'string', widgetType: 'textarea', value: '0123456789abcdef' },
-  { name: 'base', dataType: 'number', widgetType: 'slider', min: 2, max: 16, value: 16 },
+  { name: 'sourceBase', label: 'source base', dataType: 'number', widgetType: 'slider', min: 2, max: 64, value: 16 },
+  { name: 'targetBase', label: 'target base', dataType: 'number', widgetType: 'slider', min: 2, max: 16, value: 16 },
   { name: 'bitWidth', dataType: 'number', widgetType: 'slider', min: 1, max: 64, value: 2 },
-  { name: 'xWordCount', dataType: 'number', widgetType: 'slider', min: 1, max: 64, value: 8 },
-  { name: 'zWordCount', dataType: 'number', widgetType: 'slider', min: 1, max: 64, value: 1 },
+  { name: 'wordsPerRow', label: 'words / row', dataType: 'number', widgetType: 'slider', min: 1, max: 64, value: 8 },
   { name: 'xStagger', dataType: 'enum', widgetType: 'select', options: ['none', 'even', 'odd'], value: 'none' },
   { name: 'zStagger', dataType: 'enum', widgetType: 'select', options: ['none', 'even', 'odd'], value: 'none' },
   { name: 'staggerIntersectionMode', dataType: 'enum', widgetType: 'select', options: ['xor', 'min', 'max'], value: 'xor' },
@@ -647,17 +682,17 @@ const ROM_FORM_FIELDS = [
   { name: 'solidBlock', dataType: 'string', widgetType: 'text', value: 'minecraft:red_concrete' },
 ];
 
-// The same 12 fields as an unbundle field list + an object FlowType (the form's
+// The same fields as an unbundle field list + an object FlowType (the form's
 // bundled `params` output / the group's `params` boundary input).
 const ROM_PARAM_BUNDLE_FIELDS = ROM_FORM_FIELDS.map((f) => ({ name: f.name }));
 const ROM_PARAMS_TYPE = {
   kind: 'object' as const,
   fields: {
     data: { kind: 'string' as const },
-    base: { kind: 'number' as const },
+    sourceBase: { kind: 'number' as const },
+    targetBase: { kind: 'number' as const },
     bitWidth: { kind: 'number' as const },
-    xWordCount: { kind: 'number' as const },
-    zWordCount: { kind: 'number' as const },
+    wordsPerRow: { kind: 'number' as const },
     xStagger: { kind: 'string' as const },
     zStagger: { kind: 'string' as const },
     staggerIntersectionMode: { kind: 'string' as const },

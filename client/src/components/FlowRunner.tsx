@@ -294,6 +294,12 @@ export function FlowRunner({ embed = false }: FlowRunnerProps = {}) {
     };
   }, [data]);
 
+  // Code can live INSIDE a group/map (no top-level code node), so the flow is
+  // still executable — don't gate run/live on top-level codeNodes alone.
+  const hasExecutable =
+    codeNodes.length > 0 ||
+    (data?.jsonContent?.nodes ?? []).some((n) => n.type === 'group' || n.type === 'map');
+
   // Clear node output cache when flow definition changes (code updates, etc.)
   useEffect(() => {
     nodeOutputCacheRef.current.clear();
@@ -457,7 +463,7 @@ export function FlowRunner({ embed = false }: FlowRunnerProps = {}) {
   };
 
   const handleRun = async () => {
-    if (codeNodes.length === 0) {
+    if (!hasExecutable) {
       setError('No code nodes found in this flow');
       return;
     }
@@ -608,7 +614,7 @@ export function FlowRunner({ embed = false }: FlowRunnerProps = {}) {
 
   // Auto-run in live mode with debounce
   useEffect(() => {
-    if (!liveMode || !inputsReadyRef.current || codeNodes.length === 0) return;
+    if (!liveMode || !inputsReadyRef.current || !hasExecutable) return;
 
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
@@ -724,6 +730,24 @@ export function FlowRunner({ embed = false }: FlowRunnerProps = {}) {
                     const desc = node.data.config?.description as string | undefined ||
                       (node.data.io?.outputs ? Object.values(node.data.io.outputs)[0]?.description : undefined);
                     const value = inputs[label];
+                    // Generic `input` nodes (examples + expanded form fields) carry
+                    // their widget hint in data.dataType/widgetType/config, not in a
+                    // legacy `*_input` type — map them to the right widget so they
+                    // render as sliders / toggles / selects instead of plain text.
+                    const wt = (node.data as Record<string, unknown>).widgetType as string | undefined;
+                    const hasOptions = ((node.data.config?.options as unknown[] | undefined)?.length ?? 0) > 0;
+                    const effType =
+                      node.type !== 'input'
+                        ? node.type
+                        : node.data.dataType === 'file'
+                          ? 'file_input'
+                          : node.data.dataType === 'boolean' || wt === 'toggle' || wt === 'boolean'
+                            ? 'boolean_input'
+                            : hasOptions || wt === 'select'
+                              ? 'select_input'
+                              : node.data.dataType === 'number'
+                                ? 'number_input'
+                                : 'text_input';
 
                     return (
                       <div key={node.id}>
@@ -732,7 +756,7 @@ export function FlowRunner({ embed = false }: FlowRunnerProps = {}) {
                           {desc && <span className="text-neutral-600 font-normal ml-1.5">— {desc}</span>}
                         </label>
 
-                        {node.type === 'number_input' && (
+                        {effType === 'number_input' && (
                           <div className="flex items-center gap-3">
                             <input
                               type="range"
@@ -752,7 +776,7 @@ export function FlowRunner({ embed = false }: FlowRunnerProps = {}) {
                           </div>
                         )}
 
-                        {node.type === 'text_input' && (
+                        {effType === 'text_input' && (
                           <input
                             type="text"
                             value={String(value ?? '')}
@@ -761,7 +785,7 @@ export function FlowRunner({ embed = false }: FlowRunnerProps = {}) {
                           />
                         )}
 
-                        {node.type === 'boolean_input' && (
+                        {effType === 'boolean_input' && (
                           <button
                             onClick={() => setInput(label, !value)}
                             className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-medium transition-all ${
@@ -775,7 +799,7 @@ export function FlowRunner({ embed = false }: FlowRunnerProps = {}) {
                           </button>
                         )}
 
-                        {node.type === 'select_input' && (
+                        {effType === 'select_input' && (
                           <div className="relative">
                             <select
                               value={String(value ?? '')}
@@ -790,7 +814,7 @@ export function FlowRunner({ embed = false }: FlowRunnerProps = {}) {
                           </div>
                         )}
 
-                        {node.type === 'file_input' && (
+                        {effType === 'file_input' && (
                           <div>
                             <input
                               type="file"
@@ -810,14 +834,6 @@ export function FlowRunner({ embed = false }: FlowRunnerProps = {}) {
                           </div>
                         )}
 
-                        {(node.type === 'input' && node.data.dataType !== 'file') && (
-                          <input
-                            type="text"
-                            value={String(value ?? '')}
-                            onChange={e => setInput(label, e.target.value)}
-                            className="w-full bg-[#07070a] border border-neutral-800/40 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500/30"
-                          />
-                        )}
                       </div>
                     );
                   })}
@@ -828,7 +844,9 @@ export function FlowRunner({ embed = false }: FlowRunnerProps = {}) {
                   <div className="flex items-center gap-2">
                     <button
                       onClick={handleRun}
-                      disabled={isRunning || codeNodes.length === 0}
+                      // Code can live INSIDE a group/map (no top-level code node),
+                      // so the flow is still runnable — don't gate on codeNodes alone.
+                      disabled={isRunning || !hasExecutable}
                       className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-green-500 hover:bg-green-400 disabled:bg-neutral-800 disabled:text-neutral-600 text-black font-semibold text-sm rounded-lg transition-all hover:shadow-[0_0_20px_rgba(34,197,94,0.3)] active:scale-[0.98]"
                     >
                       {isRunning ? (

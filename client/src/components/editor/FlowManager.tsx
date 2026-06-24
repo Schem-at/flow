@@ -252,17 +252,30 @@ export function FlowManager({ isOpen, onClose }: FlowManagerProps) {
                     {example.nodes.length} nodes · multi-step block pipeline
                   </p>
                 </div>
-                <button
-                  onClick={() => {
-                    // Deep-link the example via the URL so a refresh restores it
-                    // and it's shareable. Editor loads it from EXAMPLE_FLOWS.
-                    navigate(`/editor?example=${encodeURIComponent(example.id)}`);
-                    onClose();
-                  }}
-                  className="flex-none rounded-lg border border-emerald-600/40 bg-emerald-600/15 px-3 py-1.5 text-xs font-medium text-emerald-300 transition hover:bg-emerald-600/25"
-                >
-                  Load example
-                </button>
+                <div className="flex flex-none items-center gap-2">
+                  <button
+                    onClick={() => {
+                      // Open the example in the read-only run-as-tool player.
+                      navigate(`/run?example=${encodeURIComponent(example.id)}`);
+                      onClose();
+                    }}
+                    className="rounded-lg border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 transition hover:border-neutral-500 hover:text-white"
+                    title="Open as a read-only tool"
+                  >
+                    Tool
+                  </button>
+                  <button
+                    onClick={() => {
+                      // Deep-link the example via the URL so a refresh restores it
+                      // and it's shareable. Editor loads it from EXAMPLE_FLOWS.
+                      navigate(`/editor?example=${encodeURIComponent(example.id)}`);
+                      onClose();
+                    }}
+                    className="rounded-lg border border-emerald-600/40 bg-emerald-600/15 px-3 py-1.5 text-xs font-medium text-emerald-300 transition hover:bg-emerald-600/25"
+                  >
+                    Load example
+                  </button>
+                </div>
               </div>
             ))}
           </div>
