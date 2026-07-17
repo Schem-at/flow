@@ -5,10 +5,11 @@
  * Two layers:
  * - AMBIENT_DTS: hand-written, curated docs for widget helpers and the
  *   standard providers (Noise, Vec, Easing, Progress, Schemati, …).
- * - NUCLEATION_AMBIENT_DTS: the REAL nucleation .d.ts (bundled at build time
- *   via ?raw), ambient-ized so every Schematic/WASM method autocompletes with
- *   its true signature and JSDoc — and stays in sync with the installed
- *   nucleation version.
+ * - NUCLEATION_AMBIENT_DTS: hand-authored ambient docs for the nucleation
+ *   COMPAT `Schematic` class the engine endows (see nucleationAmbient.ts —
+ *   since nucleation 0.3.0 the endowed class is @flow/core's compat wrapper
+ *   over the Diplomat-generated bindings, so its docs are authored alongside
+ *   it rather than generated from the package's per-class .d.ts files).
  *
  * Widget helpers (Slider, NumberField, …) are *type-level only*: they erase to
  * their primitive (number/string/boolean) at runtime, but their generic config
@@ -16,50 +17,9 @@
  * into FlowType descriptors.
  */
 
-import nucleationRawDts from 'virtual:nucleation-dts';
+import { NUCLEATION_AMBIENT_DTS } from './nucleationAmbient';
 
-/**
- * Turn nucleation's module .d.ts into ambient (global) declarations:
- * strip module syntax, drop the wasm init plumbing, and alias the
- * `Schematic` global the runtime actually endows (SchematicWrapper plus
- * its attached builder/enum statics).
- */
-function ambientizeNucleationDts(raw: string): string {
-  // Everything from InitOutput onward is wasm-bindgen init plumbing.
-  const cut = raw.indexOf('export interface InitOutput');
-  let body = cut > 0 ? raw.slice(0, cut) : raw;
-
-  body = body
-    .replace(/^export default .*$/gm, '')
-    .replace(/^import .*$/gm, '')
-    .replace(/^export \{[^}]*\};?\s*$/gm, '')
-    .replace(/^export declare /gm, 'declare ')
-    .replace(/^export (class|function|const|enum)/gm, 'declare $1')
-    .replace(/^export (interface|type)/gm, '$1');
-
-  return `${body}
-
-// ---- Runtime aliases (what the engine actually endows) ----
-
-/**
- * The live schematic class available inside blocks — nucleation's
- * SchematicWrapper with builder/enum helpers attached as statics.
- */
-declare class Schematic extends SchematicWrapper {
-  /** Solid blocks only by default; pass { includeAir: true } for the raw list. */
-  blocks(options?: { includeAir?: boolean }): Array<{ x: number; y: number; z: number; name: string }>;
-  /** Copy every block of \`other\` into this schematic at an offset. Returns this. */
-  paste(other: Schematic, dx?: number, dy?: number, dz?: number): this;
-}
-declare namespace Schematic {
-  export import SchematicBuilder = SchematicBuilderWrapper;
-  export import ExecutionMode = ExecutionModeWrapper;
-  export import DefinitionRegion = DefinitionRegionWrapper;
-}
-`;
-}
-
-export const NUCLEATION_AMBIENT_DTS = ambientizeNucleationDts(nucleationRawDts);
+export { NUCLEATION_AMBIENT_DTS };
 
 export const AMBIENT_DTS = `
 // ---- Widget helper types (erased at runtime; config drives the UI) ----

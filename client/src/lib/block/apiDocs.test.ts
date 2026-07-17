@@ -27,10 +27,11 @@ describe('getApiDocs (real ambient sources)', () => {
   const groups = getApiDocs();
   const byName = Object.fromEntries(groups.map((g) => [g.name, g]));
 
-  it('Schematic leads and carries the real nucleation API', () => {
+  it('Schematic leads and carries the nucleation compat API', () => {
     expect(groups[0].name).toBe('Schematic');
     const names = groups[0].members.map((m) => m.name);
-    for (const expected of ['set_block', 'get_block', 'blocks', 'from_data', 'to_schematic', 'create_simulation_world']) {
+    // New camelCase canon + deprecated snake_case aliases must both autocomplete.
+    for (const expected of ['setBlock', 'getBlock', 'blocks', 'fromData', 'toSchematic', 'paste', 'set_block', 'from_data', 'to_schematic']) {
       expect(names).toContain(expected);
     }
     // JSDoc made it through
@@ -46,18 +47,21 @@ describe('getApiDocs (real ambient sources)', () => {
     expect(byName['Schemati'].members.map((m) => m.name)).toContain('uploadSchematic');
   });
 
-  it('nucleation wrapper classes are browsable', () => {
-    expect(byName['MchprsWorldWrapper']).toBeTruthy();
-    expect(byName['MchprsWorldWrapper'].members.map((m) => m.name)).toContain('tick');
+  it('nucleation domain classes are browsable', () => {
+    expect(byName['Diff']).toBeTruthy();
+    expect(byName['Diff'].members.map((m) => m.name)).toContain('compute');
+    expect(byName['SchematicBuilder']).toBeTruthy();
+    expect(byName['SchematicBuilder'].members.map((m) => m.name)).toContain('build');
+    expect(byName['Fingerprint'].members.map((m) => m.name)).toContain('isDuplicate');
   });
 });
 
 describe('searchApiDocs', () => {
   it('filters members by name and doc text', () => {
-    const hits = searchApiDocs('simulation world');
+    const hits = searchApiDocs('bounding box');
     const schematic = hits.find((g) => g.name === 'Schematic');
     expect(schematic).toBeTruthy();
-    expect(schematic!.members.some((m) => m.name === 'create_simulation_world')).toBe(true);
+    expect(schematic!.members.some((m) => m.name === 'dimensions')).toBe(true);
   });
 
   it('keeps whole groups when the group name matches', () => {

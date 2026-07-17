@@ -31,7 +31,7 @@
     "zod": "^3.24.4"
   },
   "peerDependencies": {
-    "nucleation": "^0.2.13",
+    "nucleation": "^0.3.0",
     "@flow/synthase": "workspace:*"
   },
   "peerDependenciesMeta": {

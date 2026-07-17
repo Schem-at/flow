@@ -10,7 +10,7 @@
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.18.2",
-    "nucleation": "^0.2.13",
+    "nucleation": "^0.3.0",
     "tsx": "^4.7.1"
   },
   "devDependencies": {

@@ -46,11 +46,11 @@ function generate(inputs) {
     for (let c = 0; c < row.length; c++) {
       const tile = row[c];
       if (!tile || typeof tile.blocks !== 'function') continue;
-      const dims = tile.get_dimensions();
+      const dims = tile.dimensions();
       // paste() copies every (non-air) block at the offset in one call.
       stitched.paste(tile, offsetX, 0, offsetZ);
-      offsetX += (dims[0] | 0) + spacing;
-      rowDepth = Math.max(rowDepth, dims[2] | 0);
+      offsetX += (dims.x | 0) + spacing;
+      rowDepth = Math.max(rowDepth, dims.z | 0);
     }
     offsetZ += rowDepth + spacing;
   }
@@ -239,10 +239,10 @@ function generate(inputs) {
   const maze = new Schematic();
   for (let z = 0; z < h; z++) {
     for (let x = 0; x < w; x++) {
-      maze.set_block(x, 0, z, 'minecraft:polished_andesite');
+      maze.setBlock(x, 0, z, 'minecraft:polished_andesite');
       if (grid[z][x] === 1) {
-        maze.set_block(x, 1, z, inputs.wall);
-        maze.set_block(x, 2, z, inputs.wall);
+        maze.setBlock(x, 1, z, inputs.wall);
+        maze.setBlock(x, 2, z, inputs.wall);
       }
     }
   }
@@ -309,7 +309,7 @@ function generate(inputs) {
   const solved = new Schematic();
   for (const b of inputs.maze.blocks()) {
     if (b.name === 'minecraft:air') continue;
-    solved.set_block(b.x, b.y, b.z, b.name);
+    solved.setBlock(b.x, b.y, b.z, b.name);
   }
 
   let length = 0;
@@ -317,7 +317,7 @@ function generate(inputs) {
     let cursor = goal[0] + ',' + goal[1];
     while (cursor) {
       const [px, pz] = cursor.split(',').map(Number);
-      solved.set_block(px, 1, pz, inputs.marker);
+      solved.setBlock(px, 1, pz, inputs.marker);
       length++;
       cursor = prev.get(cursor);
     }
@@ -464,7 +464,7 @@ function generate(inputs) {
   for (let x = 0; x < size; x++) {
     for (let z = 0; z < size; z++) {
       const onRoad = x % pitch === 0 || z % pitch === 0;
-      ground.set_block(x, 0, z, onRoad ? 'minecraft:gray_concrete' : 'minecraft:smooth_stone');
+      ground.setBlock(x, 0, z, onRoad ? 'minecraft:gray_concrete' : 'minecraft:smooth_stone');
     }
   }
 
@@ -525,7 +525,7 @@ function generate(inputs) {
   const city = new Schematic();
   for (const b of inputs.ground.blocks()) {
     if (b.name === 'minecraft:air') continue;
-    city.set_block(b.x, b.y, b.z, b.name);
+    city.setBlock(b.x, b.y, b.z, b.name);
   }
 
   for (const lot of inputs.lots || []) {
@@ -539,13 +539,13 @@ function generate(inputs) {
           if (!onEdgeX && !onEdgeZ) continue;
           const corner = onEdgeX && onEdgeZ;
           const block = band && !corner && (x + z) % 2 === 0 ? inputs.glass : inputs.wall;
-          city.set_block(x, y, z, block);
+          city.setBlock(x, y, z, block);
         }
       }
     }
     for (let x = lot.x; x < lot.x + lot.w; x++) {
       for (let z = lot.z; z < lot.z + lot.d; z++) {
-        city.set_block(x, top + 1, z, 'minecraft:polished_andesite');
+        city.setBlock(x, top + 1, z, 'minecraft:polished_andesite');
       }
     }
   }
@@ -768,8 +768,8 @@ function generate(inputs) {
   for (let x = 0; x < w; x++) {
     for (let z = 0; z < d; z++) {
       const h = Math.max(1, height[x][z]);
-      for (let y = 0; y < h - 1; y++) eroded.set_block(x, y, z, 'minecraft:dirt');
-      eroded.set_block(x, h - 1, z, surface[x][z]);
+      for (let y = 0; y < h - 1; y++) eroded.setBlock(x, y, z, 'minecraft:dirt');
+      eroded.setBlock(x, h - 1, z, surface[x][z]);
     }
   }
 

@@ -27,11 +27,11 @@ type Outputs = {
 function generate(inputs) {
   const schematic = new Schematic();
   for (let x = 0; x < inputs.length; x++) {
-    schematic.set_block(x, 0, 0, inputs.material);
+    schematic.setBlock(x, 0, 0, inputs.material);
     if (x % 16 === 15) {
-      schematic.set_block(x, 1, 0, 'minecraft:repeater[facing=west]');
+      schematic.setBlock(x, 1, 0, 'minecraft:repeater[facing=west]');
     } else {
-      schematic.set_block(x, 1, 0, 'minecraft:redstone_wire[east=side,west=side]');
+      schematic.setBlock(x, 1, 0, 'minecraft:redstone_wire[east=side,west=side]');
     }
   }
   return { schematic };
@@ -67,9 +67,9 @@ function generate(inputs) {
       const n = sampleNoise(x, z, inputs.scale, inputs.seed);
       const height = Math.floor((n * 0.5 + 0.5) * inputs.amplitude);
       for (let y = 0; y < height; y++) {
-        terrain.set_block(x, y, z, 'minecraft:dirt');
+        terrain.setBlock(x, y, z, 'minecraft:dirt');
       }
-      terrain.set_block(x, height, z, inputs.surface);
+      terrain.setBlock(x, height, z, inputs.surface);
     }
   }
   return { terrain };
@@ -103,7 +103,7 @@ function buildWalls(schematic, inputs, baseY) {
         const isWindowRow = y % FLOOR_HEIGHT === 2;
         const isWindowColumn = (x + z) % 2 === 0;
         const block = isWindowRow && isWindowColumn ? inputs.glass : inputs.wall;
-        schematic.set_block(x, y, z, block);
+        schematic.setBlock(x, y, z, block);
       }
     }
   }
@@ -113,7 +113,7 @@ function buildRoof(schematic, inputs, baseY) {
   if (inputs.roof === 'flat') {
     for (let x = 0; x < inputs.width; x++) {
       for (let z = 0; z < inputs.depth; z++) {
-        schematic.set_block(x, baseY, z, inputs.wall);
+        schematic.setBlock(x, baseY, z, inputs.wall);
       }
     }
   } else if (inputs.roof === 'gable') {
@@ -123,7 +123,7 @@ function buildRoof(schematic, inputs, baseY) {
       for (let x = 0; x < inputs.width; x++) {
         for (let z = step; z < inputs.depth - step; z++) {
           if (z === step || z === inputs.depth - 1 - step) {
-            schematic.set_block(x, baseY + step, z, inputs.wall);
+            schematic.setBlock(x, baseY + step, z, inputs.wall);
           }
         }
       }
@@ -140,7 +140,7 @@ function buildRoof(schematic, inputs, baseY) {
             x === inputs.width - 1 - ring ||
             z === inputs.depth - 1 - ring
           ) {
-            schematic.set_block(x, baseY + ring, z, inputs.wall);
+            schematic.setBlock(x, baseY + ring, z, inputs.wall);
           }
         }
       }
@@ -179,10 +179,10 @@ function generate(inputs) {
     };
   }
 
-  const dims = typeof schematic.get_dimensions === 'function'
-    ? schematic.get_dimensions()
-    : [0, 0, 0];
-  const dimensions = [dims[0] | 0, dims[1] | 0, dims[2] | 0];
+  const dims = typeof schematic.dimensions === 'function'
+    ? schematic.dimensions()
+    : { x: 0, y: 0, z: 0 };
+  const dimensions = [dims.x | 0, dims.y | 0, dims.z | 0];
 
   const counts = new Map();
   const columnDensity = new Map();
@@ -274,14 +274,14 @@ function juliaTile(cRe, cIm, size, maxIterations) {
         height = Math.max(1, Math.round(t * MAX_HEIGHT));
       }
       for (let y = 0; y < height; y++) {
-        schem.set_block(px, y, pz, block);
+        schem.setBlock(px, y, pz, block);
       }
     }
   }
   // A tile fully inside the set would have a single-entry palette, which
   // trips a divide-by-zero in nucleation's region packing — vary one block.
   if (!anyEscaped) {
-    schem.set_block(0, MAX_HEIGHT - 1, 0, 'minecraft:gray_concrete');
+    schem.setBlock(0, MAX_HEIGHT - 1, 0, 'minecraft:gray_concrete');
   }
   return schem;
 }
@@ -388,21 +388,21 @@ const STONE = 'minecraft:gray_concrete';
 const LEVER = 'minecraft:lever[face=floor,facing=north,powered=false]';
 
 function buildNot(s) {
-  s.set_block(0, 1, 0, STONE);
-  s.set_block(0, 2, 0, LEVER);
-  s.set_block(1, 1, 0, 'minecraft:redstone_wall_torch[facing=east,lit=true]');
-  s.set_block(2, 1, 0, 'minecraft:redstone_lamp[lit=true]');
+  s.setBlock(0, 1, 0, STONE);
+  s.setBlock(0, 2, 0, LEVER);
+  s.setBlock(1, 1, 0, 'minecraft:redstone_wall_torch[facing=east,lit=true]');
+  s.setBlock(2, 1, 0, 'minecraft:redstone_lamp[lit=true]');
   return { levers: [[0, 2, 0]], probe: [1, 1, 0], probeIsTorch: true };
 }
 
 function buildOr(s) {
-  s.set_block(0, 1, 0, STONE);
-  s.set_block(4, 1, 0, STONE);
-  s.set_block(0, 2, 0, LEVER);
-  s.set_block(4, 2, 0, LEVER);
+  s.setBlock(0, 1, 0, STONE);
+  s.setBlock(4, 1, 0, STONE);
+  s.setBlock(0, 2, 0, LEVER);
+  s.setBlock(4, 2, 0, LEVER);
   for (let x = 1; x <= 3; x++) {
-    s.set_block(x, 0, 0, STONE);
-    s.set_block(x, 1, 0, 'minecraft:redstone_wire[east=side,west=side]');
+    s.setBlock(x, 0, 0, STONE);
+    s.setBlock(x, 1, 0, 'minecraft:redstone_wire[east=side,west=side]');
   }
   return { levers: [[0, 2, 0], [4, 2, 0]], probe: [2, 1, 0], probeIsTorch: false };
 }
@@ -410,22 +410,22 @@ function buildOr(s) {
 function buildAndNand(s, isNand) {
   // Torch logic: levers invert onto a merge wire; wire = NOT a OR NOT b (= NAND).
   // For AND, a repeater strong-powers a block whose torch re-inverts the wire.
-  s.set_block(0, 1, 0, STONE);
-  s.set_block(4, 1, 0, STONE);
-  s.set_block(0, 2, 0, LEVER);
-  s.set_block(4, 2, 0, LEVER);
-  s.set_block(1, 1, 0, 'minecraft:redstone_wall_torch[facing=east,lit=true]');
-  s.set_block(3, 1, 0, 'minecraft:redstone_wall_torch[facing=west,lit=true]');
-  s.set_block(2, 0, 0, STONE);
-  s.set_block(2, 1, 0, 'minecraft:redstone_wire[east=side,west=side]');
+  s.setBlock(0, 1, 0, STONE);
+  s.setBlock(4, 1, 0, STONE);
+  s.setBlock(0, 2, 0, LEVER);
+  s.setBlock(4, 2, 0, LEVER);
+  s.setBlock(1, 1, 0, 'minecraft:redstone_wall_torch[facing=east,lit=true]');
+  s.setBlock(3, 1, 0, 'minecraft:redstone_wall_torch[facing=west,lit=true]');
+  s.setBlock(2, 0, 0, STONE);
+  s.setBlock(2, 1, 0, 'minecraft:redstone_wire[east=side,west=side]');
   if (isNand) {
     return { levers: [[0, 2, 0], [4, 2, 0]], probe: [2, 1, 0], probeIsTorch: false };
   }
-  s.set_block(2, 0, 1, STONE);
-  s.set_block(2, 1, 1, 'minecraft:repeater[facing=north,delay=1,powered=false]');
-  s.set_block(2, 1, 2, STONE);
-  s.set_block(2, 1, 3, 'minecraft:redstone_wall_torch[facing=south,lit=false]');
-  s.set_block(2, 1, 4, 'minecraft:redstone_lamp[lit=false]');
+  s.setBlock(2, 0, 1, STONE);
+  s.setBlock(2, 1, 1, 'minecraft:repeater[facing=north,delay=1,powered=false]');
+  s.setBlock(2, 1, 2, STONE);
+  s.setBlock(2, 1, 3, 'minecraft:redstone_wall_torch[facing=south,lit=false]');
+  s.setBlock(2, 1, 4, 'minecraft:redstone_lamp[lit=false]');
   return { levers: [[0, 2, 0], [4, 2, 0]], probe: [2, 1, 3], probeIsTorch: true };
 }
 
@@ -728,13 +728,13 @@ function classify(e, m, waterLevel) {
 }
 
 function plantTree(terrain, x, y, z) {
-  for (let i = 0; i < 4; i++) terrain.set_block(x, y + i, z, 'minecraft:oak_log');
+  for (let i = 0; i < 4; i++) terrain.setBlock(x, y + i, z, 'minecraft:oak_log');
   for (let dx = -1; dx <= 1; dx++) {
     for (let dz = -1; dz <= 1; dz++) {
       for (let dy = 3; dy <= 5; dy++) {
         if (dy === 5 && (dx !== 0 || dz !== 0)) continue;
         if (dx === 0 && dz === 0 && dy < 5) continue;
-        terrain.set_block(x + dx, y + dy, z + dz, 'minecraft:oak_leaves');
+        terrain.setBlock(x + dx, y + dy, z + dz, 'minecraft:oak_leaves');
       }
     }
   }
@@ -767,15 +767,15 @@ function generate(inputs) {
 
       const height = Math.max(1, Math.floor(e * amplitude));
       for (let y = 0; y < height - 1; y++) {
-        terrain.set_block(x, y, z, y < height - 4 ? 'minecraft:stone' : 'minecraft:dirt');
+        terrain.setBlock(x, y, z, y < height - 4 ? 'minecraft:stone' : 'minecraft:dirt');
       }
       if (biome === 'water') {
-        terrain.set_block(x, height - 1, z, 'minecraft:gravel');
+        terrain.setBlock(x, height - 1, z, 'minecraft:gravel');
         for (let y = height; y <= waterY; y++) {
-          terrain.set_block(x, y, z, spec.top);
+          terrain.setBlock(x, y, z, spec.top);
         }
       } else {
-        terrain.set_block(x, height - 1, z, spec.top);
+        terrain.setBlock(x, height - 1, z, spec.top);
         if (biome === 'forest' && x > 1 && z > 1 && x < size - 2 && z < size - 2 &&
             hash2(x, z, (inputs.seed | 0) + 31) < 0.025) {
           plantTree(terrain, x, height, z);
@@ -839,8 +839,7 @@ type Outputs = {
 // required flag blocks runs until the id is provided.
 async function generate(inputs) {
   const file = await Schemati.getSchematicData(inputs.id);
-  const schematic = new Schematic();
-  schematic.from_data(file.data);
+  const schematic = Schematic.fromData(file.data);
   return { schematic, name: file.metadata.name };
 }
 `;
@@ -935,9 +934,9 @@ function generate(inputs) {
   let cellD = 1;
   for (const row of rows) {
     for (const tile of row) {
-      const d = tile.get_dimensions();
-      cellW = Math.max(cellW, d[0]);
-      cellD = Math.max(cellD, d[2]);
+      const d = tile.dimensions();
+      cellW = Math.max(cellW, d.x);
+      cellD = Math.max(cellD, d.z);
     }
   }
 
