@@ -5,10 +5,11 @@
  * Two layers:
  * - AMBIENT_DTS: hand-written, curated docs for widget helpers and the
  *   standard providers (Noise, Vec, Easing, Progress, Schemati, …).
- * - NUCLEATION_AMBIENT_DTS: the REAL nucleation .d.ts (bundled at build time
- *   via ?raw), ambient-ized so every Schematic/WASM method autocompletes with
- *   its true signature and JSDoc — and stays in sync with the installed
- *   nucleation version.
+ * - NUCLEATION_AMBIENT_DTS: hand-authored ambient docs for the nucleation
+ *   COMPAT `Schematic` class the engine endows (see nucleationAmbient.ts —
+ *   since nucleation 0.3.0 the endowed class is @flow/core's compat wrapper
+ *   over the Diplomat-generated bindings, so its docs are authored alongside
+ *   it rather than generated from the package's per-class .d.ts files).
  *
  * Widget helpers (Slider, NumberField, …) are *type-level only*: they erase to
  * their primitive (number/string/boolean) at runtime, but their generic config
@@ -16,90 +17,9 @@
  * into FlowType descriptors.
  */
 
-import nucleationRawDts from 'virtual:nucleation-dts';
+import { NUCLEATION_AMBIENT_DTS } from './nucleationAmbient';
 
-/**
- * Turn nucleation's module .d.ts into ambient (global) declarations:
- * strip module syntax, drop the wasm init plumbing, and alias the
- * `Schematic` global the runtime actually endows (SchematicWrapper plus
- * its attached builder/enum statics).
- */
-function ambientizeNucleationDts(raw: string): string {
-  // Everything from InitOutput onward is wasm-bindgen init plumbing.
-  const cut = raw.indexOf('export interface InitOutput');
-  let body = cut > 0 ? raw.slice(0, cut) : raw;
-
-  body = body
-    .replace(/^export default .*$/gm, '')
-    .replace(/^import .*$/gm, '')
-    .replace(/^export \{[^}]*\};?\s*$/gm, '')
-    .replace(/^export declare /gm, 'declare ')
-    .replace(/^export (class|function|const|enum)/gm, 'declare $1')
-    .replace(/^export (interface|type)/gm, '$1');
-
-  return `${body}
-
-// ---- Runtime aliases (what the engine actually endows) ----
-
-/**
- * The live schematic class available inside blocks — nucleation's
- * SchematicWrapper with builder/enum helpers attached as statics.
- */
-declare class Schematic extends SchematicWrapper {
-  /** Solid blocks only by default; pass { includeAir: true } for the raw list. */
-  blocks(options?: { includeAir?: boolean }): Array<{ x: number; y: number; z: number; name: string }>;
-  // ── fills ──
-  /** Solid box between two corners (inclusive). */
-  fill(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, block: string): this;
-  /** Vertical run of blocks at (x, z) from y0 to y1. */
-  fillColumn(x: number, z: number, y0: number, y1: number, block: string): this;
-  /** Flat slab at a single Y between two XZ corners. */
-  fillPlane(x0: number, z0: number, x1: number, z1: number, y: number, block: string): this;
-  // ── outlines / shells ──
-  /** Box shell (all 6 faces), hollow interior. */
-  hollowBox(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, block: string): this;
-  /** Four vertical walls, no floor or roof. */
-  walls(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, block: string): this;
-  /** Single-Y rectangle perimeter. */
-  rectOutline(x0: number, z0: number, x1: number, z1: number, y: number, block: string): this;
-  /** 3D line between two points. */
-  line(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, block: string): this;
-  sphere(cx: number, cy: number, cz: number, radius: number, block: string, hollow?: boolean): this;
-  cylinder(cx: number, cy: number, cz: number, radius: number, height: number, block: string, hollow?: boolean): this;
-  // ── compose ──
-  /** Copy every block of other into this schematic at an offset. Returns this. */
-  paste(other: Schematic, dx?: number, dy?: number, dz?: number): this;
-  /** Paste with options: at offset and skipAir (default true). */
-  merge(other: Schematic, options?: { at?: [number, number, number]; skipAir?: boolean }): this;
-  /** A fresh copy of this schematic (non-air blocks). */
-  clone(): Schematic;
-  /** Repeat other count times, each offset by [dx,dy,dz] from the last. */
-  stack(other: Schematic, count: number, offset: [number, number, number]): this;
-  repeatY(other: Schematic, count: number, step: number): this;
-  // ── transforms (return new schematics) ──
-  mirror(axis: 'x' | 'y' | 'z'): Schematic;
-  /** Rotate about the vertical axis by 90/180/270 degrees clockwise. */
-  rotate(degrees: number): Schematic;
-  // ── queries ──
-  blockCounts(): Map<string, number>;
-  /** Top non-air block per column. */
-  heightmap(): { height: number[][]; surface: string[][] };
-  readonly bounds: { width: number; height: number; depth: number; min: [number, number, number]; max: [number, number, number] };
-  // ── statics ──
-  static fromData(data: Uint8Array): Schematic;
-  static isSchematic(value: unknown): boolean;
-  /** Arrange a 2D grid of schematics into one mosaic. */
-  static tileGrid(rows: Schematic[][], options?: { spacing?: number; mode?: 'uniform' | 'packed' }): Schematic;
-}
-declare namespace Schematic {
-  export import SchematicBuilder = SchematicBuilderWrapper;
-  export import ExecutionMode = ExecutionModeWrapper;
-  export import DefinitionRegion = DefinitionRegionWrapper;
-}
-`;
-}
-
-export const NUCLEATION_AMBIENT_DTS = ambientizeNucleationDts(nucleationRawDts);
+export { NUCLEATION_AMBIENT_DTS };
 
 export const AMBIENT_DTS = `
 // ---- Widget helper types (erased at runtime; config drives the UI) ----
@@ -121,9 +41,6 @@ declare type Toggle<C extends { default?: boolean } = {}> = boolean;
 
 /** A minecraft block id, edited with the block picker widget. */
 declare type Block<C extends { default?: string } = {}> = string;
-
-/** A number matrix; rows/cols (when given) fix that dimension in the input form. */
-declare type Matrix<C extends { rows?: number; cols?: number } = {}> = number[][];
 
 /** An [x, y, z] vector. */
 declare type Vec3Tuple = [number, number, number];
@@ -147,10 +64,6 @@ declare class Image {
   static create(width: number, height: number): Image;
   /** Render a heightfield through a palette (auto-normalized). */
   static fromField(field: Field, palette?: FieldPalette, options?: { normalize?: boolean }): Image;
-  /** A small transparent placeholder for early-return paths. */
-  static blank(width?: number, height?: number): Image;
-  /** Sample [r,g,b] stops at t in [0,1] with linear interpolation. */
-  static ramp(stops: Array<[number, number, number]>, t: number): [number, number, number];
   static palettes(): FieldPalette[];
   setPixel(x: number, y: number, r: number, g: number, b: number, a?: number): this;
   getPixel(x: number, y: number): [number, number, number, number];
@@ -251,8 +164,6 @@ declare const Noise: {
   getFractal3D(x: number, y: number, z: number, options?: FractalNoiseOptions): number;
   getFractal2D_01(x: number, y: number, options?: FractalNoiseOptions): number;
   getFractal3D_01(x: number, y: number, z: number, options?: FractalNoiseOptions): number;
-  /** F1 Worley/Voronoi noise in [0, 1] — distance to the nearest jittered feature point. */
-  worley(x: number, y: number, options?: { frequency?: number; jitter?: number }): number;
 };
 
 /** Chainable 2D vector (methods mutate and return this). */
@@ -315,10 +226,6 @@ declare const Calculator: {
   multiply(a: number, b: number): number;
   /** Throws on division by zero. */
   divide(a: number, b: number): number;
-  /** Snap a value into N discrete levels (terracing). */
-  quantize(value: number, steps: number): number;
-  /** Round to a fixed number of decimal places. */
-  roundTo(value: number, digits?: number): number;
   sqrt(a: number): number;
   pow(a: number, b: number): number;
   cbrt(a: number): number;
@@ -420,72 +327,6 @@ declare const Schemati: {
     name: string; description?: string; tags?: string[];
     isPublic?: boolean; format?: 'schem' | 'litematic' | 'schematic';
   }): Promise<{ id: string; shortId: string; slug: string; name: string; webUrl: string | null }>;
-  /** Fetch + load a schematic in one step. */
-  loadSchematic(idOrSlug: string): Promise<{ schematic: Schematic; name: string }>;
-  /** Prefer shortId, fall back to id, for any result object. */
-  displayId(item: { shortId?: string; id?: string }): string;
-};
-
-/** 2D integer grid helper — alloc, neighbours, bounds checks, grid BFS. */
-declare const Grid: {
-  create<T>(width: number, height: number, value: T | ((x: number, z: number) => T)): T[][];
-  width(grid: unknown[][]): number;
-  height(grid: unknown[][]): number;
-  inBounds(grid: unknown[][], x: number, z: number): boolean;
-  neighbors4(grid: unknown[][], x: number, z: number): Array<{ x: number; z: number }>;
-  neighbors8(grid: unknown[][], x: number, z: number): Array<{ x: number; z: number }>;
-  forEach<T>(grid: T[][], fn: (value: T, x: number, z: number) => void): void;
-  map<T, R>(grid: T[][], fn: (value: T, x: number, z: number) => R): R[][];
-  /** Shortest 4-connected path over passable cells, or null if unreachable. */
-  bfs(grid: unknown[][], start: { x: number; z: number }, goal: { x: number; z: number }, passable: (x: number, z: number) => boolean): Array<{ x: number; z: number }> | null;
-};
-
-/** Enumeration helpers — cartesian products and boolean truth-table rows. */
-declare const Combinatorics: {
-  cartesian<T>(values: T[], n: number): T[][];
-  booleanCombos(n: number): boolean[][];
-};
-
-/** Fluent .mcfunction command builder (Mcfunction.build(...) helper). */
-declare const McfunctionBuilder: any;
-
-/** Generic ROM generator (any bytes → roms.py data string / placements) — ISA-agnostic. */
-declare const Rom: {
-  /** Serialise bytes into the flat base-N digit string the schematic-api Basic ROM Generator (roms.py) consumes as its \`data\` parameter. */
-  data(bytes: number[], opts?: { base?: number; bitWidth?: number; padTo?: number; fill?: number }): string;
-  /** Lay bytes out into { x, y, z, value, role } placements mirroring roms.py spatial math — drives an in-editor ROM preview. */
-  layout(bytes: number[], cfg?: { base?: number; bitWidth?: number; xWordCount?: number; zWordCount?: number; xOffsets?: number[]; zOffsets?: number[]; yOffsets?: number[]; xStagger?: 'none' | 'even' | 'odd'; zStagger?: 'none' | 'even' | 'odd'; invertWord?: boolean; solidBlockOn0?: boolean; redstoneBlockOn15?: boolean; staggerIntersectionMode?: 'xor' | 'min' | 'max'; padTo?: number; fill?: number }): Array<{ x: number; y: number; z: number; value: number; role: 'data' | 'zero' | 'fifteen' | 'invalid' }>;
-  /** Like layout() but takes a pre-made base-N digit string (Rom.data / the rom-data node / roms.py data) directly. Same spatial math. */
-  layoutData(data: string, cfg?: { base?: number; bitWidth?: number; xWordCount?: number; zWordCount?: number; xOffsets?: number[]; zOffsets?: number[]; yOffsets?: number[]; xStagger?: 'none' | 'even' | 'odd'; zStagger?: 'none' | 'even' | 'odd'; invertWord?: boolean; solidBlockOn0?: boolean; redstoneBlockOn15?: boolean; staggerIntersectionMode?: 'xor' | 'min' | 'max'; padTo?: number; fill?: number }): Array<{ x: number; y: number; z: number; value: number; role: 'data' | 'zero' | 'fifteen' | 'invalid' }>;
-  /** Base-N digits needed to represent one byte. */
-  digitsPerByte(base: number): number;
-};
-
-/** Assembler construction kit — build an assembler for ANY ISA. */
-declare const Asm: {
-  /** Build a two-pass assembler from a declarative ISA spec. Binary mode → assemble(); IR mode (mode:'ir') → assembleIR(). */
-  define(spec: any): {
-    assemble(src: string): number[];
-    assembleIR(src: string): {
-      instructions: Array<{ mnemonic: string; operands: Array<{ kind: string; value: number; raw: string; symbol?: string }>; offset: number; label?: string; data?: number[] }>;
-      labels: Record<string, number>;
-      headers: Record<string, number | string>;
-    };
-  };
-  /** Parse a numeric token: decimal, 0x hex, 0b binary; underscores allowed. */
-  parseNumber(token: string): number;
-  /** Strip a line comment (default marker '//'). */
-  stripComments(line: string, marker?: string): string;
-  /** Normalise source into trimmed, comment-free, non-empty lines. */
-  normalizeLines(src: string, opts?: { comment?: string }): string[];
-  /** Tokenise source lines by whitespace. */
-  tokenizeLines(src: string, opts?: { comment?: string }): string[][];
-  /** Two-pass label table. */
-  LabelTable: { new (...args: any[]): any };
-  /** Pack bitfields into one integer (default order 'lsb' = first field in low bits). */
-  pack(fields: Array<{ value: number; bits: number }>, opts?: { order?: 'msb' | 'lsb' }): number;
-  /** Split a value into a fixed number of bytes. */
-  packBytes(value: number, byteCount: number, opts?: { endian?: 'le' | 'be' }): number[];
 };
 `;
 
@@ -514,11 +355,6 @@ export function setupAmbientMonaco(monaco: {
     allowJs: true,
     checkJs: false,
     strict: false,
-    // Block sources run in a sandbox with NO DOM. Dropping the DOM lib removes
-    // browser globals (notably `Image` = HTMLImageElement) that would otherwise
-    // shadow our ambient `Image` class and break `Image.fromField`, `new Image()`,
-    // etc. The sandbox exposes Logger/Progress rather than `console`.
-    lib: ['es2020'],
   });
   ts.setDiagnosticsOptions({ noSemanticValidation: false, noSyntaxValidation: false });
   ts.addExtraLib(AMBIENT_DTS, 'file:///flow-ambient.d.ts');

@@ -25,6 +25,10 @@ export default defineConfig(({ mode }) => {
     },
     worker: {
       format: 'es',
+      // The web-worker bundle imports nucleation too, so it needs the same
+      // interception of nucleation's node-only diplomat.config.mjs — worker
+      // rollup passes don't inherit the top-level plugins array.
+      plugins: () => [nucleationDtsPlugin()],
     },
     server: {
       port,
