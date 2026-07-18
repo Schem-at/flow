@@ -76,6 +76,24 @@ export class FlowImage {
     return new FlowImage(width, height);
   }
 
+  /** A small transparent placeholder — for early-return paths that must emit an Image. */
+  static blank(width = 1, height = 1): FlowImage {
+    return new FlowImage(Math.max(1, width), Math.max(1, height));
+  }
+
+  /** Sample an array of [r,g,b] stops at t in [0,1] with linear interpolation. */
+  static ramp(stops: Array<[number, number, number]>, t: number): [number, number, number] {
+    if (stops.length === 0) return [0, 0, 0];
+    if (stops.length === 1) return stops[0];
+    const clamped = t < 0 ? 0 : t > 1 ? 1 : t;
+    const scaled = clamped * (stops.length - 1);
+    const i = Math.min(stops.length - 2, Math.floor(scaled));
+    const f = scaled - i;
+    const [r0, g0, b0] = stops[i];
+    const [r1, g1, b1] = stops[i + 1];
+    return [Math.round(r0 + (r1 - r0) * f), Math.round(g0 + (g1 - g0) * f), Math.round(b0 + (b1 - b0) * f)];
+  }
+
   /**
    * Render a heightfield (number[][]) through a palette. Values are
    * auto-normalized over the field's own range unless normalize: false.

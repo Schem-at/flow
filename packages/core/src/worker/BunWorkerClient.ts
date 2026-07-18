@@ -3,6 +3,7 @@
  * Used by the server for non-blocking execution
  */
 
+import { reconstructError } from './errorReporting.js';
 import {
   MESSAGE_TYPES,
   WORKER_STATES,
@@ -105,7 +106,9 @@ export class BunWorkerClient {
         this.pendingMessages.delete(id);
 
         if (error || type === MESSAGE_TYPES.ERROR) {
-          reject(new Error(error || String(payload)));
+          // Rebuild a rich Error: preserves the in-sandbox stack + nodeId/label
+          // and appends a stale-worker hint for missing ambient globals.
+          reject(reconstructError(error ?? payload));
         } else {
           resolve(payload);
         }

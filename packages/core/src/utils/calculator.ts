@@ -50,7 +50,15 @@ export const Calculator = {
     const t = (value - inMin) / (inMax - inMin);
     return outMin + (outMax - outMin) * t;
   },
-  
+  /** Snap a value into `steps` discrete levels (terracing). */
+  quantize: (value: number, steps: number): number =>
+    steps > 0 ? Math.round(value * steps) / steps : value,
+  /** Round to a fixed number of decimal places. */
+  roundTo: (value: number, digits = 0): number => {
+    const f = 10 ** digits;
+    return Math.round(value * f) / f;
+  },
+
   // Distance
   distance2D: (x1: number, y1: number, x2: number, y2: number): number =>
     Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2),

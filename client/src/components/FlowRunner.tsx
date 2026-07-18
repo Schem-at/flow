@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   Play, Loader2, AlertCircle, Workflow, Pencil, Zap,
@@ -9,14 +9,24 @@ import Markdown from 'react-markdown';
 import { Navbar } from './layout/Navbar';
 import { useLocalExecutor } from '../hooks/useLocalExecutor';
 import type { BlockContract, CompiledFlow, FlowLike } from '@flow/core';
-import { defaultInputsForContract, compileFlow, hashFlow, isAssetNodeData, assetNodeValue } from '@flow/core';
+import { defaultInputsForContract, compileFlow, hashFlow, isAssetNodeData, assetNodeValue, expandFormNodes } from '@flow/core';
+import { EXAMPLE_FLOWS } from '../lib/exampleFlows';
+import { hydrateModuleToGroup, type ModuleResolvePayload } from '../lib/moduleHydrate';
+import {
+  parseContextFromQuery,
+  parseContextMessage,
+  prefillInputsFromContext,
+  EMBED_READY,
+  type EmbedContext,
+} from '../lib/embedContext';
 import SchematicRenderer from './others/SchematicRenderer';
 
 /**
  * Tool-mode flow folding: compile the whole graph into ONE script per content
  * hash and run it in a single worker call — no per-node serialization
- * round-trips. Falls back to the per-node walk when folding isn't possible
- * (e.g. module-ref nodes whose code lives on the server).
+ * round-trips. Falls back to the per-node walk when folding isn't possible.
+ * Module instances are hydrated into group nodes (see resolveModuleNodes) before
+ * folding, so they fold statically rather than forcing the per-node fallback.
  */
 const foldCache = new Map<string, CompiledFlow>();
 function getFoldedFlowCached(flow: FlowLike | null): CompiledFlow | null {
@@ -33,6 +43,45 @@ function getFoldedFlowCached(flow: FlowLike | null): CompiledFlow | null {
     console.log('[FlowRunner] folding unavailable:', (error as Error).message);
     return null;
   }
+}
+
+/**
+ * Module instances are `group` nodes carrying a `moduleRef`. Before folding,
+ * resolve any that aren't yet hydrated (drag-dropped refs, or legacy `code`
+ * nodes with a moduleRef from before the group consolidation) into a hydrated
+ * group subgraph — so the whole flow folds statically and there's no per-node
+ * module fetch at run time. Already-hydrated module groups pass through.
+ */
+const moduleResolveCache = new Map<string, ModuleResolvePayload>();
+async function resolveModuleNodes(nodes: FlowNode[]): Promise<FlowNode[]> {
+  const out: FlowNode[] = [];
+  for (const node of nodes) {
+    const ref = node.data.moduleRef;
+    const alreadyHydrated =
+      node.type === 'group' && Array.isArray(node.data.subgraph?.nodes) && node.data.subgraph!.nodes.length > 0;
+    if (!ref?.id || alreadyHydrated) {
+      out.push(node);
+      continue;
+    }
+    const key = `${ref.id}@${ref.version || 'latest'}`;
+    let payload = moduleResolveCache.get(key);
+    if (!payload) {
+      const params = ref.version ? `?version=${encodeURIComponent(ref.version)}` : '';
+      const res = await fetch(`${SERVER_URL}/api/modules/${ref.id}/resolve${params}`, { credentials: 'include' });
+      const json = await res.json();
+      if (!json.success || !json.ioSchema) throw new Error(`Failed to load module: ${ref.id}`);
+      payload = {
+        subgraph: json.subgraph ?? undefined,
+        ioSchema: json.ioSchema,
+        code: json.code ?? undefined,
+        version: json.version,
+      };
+      moduleResolveCache.set(key, payload);
+    }
+    const g = hydrateModuleToGroup(payload, { id: ref.id, slug: ref.slug ?? ref.id });
+    out.push({ ...node, type: 'group', data: { ...node.data, ...g } } as FlowNode);
+  }
+  return out;
 }
 import { cacheFile, getCachedFile } from '../lib/fileCache';
 
@@ -58,6 +107,10 @@ interface FlowNode {
     code?: string;
     dataType?: string;
     moduleRef?: { id: string; slug?: string; version?: string; pinned?: boolean };
+    // Group/module instances carry a hydrated subgraph + boundary.
+    subgraph?: { nodes: unknown[]; edges: unknown[] };
+    groupInputs?: unknown[];
+    groupOutputs?: unknown[];
     config?: Record<string, unknown>;
     io?: {
       inputs: Record<string, IOPort>;
@@ -83,6 +136,42 @@ interface FlowData {
 const INPUT_TYPES = ['number_input', 'text_input', 'boolean_input', 'select_input', 'input', 'file_input'];
 const OUTPUT_TYPES = ['output', 'viewer', 'file_output'];
 
+/**
+ * Normalize a built-in EXAMPLE_FLOWS entry (flat { nodes, edges }) into the same
+ * `FlowData` shape the runner gets back from `/api/flows/:id` (which nests the
+ * graph under `jsonContent`). Examples are ephemeral: no owner, not editable,
+ * and carry no backend id — they're identified by their `example-*` id.
+ *
+ * Example `input` nodes store their widget config INLINE on `data`
+ * (dataType / widgetType / min / max / step / options) rather than under
+ * `data.config`. We project those into `config` so the existing input renderer
+ * + `getInputDefault` pick them up unchanged.
+ */
+function exampleToFlowData(example: (typeof EXAMPLE_FLOWS)[number]): FlowData {
+  const nodes = (example.nodes as unknown as FlowNode[]).map((node) => {
+    if (node.type !== 'input') return node;
+    const d = node.data as Record<string, unknown>;
+    const config: Record<string, unknown> = { ...(node.data.config ?? {}) };
+    for (const key of ['min', 'max', 'step', 'options', 'description', 'default']) {
+      if (d[key] !== undefined && config[key] === undefined) config[key] = d[key];
+    }
+    return { ...node, data: { ...node.data, config } };
+  });
+  return {
+    id: example.id,
+    name: example.name,
+    version: example.version,
+    visibility: 'public',
+    metadata: example.metadata as { description?: string } | undefined,
+    jsonContent: {
+      nodes,
+      edges: example.edges as FlowData['jsonContent']['edges'],
+    },
+    canEdit: false,
+    owner: null,
+  };
+}
+
 function getInputDefault(node: FlowNode): unknown {
   if (node.data.value !== undefined) return node.data.value;
   if (node.data.config?.default !== undefined) return node.data.config.default;
@@ -104,8 +193,15 @@ function getSelectOptions(node: FlowNode): { value: string; label: string }[] {
   });
 }
 
-export function FlowRunner() {
-  const { flowId } = useParams();
+interface FlowRunnerProps {
+  /** Chromeless embed mode: no Navbar / Edit link, suitable for an <iframe>. */
+  embed?: boolean;
+}
+
+export function FlowRunner({ embed = false }: FlowRunnerProps = {}) {
+  const { flowId: urlFlowId } = useParams();
+  const [searchParams] = useSearchParams();
+  const exampleId = searchParams.get('example');
   const { executeScript } = useLocalExecutor();
   const [inputs, setInputs] = useState<Record<string, unknown>>({});
   const [outputs, setOutputs] = useState<Record<string, unknown>>({});
@@ -118,27 +214,91 @@ export function FlowRunner() {
   // Cache node outputs between runs to skip unchanged nodes
   const nodeOutputCacheRef = useRef<Map<string, { inputHash: string; outputs: Record<string, unknown> }>>(new Map());
 
-  const { data, isLoading } = useQuery<FlowData>({
-    queryKey: ['flow-run', flowId],
+  // ── Embed context injection ─────────────────────────────────────────────
+  // Start from the URL-param fallback (always available). postMessage from an
+  // allowed parent origin (see embedContext) overrides it. `user`/`permissions`
+  // are UNTRUSTED display hints — never gate data access on them client-side.
+  const [embedCtx, setEmbedCtx] = useState<EmbedContext>(() =>
+    embed ? parseContextFromQuery(searchParams) : {}
+  );
+  const embedCtxRef = useRef(embedCtx);
+  embedCtxRef.current = embedCtx;
+
+  useEffect(() => {
+    if (!embed) return;
+    // Handshake: tell the parent we're ready to receive context.
+    try {
+      window.parent?.postMessage({ type: EMBED_READY }, '*');
+    } catch {
+      /* cross-origin parent without a listener — ignore */
+    }
+    const onMessage = (event: MessageEvent) => {
+      const ctx = parseContextMessage(event);
+      if (ctx) setEmbedCtx((prev) => ({ ...prev, ...ctx }));
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [embed]);
+
+  // Examples are resolved synchronously; only hit the API for real flow ids.
+  const example = useMemo(() => {
+    const id = exampleId ?? (urlFlowId?.startsWith('example-') ? urlFlowId : null);
+    return id ? EXAMPLE_FLOWS.find((f) => f.id === id) ?? null : null;
+  }, [exampleId, urlFlowId]);
+
+  const apiFlowId = example ? null : urlFlowId ?? null;
+
+  const { data: apiData, isLoading: isApiLoading } = useQuery<FlowData>({
+    queryKey: ['flow-run', apiFlowId],
     queryFn: async () => {
-      const res = await fetch(`${SERVER_URL}/api/flows/${flowId}`, { credentials: 'include' });
+      const res = await fetch(`${SERVER_URL}/api/flows/${apiFlowId}`, { credentials: 'include' });
       const json = await res.json();
       if (!json.success) throw new Error(json.error);
       return json.flow as FlowData;
     },
-    enabled: !!flowId,
+    enabled: !!apiFlowId,
   });
+
+  const data = useMemo<FlowData | undefined>(
+    () => (example ? exampleToFlowData(example) : apiData),
+    [example, apiData]
+  );
+  const isLoading = !example && isApiLoading;
+  // The id used for file caching: examples share their stable example id.
+  const flowId = example ? example.id : urlFlowId;
 
   const { inputNodes, codeNodes, outputNodes, edges } = useMemo(() => {
     if (!data?.jsonContent) return { inputNodes: [], codeNodes: [], outputNodes: [], edges: [] };
     const nodes = data.jsonContent.nodes;
+    // Form nodes expand into one synthetic `input` per field so the run panel
+    // lists each field. (The fold path stays on RAW nodes/edges below; compileFlow
+    // expands forms itself.) Synthetic inputs carry inline widget config, so we
+    // project it into `config` the same way exampleToFlowData does.
+    const expandedInputs = (expandFormNodes({ nodes, edges: data.jsonContent.edges } as FlowLike)
+      .nodes as unknown as FlowNode[])
+      .filter((n) => INPUT_TYPES.includes(n.type))
+      .map((node) => {
+        const d = node.data as Record<string, unknown>;
+        if (d.config || ['min', 'max', 'step', 'options'].every((k) => d[k] === undefined)) return node;
+        const config: Record<string, unknown> = { ...(node.data.config ?? {}) };
+        for (const key of ['min', 'max', 'step', 'options', 'description', 'default']) {
+          if (d[key] !== undefined && config[key] === undefined) config[key] = d[key];
+        }
+        return { ...node, data: { ...node.data, config } };
+      });
     return {
-      inputNodes: nodes.filter(n => INPUT_TYPES.includes(n.type)),
+      inputNodes: expandedInputs,
       codeNodes: nodes.filter(n => n.type === 'code'),
       outputNodes: nodes.filter(n => OUTPUT_TYPES.includes(n.type)),
       edges: data.jsonContent.edges,
     };
   }, [data]);
+
+  // Code can live INSIDE a group/map (no top-level code node), so the flow is
+  // still executable — don't gate run/live on top-level codeNodes alone.
+  const hasExecutable =
+    codeNodes.length > 0 ||
+    (data?.jsonContent?.nodes ?? []).some((n) => n.type === 'group' || n.type === 'map');
 
   // Clear node output cache when flow definition changes (code updates, etc.)
   useEffect(() => {
@@ -168,6 +328,18 @@ export function FlowRunner() {
     init();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inputNodes, flowId]);
+
+  // Auto-bind embed context → inputs by matching name (PART 3a). Runs whenever
+  // context arrives (postMessage may land after the initial defaults). Only
+  // overrides inputs whose label matches a context key; everything else is left
+  // as the user set it.
+  useEffect(() => {
+    if (!embed || inputNodes.length === 0) return;
+    const keys = Object.keys(embedCtx);
+    if (keys.length === 0) return;
+    const names = inputNodes.map((n) => n.data.label || n.id);
+    setInputs((prev) => prefillInputsFromContext(prev, embedCtx, names));
+  }, [embed, embedCtx, inputNodes]);
 
   // Get topological execution order for code nodes
   const getExecutionOrder = (): FlowNode[] => {
@@ -291,7 +463,7 @@ export function FlowRunner() {
   };
 
   const handleRun = async () => {
-    if (codeNodes.length === 0) {
+    if (!hasExecutable) {
       setError('No code nodes found in this flow');
       return;
     }
@@ -312,11 +484,11 @@ export function FlowRunner() {
       // ── folded fast path: one worker call for the whole graph ────────────
       // (?fold=0 forces the per-node walk, for comparison/debugging)
       const foldDisabled = new URLSearchParams(window.location.search).get('fold') === '0';
+      // Hydrate module-ref group nodes (and legacy code-node moduleRefs) before folding.
+      const resolvedNodes = data?.jsonContent ? await resolveModuleNodes(data.jsonContent.nodes) : null;
       const folded = foldDisabled
         ? null
-        : getFoldedFlowCached(
-            data?.jsonContent ? ({ nodes: data.jsonContent.nodes, edges } as FlowLike) : null
-          );
+        : getFoldedFlowCached(resolvedNodes ? ({ nodes: resolvedNodes, edges } as FlowLike) : null);
       if (folded) {
         console.log(`[FlowRunner] folded run ${folded.hash}: ${folded.nodeOrder.join(' → ')}`);
         const rawResult = await executeScript(folded.source, preparedInputs);
@@ -330,24 +502,10 @@ export function FlowRunner() {
 
       const executionOrder = getExecutionOrder();
       const nodeOutputs = new Map<string, Record<string, unknown>>();
-      const moduleCodeCache = new Map<string, string>();
 
-      // Resolve module references — fetch code from API for module instances
-      const resolveCode = async (node: FlowNode): Promise<string> => {
-        const ref = node.data.moduleRef as { id: string; version?: string; pinned?: boolean } | undefined;
-        if (!ref?.id) return node.data.code || '';
-
-        const cacheKey = `${ref.id}@${ref.version || 'latest'}`;
-        if (moduleCodeCache.has(cacheKey)) return moduleCodeCache.get(cacheKey)!;
-
-        const params = ref.version ? `?version=${encodeURIComponent(ref.version)}` : '';
-        const res = await fetch(`${SERVER_URL}/api/modules/${ref.id}/resolve${params}`, { credentials: 'include' });
-        const json = await res.json();
-        if (!json.success) throw new Error(`Failed to load module: ${ref.id}`);
-
-        moduleCodeCache.set(cacheKey, json.code);
-        return json.code;
-      };
+      // Per-node fallback walk (used only when folding is disabled/unavailable).
+      // Modules no longer resolve here — they fold as hydrated group nodes above.
+      const resolveCode = async (node: FlowNode): Promise<string> => node.data.code || '';
 
       // Execute code nodes in order, skipping nodes whose inputs haven't changed
       for (const node of executionOrder) {
@@ -456,7 +614,7 @@ export function FlowRunner() {
 
   // Auto-run in live mode with debounce
   useEffect(() => {
-    if (!liveMode || !inputsReadyRef.current || codeNodes.length === 0) return;
+    if (!liveMode || !inputsReadyRef.current || !hasExecutable) return;
 
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
@@ -479,7 +637,7 @@ export function FlowRunner() {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-[#07070a]">
-        <Navbar />
+        {!embed && <Navbar />}
         <div className="flex items-center justify-center py-32">
           <Loader2 className="w-6 h-6 text-green-500 animate-spin" />
         </div>
@@ -490,7 +648,7 @@ export function FlowRunner() {
   if (!data) {
     return (
       <div className="min-h-screen bg-[#07070a]">
-        <Navbar />
+        {!embed && <Navbar />}
         <div className="flex flex-col items-center justify-center py-32">
           <AlertCircle className="w-6 h-6 text-red-500 mb-2" />
           <p className="text-sm text-neutral-400">Flow not found</p>
@@ -504,19 +662,21 @@ export function FlowRunner() {
 
   return (
     <div className="min-h-screen bg-[#07070a]">
-      {/* Dot grid */}
-      <div
-        className="fixed inset-0 opacity-[0.03] pointer-events-none"
-        style={{
-          backgroundImage: 'radial-gradient(circle, #22c55e 0.5px, transparent 0.5px)',
-          backgroundSize: '24px 24px',
-        }}
-      />
+      {/* Dot grid (skipped in embed mode for a flatter iframe surface) */}
+      {!embed && (
+        <div
+          className="fixed inset-0 opacity-[0.03] pointer-events-none"
+          style={{
+            backgroundImage: 'radial-gradient(circle, #22c55e 0.5px, transparent 0.5px)',
+            backgroundSize: '24px 24px',
+          }}
+        />
+      )}
 
       <div className="relative z-10">
-        <Navbar />
+        {!embed && <Navbar />}
 
-        <div className="max-w-3xl mx-auto px-6 pt-8 pb-16">
+        <div className={`max-w-3xl mx-auto px-6 pb-16 ${embed ? 'pt-4' : 'pt-8'}`}>
           {/* Header */}
           <div className="mb-8">
             <div className="flex items-start justify-between">
@@ -541,7 +701,7 @@ export function FlowRunner() {
                   </div>
                 )}
               </div>
-              {data.canEdit && (
+              {!embed && data.canEdit && (
                 <Link
                   to={`/editor/${data.id}`}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-neutral-400 hover:text-white hover:bg-white/5 rounded-md transition-colors"
@@ -570,6 +730,24 @@ export function FlowRunner() {
                     const desc = node.data.config?.description as string | undefined ||
                       (node.data.io?.outputs ? Object.values(node.data.io.outputs)[0]?.description : undefined);
                     const value = inputs[label];
+                    // Generic `input` nodes (examples + expanded form fields) carry
+                    // their widget hint in data.dataType/widgetType/config, not in a
+                    // legacy `*_input` type — map them to the right widget so they
+                    // render as sliders / toggles / selects instead of plain text.
+                    const wt = (node.data as Record<string, unknown>).widgetType as string | undefined;
+                    const hasOptions = ((node.data.config?.options as unknown[] | undefined)?.length ?? 0) > 0;
+                    const effType =
+                      node.type !== 'input'
+                        ? node.type
+                        : node.data.dataType === 'file'
+                          ? 'file_input'
+                          : node.data.dataType === 'boolean' || wt === 'toggle' || wt === 'boolean'
+                            ? 'boolean_input'
+                            : hasOptions || wt === 'select'
+                              ? 'select_input'
+                              : node.data.dataType === 'number'
+                                ? 'number_input'
+                                : 'text_input';
 
                     return (
                       <div key={node.id}>
@@ -578,7 +756,7 @@ export function FlowRunner() {
                           {desc && <span className="text-neutral-600 font-normal ml-1.5">— {desc}</span>}
                         </label>
 
-                        {node.type === 'number_input' && (
+                        {effType === 'number_input' && (
                           <div className="flex items-center gap-3">
                             <input
                               type="range"
@@ -598,7 +776,7 @@ export function FlowRunner() {
                           </div>
                         )}
 
-                        {node.type === 'text_input' && (
+                        {effType === 'text_input' && (
                           <input
                             type="text"
                             value={String(value ?? '')}
@@ -607,7 +785,7 @@ export function FlowRunner() {
                           />
                         )}
 
-                        {node.type === 'boolean_input' && (
+                        {effType === 'boolean_input' && (
                           <button
                             onClick={() => setInput(label, !value)}
                             className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-medium transition-all ${
@@ -621,7 +799,7 @@ export function FlowRunner() {
                           </button>
                         )}
 
-                        {node.type === 'select_input' && (
+                        {effType === 'select_input' && (
                           <div className="relative">
                             <select
                               value={String(value ?? '')}
@@ -636,7 +814,7 @@ export function FlowRunner() {
                           </div>
                         )}
 
-                        {node.type === 'file_input' && (
+                        {effType === 'file_input' && (
                           <div>
                             <input
                               type="file"
@@ -656,14 +834,6 @@ export function FlowRunner() {
                           </div>
                         )}
 
-                        {(node.type === 'input' && node.data.dataType !== 'file') && (
-                          <input
-                            type="text"
-                            value={String(value ?? '')}
-                            onChange={e => setInput(label, e.target.value)}
-                            className="w-full bg-[#07070a] border border-neutral-800/40 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500/30"
-                          />
-                        )}
                       </div>
                     );
                   })}
@@ -674,7 +844,9 @@ export function FlowRunner() {
                   <div className="flex items-center gap-2">
                     <button
                       onClick={handleRun}
-                      disabled={isRunning || codeNodes.length === 0}
+                      // Code can live INSIDE a group/map (no top-level code node),
+                      // so the flow is still runnable — don't gate on codeNodes alone.
+                      disabled={isRunning || !hasExecutable}
                       className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-green-500 hover:bg-green-400 disabled:bg-neutral-800 disabled:text-neutral-600 text-black font-semibold text-sm rounded-lg transition-all hover:shadow-[0_0_20px_rgba(34,197,94,0.3)] active:scale-[0.98]"
                     >
                       {isRunning ? (

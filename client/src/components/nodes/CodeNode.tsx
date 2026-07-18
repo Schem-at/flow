@@ -4,7 +4,7 @@
 
 import { memo, useCallback, useState } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import { Zap, Code, CheckCircle, Loader2, AlertCircle, Clock, Package, PlusCircle } from 'lucide-react';
+import { Zap, Code, CheckCircle, Loader2, AlertCircle, Clock, Package, PlusCircle, ChevronDown, ChevronRight } from 'lucide-react';
 import type { IODefinition, BlockContract } from '@flow/core';
 import { useFlowStore, type NodeExecutionStatus } from '../../store/flowStore';
 import { useShallow } from 'zustand/react/shallow';
@@ -24,6 +24,12 @@ interface CodeNodeData {
   /** v2 blocks: the FlowType contract parsed from the source — drives the ports. */
   contract?: BlockContract;
   moduleRef?: ModuleRef;
+  /**
+   * Presentational only: input port keys listed here are hidden behind a
+   * collapsible "Advanced" toggle (default collapsed) to declutter busy nodes.
+   * Does NOT change the contract — the handles still exist and stay wired.
+   */
+  advancedFields?: string[];
 }
 
 const StatusIndicator = ({ status }: { status: NodeExecutionStatus }) => {
@@ -92,6 +98,7 @@ const CodeNode = memo(({ id, data, selected }: NodeProps & { data: CodeNodeData 
   }));
 
   const [isHovered, setIsHovered] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const status = cache?.status || 'idle';
   const progress = useFlowStore(useShallow((state) => state.nodeProgress[id]));
@@ -117,6 +124,42 @@ const CodeNode = memo(({ id, data, selected }: NodeProps & { data: CodeNodeData 
   const inputHandles = toPorts(data.contract?.inputs, data.io?.inputs);
   const outputHandles = toPorts(data.contract?.outputs, data.io?.outputs);
   const isModule = !!data.moduleRef;
+
+  // Presentational: split inputs into always-visible vs "Advanced" (collapsed
+  // by default). Connected advanced ports stay visible so wires aren't hidden.
+  const advancedKeys = new Set(data.advancedFields ?? []);
+  const primaryInputs = inputHandles.filter(
+    ([key]) => !advancedKeys.has(key) || connectedInputs.has(key)
+  );
+  const advancedInputs = inputHandles.filter(
+    ([key]) => advancedKeys.has(key) && !connectedInputs.has(key)
+  );
+
+  const renderInputRow = ([key, port]: [string, { type: string; description?: string }]) => {
+    const isConnected = connectedInputs.has(key);
+    return (
+      <div
+        key={key}
+        data-label={key}
+        className={`relative text-[11px] py-1.5 px-2 rounded flex items-center gap-1.5 ${isConnected
+          ? 'text-green-400 bg-green-500/10 border border-green-500/20'
+          : 'text-blue-400/70 bg-blue-500/5 border border-blue-500/10'
+          }`}
+        title={port.description || `${key}: ${port.type}`}
+      >
+        <Handle
+          type="target"
+          position={Position.Left}
+          id={key}
+          style={{ top: '50%', left: '-19px', transform: 'translateY(-50%)' }}
+          className={`!w-3 !h-3 !border-2 !border-neutral-900 ${isConnected ? '!bg-green-500' : '!bg-blue-500'
+            }`}
+        />
+        <div className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-green-400' : 'bg-blue-400/50'}`} />
+        {key}
+      </div>
+    );
+  };
 
 
   const handleClick = useCallback(() => {
@@ -220,36 +263,29 @@ const CodeNode = memo(({ id, data, selected }: NodeProps & { data: CodeNodeData 
           <div className="py-3 pl-3 pr-2 border-r border-neutral-800/30 min-w-[90px]">
             <div className="text-[9px] uppercase tracking-wider text-blue-400/70 font-semibold mb-2">Inputs</div>
             <div className="space-y-2">
-              {inputHandles.map(([key, port]) => {
-                const isConnected = connectedInputs.has(key);
-                return (
-                  <div
-                    key={key}
-                    data-label={key}
-                    className={`relative text-[11px] py-1.5 px-2 rounded flex items-center gap-1.5 ${isConnected
-                      ? 'text-green-400 bg-green-500/10 border border-green-500/20'
-                      : 'text-blue-400/70 bg-blue-500/5 border border-blue-500/10'
-                      }`}
-                    title={port.description || `${key}: ${port.type}`}
-                  >
-                    <Handle
-                      type="target"
-                      position={Position.Left}
-                      id={key}
-                      style={{
-                        top: '50%',
-                        left: '-19px',
-                        transform: 'translateY(-50%)',
-                      }}
-                      className={`!w-3 !h-3 !border-2 !border-neutral-900 ${connectedInputs.has(key) ? '!bg-green-500' : '!bg-blue-500'
-                        }`}
-                    />
-                    <div className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-green-400' : 'bg-blue-400/50'}`} />
-                    {key}
-                  </div>
-                );
-              })}
+              {primaryInputs.map(renderInputRow)}
             </div>
+
+            {/* Advanced params (collapsed by default) */}
+            {advancedInputs.length > 0 && (
+              <div className="mt-2">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowAdvanced((v) => !v);
+                  }}
+                  className="flex items-center gap-1 text-[9px] uppercase tracking-wider text-neutral-500 hover:text-neutral-300 transition-colors nodrag"
+                >
+                  {showAdvanced ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                  Advanced ({advancedInputs.length})
+                </button>
+                {showAdvanced && (
+                  <div className="space-y-2 mt-2">
+                    {advancedInputs.map(renderInputRow)}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 

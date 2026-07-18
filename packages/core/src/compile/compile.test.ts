@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { compileBlock, isBlockSource, BlockCompileError } from './index.js';
+import { compileBlock, isBlockSource, BlockCompileError, positionalInputNames } from './index.js';
 
 const TERRAIN_LIKE_BLOCK = `
 type Inputs = {
@@ -85,5 +85,30 @@ describe('compileBlock', () => {
       function generate(inputs: { m: Material }) { return { m: inputs.m }; }
     `;
     expect(await run(src, { m: 'a' })).toEqual({ m: 'a' });
+  });
+});
+
+describe('positional `generate` params', () => {
+  it('detects positional vs object/destructure/legacy forms', () => {
+    expect(positionalInputNames('function generate(size: Slider<{min:0;max:1}>, seed: number): { o: number } {}')).toEqual(['size', 'seed']);
+    // Array-typed (connection) params must split correctly despite the [][] brackets.
+    expect(positionalInputNames('function generate(a: number[][], b: number[][]): { out: number[][] } {}')).toEqual(['a', 'b']);
+    expect(positionalInputNames('function generate(size: Slider<{min:0;max:1}>): { o: number } {}')).toEqual(['size']);
+    expect(positionalInputNames('function generate(inputs: { size: number }) {}')).toBeNull();   // inline object
+    expect(positionalInputNames('function generate({ size }: { size: number }) {}')).toBeNull(); // destructure
+    expect(positionalInputNames('function generate(inputs) {}')).toBeNull();                      // legacy
+    expect(positionalInputNames('const generate = (a: number, b: number): { s: number } => ({ s: a + b })')).toEqual(['a', 'b']);
+  });
+
+  it('spreads named inputs positionally and runs', async () => {
+    const src = `function generate(a: Slider<{ min: 0; max: 10; default: 2 }>, b: number): { sum: number } { return { sum: a + b }; }`;
+    expect(compileBlock(src).functionCode).toContain('generate(__inputs["a"], __inputs["b"])');
+    expect(await run(src, { a: 3, b: 4 })).toEqual({ sum: 7 });
+  });
+
+  it('still calls the object/inline form with a single arg', async () => {
+    const src = `function generate(inputs: { a: number; b: number }): { sum: number } { return { sum: inputs.a + inputs.b }; }`;
+    expect(compileBlock(src).functionCode).toContain('generate(__inputs)');
+    expect(await run(src, { a: 1, b: 2 })).toEqual({ sum: 3 });
   });
 });

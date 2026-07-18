@@ -6,6 +6,7 @@
 import { MESSAGE_TYPES, type MessageType, type WorkerMessage, type SchematicData, type DataHandle, type DataValue, type DataFormat } from '../types/index.js';
 import { SynthaseService } from '../services/SynthaseService.js';
 import { createContextProviders } from './contextProviders.js';
+import { shapeWorkerError } from './errorReporting.js';
 import { workerDataStore, type StoreDataOptions, type SerializeOptions } from './WorkerDataStore.js';
 import { processInputSchematics } from '../utils/schematic.js';
 import type { IODefinition, BlockContract } from '../types/index.js';
@@ -101,8 +102,10 @@ export class MessageHandler {
           throw new Error(`Unknown message type: ${type}`);
       }
     } catch (error) {
-      const err = error as Error;
-      this.sendMessage(MESSAGE_TYPES.ERROR, err.message, id);
+      // Send a structured error (message + in-sandbox stack + nodeId + a
+      // stale-worker hint) so the client can reconstruct a diagnosable Error
+      // instead of a bare string pointing at its own onmessage.
+      this.sendMessage(MESSAGE_TYPES.ERROR, shapeWorkerError(error), id);
     }
   }
 
@@ -219,13 +222,26 @@ export class MessageHandler {
 
         this.currentExecution = null;
 
+        // Result marshalling. WASM Schematics cannot cross postMessage, so we
+        // replace every one nested anywhere in the result tree.
+        //  - returnHandles=true: register each in the data store and emit a
+        //    transferable `{ _schematicHandle: id }` ref the client resolves via
+        //    getData. This matches the TOP-LEVEL handle path and keeps the
+        //    message light (no full byte copy), which the folded
+        //    `{ __outputs, __trace }` editor path relies on.
+        //  - returnHandles=false: preserve the EXISTING behavior exactly —
+        //    inline-serialize to transferable SchematicData (viewers read it).
+        const result = returnHandles
+          ? (this.deepExtractSchematicHandles(executionResult.result) as
+              | Record<string, unknown>
+              | undefined)
+          : (this.deepSerializeSchematics(executionResult.result) as
+              | Record<string, unknown>
+              | undefined);
+
         return {
           success: true,
-          // Deep-serialize: WASM schematics nested anywhere in the result
-          // (lists, objects) become transferable SchematicData.
-          result: this.deepSerializeSchematics(executionResult.result) as
-            | Record<string, unknown>
-            | undefined,
+          result,
           schematics: processedSchematics,
           schematicHandles,
           executionTime: executionResult.executionTime,
@@ -236,7 +252,14 @@ export class MessageHandler {
           // Surface the in-sandbox stack — the client only receives the message.
           console.error('[Worker] execution error stack:', executionResult.error.stack);
         }
-        throw new Error(executionResult.error?.message || 'Unknown execution error');
+        // Carry the in-sandbox stack + nodeId onto the thrown Error so the
+        // outer handler ships them to the client (not just the message).
+        const execErr = new Error(
+          executionResult.error?.message || 'Unknown execution error'
+        ) as Error & { nodeId?: string };
+        if (executionResult.error?.stack) execErr.stack = executionResult.error.stack;
+        if (executionResult.error?.nodeId) execErr.nodeId = executionResult.error.nodeId;
+        throw execErr;
       }
     } catch (error) {
       this.currentExecution = null;
@@ -282,6 +305,68 @@ export class MessageHandler {
       const out: Record<string, unknown> = {};
       for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
         out[key] = this.deepSerializeSchematics(item, depth + 1);
+      }
+      return out;
+    }
+    return value;
+  }
+
+  /**
+   * Recursively replace SchematicWrapper (WASM) values anywhere in a result
+   * tree with a transferable `{ _schematicHandle: id }` ref, registering each
+   * in the WorkerDataStore so the client can resolve it via getData().
+   *
+   * Used for the `returnHandles` path (e.g. the folded `{ __outputs, __trace }`
+   * editor result, where schematics live nested inside trace values / output
+   * fields / arrays). Unlike deepSerializeSchematics this does NOT copy the
+   * schematic bytes across the boundary — only a lightweight id ref.
+   *
+   * Bounded by depth and a cycle guard (`seen`) so it can never infinite-loop.
+   */
+  private deepExtractSchematicHandles(
+    value: unknown,
+    depth = 0,
+    memo: WeakMap<object, unknown> = new WeakMap()
+  ): unknown {
+    if (depth > 16 || value === null || typeof value !== 'object') return value;
+    if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) return value;
+
+    if (this.isSchematicWrapper(value)) {
+      try {
+        const handle = workerDataStore.store(value, 'schem', {
+          name: 'schematic',
+          pinned: true, // keep resident so getData can resolve it post-message
+        });
+        return { _schematicHandle: handle.id };
+      } catch (error) {
+        console.error('Failed to extract nested schematic handle:', error);
+        return null;
+      }
+    }
+
+    // Shared/cyclic reference: return the SAME EXTRACTED result we already
+    // produced — NOT the raw value. Returning the raw value would carry its
+    // nested live wrappers across postMessage un-marshalled (they arrive as
+    // dead `{__wbg_ptr}` on the client). The Julia tiles bus, feeding two
+    // consumers, references the same array twice — exactly this case.
+    const memoized = memo.get(value as object);
+    if (memoized !== undefined) return memoized;
+
+    if (Array.isArray(value)) {
+      const out: unknown[] = [];
+      memo.set(value as object, out); // memoize BEFORE recursing → cycle-safe
+      for (const item of value) out.push(this.deepExtractSchematicHandles(item, depth + 1, memo));
+      return out;
+    }
+
+    // Only walk plain objects — leave class instances (other WASM wrappers,
+    // Maps…) for structured clone to handle/fail as before.
+    const proto = Object.getPrototypeOf(value);
+    if (proto === Object.prototype || proto === null) {
+      const out: Record<string, unknown> = {};
+      memo.set(value as object, out); // memoize BEFORE recursing → cycle-safe
+      for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+        out[key] = this.deepExtractSchematicHandles(item, depth + 1, memo);
       }
       return out;
     }

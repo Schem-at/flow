@@ -35,6 +35,17 @@ export interface RuntimeProvider {
    * provider can build on them (e.g. Schemati.getSchematic uses Schematic).
    */
   create(env: RuntimeEnv, context?: Record<string, unknown>): Promise<Record<string, unknown>>;
+  /**
+   * The global names this provider injects (e.g. ['Schematic','SchematicUtils']).
+   * The drift guard asserts these match what create() actually returns and that
+   * each has a matching declaration. Optional so legacy providers keep working.
+   */
+  endowmentKeys?(): string[];
+  /**
+   * Ambient `.d.ts` text declaring this provider's globals. Concatenated by the
+   * codegen into `flow-runtime.d.ts` so node authors get autocomplete + checking.
+   */
+  declarations?(): string;
 }
 
 export function detectRuntimeEnvKind(): RuntimeEnv['kind'] {

@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { Navbar } from './layout/Navbar';
 import { useAuth } from '../hooks/useAuth';
+import { toast } from '../lib/toast';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || '';
 
@@ -42,6 +43,8 @@ interface Flow {
   };
   visibility: 'public' | 'private' | 'unlisted';
   status: 'draft' | 'pending_review' | 'published' | 'rejected' | 'banned';
+  moderationNotes?: string | null;
+  moderatedAt?: number;
   isOwner: boolean;
   canEdit: boolean;
   canModerate: boolean;
@@ -307,7 +310,16 @@ export function Home() {
                 <div
                   key={flow.id}
                   onClick={() => navigate(`/editor/${flow.id}`)}
-                  className="group relative bg-[#0c0c10] border border-neutral-800/40 rounded-xl cursor-pointer hover:border-white/20 hover:bg-[#0e0e13] hover:-translate-y-[3px] hover:shadow-[0_8px_30px_rgba(219,69,240,0.12)] transition-all duration-200"
+                  className={`group relative bg-[#0c0c10] border border-neutral-800/40 rounded-xl cursor-pointer hover:border-white/20 hover:bg-[#0e0e13] hover:shadow-[0_8px_30px_rgba(219,69,240,0.12)] transition-all duration-200 ${
+                    // While this card's menu is open: lift it above its grid
+                    // siblings (each card is its own stacking context) so the
+                    // dropdown isn't painted over. Critically, DROP the hover
+                    // transform — a `transform` on the card re-roots the menu's
+                    // `position: fixed` backdrop to the card box instead of the
+                    // viewport, which causes a hover/transform feedback loop
+                    // (the cursor flickers as the backdrop collapses/expands).
+                    menuOpen === flow.id ? 'z-30' : 'hover:-translate-y-[3px]'
+                  }`}
                   style={{ animationDelay: `${i * 30}ms` }}
                 >
                   {/* Card top accent line */}
@@ -355,7 +367,10 @@ export function Home() {
 
                           {menuOpen === flow.id && (
                             <>
-                              <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(null)} />
+                              <div
+                                className="fixed inset-0 z-10"
+                                onClick={(e) => { e.stopPropagation(); setMenuOpen(null); }}
+                              />
                               <div className="absolute right-0 top-7 z-20 w-40 bg-[#111116] border border-neutral-800/80 rounded-lg shadow-2xl shadow-black/50 py-1 animate-scale-in">
                                 <button
                                   onClick={(e) => { e.stopPropagation(); navigate(`/run/${flow.id}`); setMenuOpen(null); }}
@@ -385,17 +400,26 @@ export function Home() {
                                         <Copy className="w-3 h-3 text-neutral-500" /> Duplicate
                                       </button>
                                     )}
-                                    {flow.isOwner && flow.status === 'draft' && (
+                                    {flow.isOwner && (flow.status === 'draft' || flow.status === 'rejected') && (
                                       <button
                                         onClick={(e) => {
                                           e.stopPropagation();
                                           fetch(`${SERVER_URL}/api/flows/${flow.id}/submit-for-review`, { method: 'POST', credentials: 'include' })
-                                            .then(() => queryClient.invalidateQueries({ queryKey: ['flows'] }));
+                                            .then(r => r.json())
+                                            .then(j => {
+                                              if (j.success) {
+                                                queryClient.invalidateQueries({ queryKey: ['flows'] });
+                                                toast('Submitted for review', 'success');
+                                              } else {
+                                                toast(j.error || 'Could not submit for review', 'error');
+                                              }
+                                            })
+                                            .catch(() => toast('Could not submit for review', 'error'));
                                           setMenuOpen(null);
                                         }}
                                         className="flex items-center gap-2.5 w-full px-3 py-2 text-[11px] text-neutral-300 hover:bg-white/5 transition-colors"
                                       >
-                                        <Send className="w-3 h-3 text-cyan-500" /> Submit for review
+                                        <Send className="w-3 h-3 text-cyan-500" /> {flow.status === 'rejected' ? 'Re-submit for review' : 'Submit for review'}
                                       </button>
                                     )}
                                   </>
@@ -417,6 +441,24 @@ export function Home() {
                         </div>
                       )}
                     </div>
+
+                    {/* Author-facing review status — only the owner sees this */}
+                    {flow.isOwner && flow.status === 'rejected' && (
+                      <div className="mb-3 rounded-lg border border-red-500/20 bg-red-500/5 px-2.5 py-1.5">
+                        <div className="flex items-center gap-1.5 text-[10px] font-medium text-red-400/90">
+                          <AlertCircle className="w-3 h-3" /> Changes requested by a reviewer
+                        </div>
+                        {flow.moderationNotes && (
+                          <p className="mt-1 text-[10px] leading-snug text-red-300/70 line-clamp-3">“{flow.moderationNotes}”</p>
+                        )}
+                        <p className="mt-1 text-[10px] text-neutral-600">Edit, then re-submit from the ⋮ menu.</p>
+                      </div>
+                    )}
+                    {flow.isOwner && flow.status === 'pending_review' && (
+                      <div className="mb-3 flex items-center gap-1.5 text-[10px] text-amber-400/80">
+                        <Clock className="w-3 h-3" /> Awaiting reviewer approval
+                      </div>
+                    )}
 
                     {/* Description */}
                     {flow.metadata?.description && (

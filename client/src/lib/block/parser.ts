@@ -40,6 +40,13 @@ interface ParseContext {
   warnings: string[];
   /** Cycle guard for alias resolution. */
   resolving: Set<string>;
+  /**
+   * The `generate` signature, used when standalone `type Inputs` / `type Outputs`
+   * declarations are absent. Inputs come from the parameters (object/destructure
+   * form: one object param; positional form: one param per input), Outputs from
+   * the return type.
+   */
+  signature: { params?: readonly TS.ParameterDeclaration[]; returnType?: TS.TypeNode };
 }
 
 export async function parseBlockSource(source: string): Promise<ParsedBlock> {
@@ -64,6 +71,7 @@ export async function parseBlockSource(source: string): Promise<ParsedBlock> {
     end: number;
   }
   const runs: Run[] = [];
+  const signature: { params?: readonly TS.ParameterDeclaration[]; returnType?: TS.TypeNode } = {};
 
   for (const statement of sourceFile.statements) {
     const isContract =
@@ -72,6 +80,24 @@ export async function parseBlockSource(source: string): Promise<ParsedBlock> {
       ts.isEnumDeclaration(statement);
     if (ts.isTypeAliasDeclaration(statement) || ts.isInterfaceDeclaration(statement)) {
       declarations.set(statement.name.text, statement);
+    }
+
+    // Capture the `generate` signature (parameters + return type).
+    if (ts.isFunctionDeclaration(statement) && statement.name?.text === 'generate') {
+      signature.params = statement.parameters;
+      signature.returnType = statement.type;
+    } else if (ts.isVariableStatement(statement)) {
+      for (const d of statement.declarationList.declarations) {
+        if (
+          ts.isIdentifier(d.name) &&
+          d.name.text === 'generate' &&
+          d.initializer &&
+          (ts.isArrowFunction(d.initializer) || ts.isFunctionExpression(d.initializer))
+        ) {
+          signature.params = d.initializer.parameters;
+          signature.returnType = d.initializer.type;
+        }
+      }
     }
     const previous = runs[runs.length - 1];
     if (previous && previous.isContract === isContract) {
@@ -90,10 +116,10 @@ export async function parseBlockSource(source: string): Promise<ParsedBlock> {
   const contractText = textOf(true);
   const bodyText = textOf(false);
 
-  const ctx: ParseContext = { ts, sourceFile, declarations, warnings, resolving: new Set() };
+  const ctx: ParseContext = { ts, sourceFile, declarations, warnings, resolving: new Set(), signature };
 
-  const inputs = resolveRecord('Inputs', ctx);
-  const outputs = resolveRecord('Outputs', ctx);
+  const inputs = resolveInputs(ctx);
+  const outputs = resolveOutputs(ctx);
 
   return {
     contract: { inputs, outputs },
@@ -104,12 +130,12 @@ export async function parseBlockSource(source: string): Promise<ParsedBlock> {
 }
 
 /** Resolve a named top-level declaration (`Inputs`/`Outputs`) to a field record. */
-function resolveRecord(name: string, ctx: ParseContext): Record<string, FlowType> {
-  const decl = ctx.declarations.get(name);
-  if (!decl) {
-    ctx.warnings.push(`No top-level \`${name}\` declaration found`);
-    return {};
-  }
+/** A standalone `type Inputs`/`type Outputs` (alias or interface) → field record. */
+function recordFromDecl(
+  decl: TS.TypeAliasDeclaration | TS.InterfaceDeclaration,
+  name: string,
+  ctx: ParseContext
+): Record<string, FlowType> {
   if (ctx.ts.isInterfaceDeclaration(decl)) {
     return mapMembers(decl.members, name, ctx);
   }
@@ -119,6 +145,65 @@ function resolveRecord(name: string, ctx: ParseContext): Record<string, FlowType
     return {};
   }
   return mapMembers(literal.members, name, ctx);
+}
+
+function resolveInputs(ctx: ParseContext): Record<string, FlowType> {
+  const decl = ctx.declarations.get('Inputs');
+  if (decl) return recordFromDecl(decl, 'Inputs', ctx);
+
+  const fromSignature = inputsFromSignature(ctx);
+  if (fromSignature) return fromSignature;
+
+  ctx.warnings.push('No `Inputs` declaration found (add a `type Inputs` block or type generate\'s parameters)');
+  return {};
+}
+
+function resolveOutputs(ctx: ParseContext): Record<string, FlowType> {
+  const decl = ctx.declarations.get('Outputs');
+  if (decl) return recordFromDecl(decl, 'Outputs', ctx);
+
+  const rt = ctx.signature.returnType;
+  if (rt) {
+    const literal = unwrapToTypeLiteral(rt, ctx);
+    if (literal) return mapMembers(literal.members, 'Outputs', ctx);
+  }
+
+  ctx.warnings.push('No `Outputs` declaration found (add a `type Outputs` block or annotate generate\'s return type)');
+  return {};
+}
+
+/**
+ * Build Inputs from the `generate` parameters. Returns null for the legacy
+ * `function generate(inputs)` (untyped single arg), which has no inline contract.
+ *
+ * - object form:   one param whose type is an object literal, or a destructuring
+ *                  pattern `{ a, b }: { … }` → the object's members are the inputs.
+ * - positional:    one param per input `(size: Slider<…>, seed: number)` → each
+ *                  parameter name + type is an input.
+ */
+function inputsFromSignature(ctx: ParseContext): Record<string, FlowType> | null {
+  const { ts } = ctx;
+  const params = ctx.signature.params;
+  if (!params || params.length === 0) return null;
+
+  if (params.length === 1) {
+    const p = params[0];
+    const destructured = ts.isObjectBindingPattern(p.name);
+    const objLiteral = p.type ? unwrapToTypeLiteral(p.type, ctx) : null;
+    if (destructured || objLiteral) {
+      return objLiteral ? mapMembers(objLiteral.members, 'Inputs', ctx) : {};
+    }
+    // A single positional input (non-object type). Untyped `inputs` → legacy form.
+    if (!p.type || !ts.isIdentifier(p.name)) return null;
+    return { [p.name.text]: mapType(p.type, `Inputs.${p.name.text}`, ctx) };
+  }
+
+  const record: Record<string, FlowType> = {};
+  for (const p of params) {
+    if (!ts.isIdentifier(p.name) || !p.type) continue;
+    record[p.name.text] = mapType(p.type, `Inputs.${p.name.text}`, ctx);
+  }
+  return Object.keys(record).length ? record : null;
 }
 
 /** Follow parenthesized types and alias references until an object type literal. */
@@ -302,6 +387,15 @@ function mapTypeReference(
         return { kind: 'unknown' };
       }
       return { kind: 'list', of: mapType(arg, path + '[]', ctx) };
+    }
+    case 'Matrix': {
+      // Number matrix; `rows`/`cols` (when given) fix that dimension.
+      const c = config();
+      return pruned({
+        kind: 'list',
+        length: asNumber(c.rows),
+        of: pruned({ kind: 'list', length: asNumber(c.cols), of: { kind: 'number' } }),
+      });
     }
   }
 

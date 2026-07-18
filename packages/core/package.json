@@ -23,7 +23,8 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "test": "vitest",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "gen:types": "bun run scripts/gen-runtime-dts.ts"
   },
   "dependencies": {
     "mitt": "^3.0.1",

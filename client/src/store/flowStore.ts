@@ -14,8 +14,24 @@ import {
   applyEdgeChanges,
   addEdge,
 } from '@xyflow/react';
-import type { FlowData, IODefinition, NodeData, BlockContract, FlowType } from '@flow/core';
-import { extractSubflowConfig, isTypeCompatible } from '@flow/core';
+import type {
+  FlowData,
+  IODefinition,
+  NodeData,
+  BlockContract,
+  FlowType,
+  GroupNodeData,
+  MapNodeData,
+  GroupNodeLike,
+  GroupEdge,
+} from '@flow/core';
+import {
+  extractSubflowConfig,
+  isTypeCompatible,
+  groupNodes as deriveGroup,
+  ungroup as inlineGroup,
+  nextGroupId,
+} from '@flow/core';
 
 // ============================================================================
 // Types
@@ -85,6 +101,24 @@ export interface FlowNode extends Node {
     options?: string[];        // For select
     placeholder?: string;      // For text inputs
     description?: string;      // Input description
+    // Bundle / unbundle (object meta-nodes): named field list. For a bundle
+    // each field is an INPUT port (packed into one object); for an unbundle
+    // each field is an OUTPUT port (plucked off the incoming object).
+    bundleFields?: Array<{ name: string }>;
+    // Group / subflow meta-node: embedded subgraph + derived boundary contract.
+    subgraph?: GroupNodeData['subgraph'];
+    groupInputs?: GroupNodeData['groupInputs'];
+    groupOutputs?: GroupNodeData['groupOutputs'];
+    // Switch / select meta-node: number of `case` input ports (default 2).
+    caseCount?: number;
+    // Form meta-node: dense multi-field input form (expands to input + bundle).
+    fields?: import('@flow/core').FormField[];
+    bundle?: { enabled?: boolean; name?: string };
+    // Map / iterate meta-node: body boundary contract (reuses the subgraph shape
+    // above). `item`/`index` are body INPUTS; `result` (resultPort) is collected.
+    bodyInputs?: MapNodeData['bodyInputs'];
+    bodyOutputs?: MapNodeData['bodyOutputs'];
+    resultPort?: string;
     // Viewer node specific
     passthrough?: boolean;     // If true, viewer passes value to output
     // File input/output node specific
@@ -179,6 +213,12 @@ interface FlowState {
   updateNodeData: (nodeId: string, data: Partial<FlowNode['data']>) => void;
   deleteNode: (nodeId: string) => void;
   selectNode: (nodeId: string | null) => void;
+
+  // Group / subflow meta-node
+  /** Collapse the given (or currently-selected) nodes into one group node. */
+  groupSelected: (nodeIds?: string[]) => string | null;
+  /** Inline a group node's subgraph back into the parent flow. */
+  ungroupNode: (groupId: string) => void;
   
   // Execution cache
   setNodeExecutionStatus: (nodeId: string, status: NodeExecutionStatus, output?: unknown, error?: ExecutionError, executionTime?: number) => void;
@@ -522,10 +562,19 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     const state = get();
     const node = state.nodes.find(n => n.id === nodeId);
     const isInputNode = node?.type === 'input' || node?.type?.includes('_input');
-    
-    // For input nodes, update the cache with the new value immediately
+    // Constant nodes are value producers too — the compiler bakes their `value`
+    // as a literal, so a value change must re-run the flow in live mode exactly
+    // like an input node (otherwise tweaking a constant does nothing live).
+    const isValueNode = isInputNode || node?.type === 'constant';
+    // Form nodes are value producers too (they expand to input + bundle nodes at
+    // compile), but their values live under `fields`/`bundle`, not `value` — so a
+    // field tweak must invalidate + re-run in live mode just like an input.
+    const isFormNode = node?.type === 'form';
+    const formChanged = isFormNode && ('fields' in data || 'bundle' in data);
+
+    // For input/constant nodes, update the cache with the new value immediately
     // For code nodes, invalidate on code changes
-    const shouldInvalidate = 'code' in data && !isInputNode;
+    const shouldInvalidate = 'code' in data && !isValueNode;
     
     set({
       nodes: state.nodes.map((node) =>
@@ -535,12 +584,12 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       ),
     });
     
-    // For input nodes with value changes, update cache and invalidate downstream
-    // Also check if we should trigger live execution
-    if (isInputNode && 'value' in data) {
-      get().setNodeOutput(nodeId, { output: data.value });
+    // For input/constant nodes with value changes, update cache and invalidate
+    // downstream. Also check if we should trigger live execution.
+    if ((isValueNode && 'value' in data) || formChanged) {
+      if (isValueNode && 'value' in data) get().setNodeOutput(nodeId, { output: data.value });
       get().invalidateDownstream(nodeId);
-      
+
       // Emit event for live execution if in live mode (debounced)
       const currentTimer = get().liveExecutionTimer;
       if (currentTimer) {
@@ -556,7 +605,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
         }
         set({ liveExecutionTimer: null });
       }, 300);
-      
+
       set({ liveExecutionTimer: timer });
     } else if (shouldInvalidate) {
       get().invalidateNode(nodeId);
@@ -604,6 +653,218 @@ export const useFlowStore = create<FlowState>((set, get) => ({
 
   selectNode: (nodeId) => {
     set({ selectedNodeId: nodeId });
+  },
+
+  // ── Group / subflow meta-node ───────────────────────────────────────────
+  groupSelected: (nodeIds) => {
+    const state = get();
+    // Resolve the selection: explicit ids → React Flow `selected` → single sel.
+    let ids = nodeIds && nodeIds.length ? nodeIds : state.nodes.filter((n) => n.selected).map((n) => n.id);
+    if (ids.length === 0 && state.selectedNodeId) ids = [state.selectedNodeId];
+    // Need at least 2 nodes to be a meaningful group (1 is allowed but odd).
+    if (ids.length === 0) return null;
+
+    const byId = new Map(state.nodes.map((n) => [n.id, n]));
+
+    // All-inputs selection → collapse into a dense FORM node (each input becomes
+    // a field; its outgoing edges rewire to the form's per-field handle). Denser
+    // than N input nodes; folds identically via expandFormNodes.
+    const selectedNodes = ids.map((id) => byId.get(id)).filter((n): n is FlowNode => !!n);
+    if (selectedNodes.length >= 2 && selectedNodes.every((n) => n.type === 'input')) {
+      if (!state.isUndoRedoing) get().pushHistory();
+      const formId = nextGroupId();
+      const usedNames = new Set<string>();
+      const fieldNameById = new Map<string, string>();
+      const fields = selectedNodes.map((n) => {
+        const base = String(n.data.label || 'field').replace(/\s+/g, '_').replace(/[^\w]/g, '') || 'field';
+        let name = base, k = 2;
+        while (usedNames.has(name)) name = `${base}_${k++}`;
+        usedNames.add(name);
+        fieldNameById.set(n.id, name);
+        const hasOpts = Array.isArray(n.data.options) && (n.data.options as unknown[]).length > 0;
+        const dataType = hasOpts ? ('enum' as const) : ((n.data.dataType as 'number' | 'string' | 'boolean' | undefined) ?? 'string');
+        const wt = n.data.widgetType;
+        const widgetType =
+          wt === 'slider' ? ('slider' as const)
+          : (hasOpts || wt === 'select') ? ('select' as const)
+          : dataType === 'boolean' ? ('toggle' as const)
+          : dataType === 'number' ? ('number' as const)
+          : ('text' as const);
+        return {
+          name, label: n.data.label, dataType, widgetType, value: n.data.value,
+          min: n.data.min, max: n.data.max, step: n.data.step,
+          options: n.data.options as string[] | undefined,
+        };
+      });
+      const cx = selectedNodes.reduce((s, n) => s + (n.position?.x ?? 0), 0) / selectedNodes.length;
+      const cy = selectedNodes.reduce((s, n) => s + (n.position?.y ?? 0), 0) / selectedNodes.length;
+      const removed = new Set(ids);
+      const formNode: FlowNode = {
+        id: formId, type: 'form', position: { x: cx, y: cy },
+        data: { label: 'Form', fields, bundle: { enabled: false, name: 'values' } },
+        selected: true,
+      };
+      const formEdges = state.edges
+        .filter((e) => !removed.has(e.target))
+        .map((e) => removed.has(e.source)
+          ? { ...e, source: formId, sourceHandle: fieldNameById.get(e.source) ?? e.sourceHandle }
+          : e);
+      const formCache = { ...state.nodeCache };
+      for (const id of removed) delete formCache[id];
+      formCache[formId] = { status: 'idle' };
+      set({
+        nodes: [...state.nodes.filter((n) => !removed.has(n.id)).map((n) => ({ ...n, selected: false })), formNode],
+        edges: formEdges,
+        selectedNodeId: formId,
+        nodeCache: formCache,
+      });
+      return formId;
+    }
+
+    // Producing-port FlowType resolver, so boundary ports carry real types.
+    const typeOf = (sourceId: string, handle: string | null | undefined): FlowType => {
+      const node = byId.get(sourceId);
+      if (!node) return { kind: 'unknown' };
+      const contract = node.data.contract;
+      if (contract) {
+        const keys = Object.keys(contract.outputs);
+        const key = handle && keys.includes(handle) ? handle : keys.length === 1 ? keys[0] : handle ?? '';
+        if (key && contract.outputs[key]) return contract.outputs[key];
+      }
+      if (node.type === 'input' || node.type === 'constant') {
+        const dt = node.data.dataType;
+        if (dt === 'number') return { kind: 'number' };
+        if (dt === 'boolean') return { kind: 'boolean' };
+        return { kind: 'string' };
+      }
+      return { kind: 'unknown' };
+    };
+
+    if (!state.isUndoRedoing) get().pushHistory();
+
+    const groupId = nextGroupId();
+    const result = deriveGroup(
+      state.nodes as unknown as GroupNodeLike[],
+      state.edges as unknown as GroupEdge[],
+      ids,
+      { groupId, label: 'Group', typeOf }
+    );
+
+    // Centroid of the selection for the group node's position.
+    const sel = ids.map((id) => byId.get(id)).filter(Boolean) as FlowNode[];
+    const cx = sel.reduce((s, n) => s + (n.position?.x ?? 0), 0) / sel.length;
+    const cy = sel.reduce((s, n) => s + (n.position?.y ?? 0), 0) / sel.length;
+
+    // The transform returns plain GroupNodeLike objects (no React Flow props);
+    // re-attach position/selected for nodes that survive, and build the group.
+    const surviving = result.nodes
+      .filter((n) => n.id !== groupId)
+      .map((n) => byId.get(n.id))
+      .filter(Boolean) as FlowNode[];
+    const groupNode = result.nodes.find((n) => n.id === groupId)!;
+    const newGroup: FlowNode = {
+      id: groupId,
+      type: 'group',
+      position: { x: cx, y: cy },
+      data: groupNode.data as FlowNode['data'],
+      selected: true,
+    };
+
+    const newCache = { ...state.nodeCache };
+    for (const id of ids) delete newCache[id];
+    newCache[groupId] = { status: 'idle' };
+
+    set({
+      nodes: [...surviving.map((n) => ({ ...n, selected: false })), newGroup],
+      edges: result.edges as unknown as Edge[],
+      selectedNodeId: groupId,
+      nodeCache: newCache,
+    });
+    return groupId;
+  },
+
+  ungroupNode: (groupId) => {
+    const state = get();
+    const node = state.nodes.find((n) => n.id === groupId);
+    if (!node) return;
+
+    // A FORM node expands back into individual input nodes (the inverse of the
+    // all-inputs collapse); per-field edges rewire to each input's `output`.
+    if (node.type === 'form') {
+      const fields = (node.data.fields ?? []) as import('@flow/core').FormField[];
+      if (!state.isUndoRedoing) get().pushHistory();
+      const bx = node.position?.x ?? 0, by = node.position?.y ?? 0;
+      const inputIdByField = new Map<string, string>();
+      const newInputs: FlowNode[] = fields.map((f, i) => {
+        const inId = `${groupId}_in_${f.name}`;
+        inputIdByField.set(f.name, inId);
+        const widgetType = f.widgetType === 'toggle' ? 'boolean' : f.widgetType;
+        const dataType = f.dataType === 'enum' ? 'string' : f.dataType;
+        return {
+          id: inId, type: 'input', position: { x: bx, y: by + i * 80 },
+          data: { label: f.label || f.name, dataType, widgetType, value: f.value, min: f.min, max: f.max, step: f.step, options: f.options },
+          selected: false,
+        } as FlowNode;
+      });
+      const expandedEdges = state.edges
+        .map((e) => (e.source === groupId && e.sourceHandle && inputIdByField.has(e.sourceHandle))
+          ? { ...e, source: inputIdByField.get(e.sourceHandle)!, sourceHandle: 'output' }
+          : e)
+        .filter((e) => e.source !== groupId && e.target !== groupId);
+      const expandCache = { ...state.nodeCache };
+      delete expandCache[groupId];
+      for (const inId of inputIdByField.values()) expandCache[inId] = { status: 'idle' };
+      set({
+        nodes: [...state.nodes.filter((n) => n.id !== groupId), ...newInputs],
+        edges: expandedEdges,
+        selectedNodeId: null,
+        nodeCache: expandCache,
+      });
+      return;
+    }
+
+    const group = node;
+    if (group.type !== 'group') return;
+    const data = group.data as unknown as GroupNodeData;
+    if (!data.subgraph) return;
+
+    if (!state.isUndoRedoing) get().pushHistory();
+
+    const result = inlineGroup(
+      state.nodes as unknown as GroupNodeLike[],
+      state.edges as unknown as GroupEdge[],
+      groupId
+    );
+
+    // Restore React Flow node props: subgraph nodes carry their own
+    // position/data already (captured at group time); offset them around the
+    // group's current position so they don't all stack at the origin.
+    const gx = group.position?.x ?? 0;
+    const gy = group.position?.y ?? 0;
+    const subIds = new Set(data.subgraph.nodes.map((n) => n.id));
+    const survivors = new Map(state.nodes.filter((n) => n.id !== groupId).map((n) => [n.id, n]));
+
+    let i = 0;
+    const restored: FlowNode[] = result.nodes.map((n) => {
+      const prev = survivors.get(n.id);
+      if (prev) return prev;
+      // Reconstructed subgraph node.
+      const sub = n as unknown as FlowNode;
+      const pos = sub.position ?? { x: gx + (i % 3) * 220, y: gy + Math.floor(i / 3) * 140 };
+      i++;
+      return { ...sub, position: pos, selected: subIds.has(n.id) };
+    });
+
+    const newCache = { ...state.nodeCache };
+    delete newCache[groupId];
+    for (const id of subIds) if (!newCache[id]) newCache[id] = { status: 'idle' };
+
+    set({
+      nodes: restored,
+      edges: result.edges as unknown as Edge[],
+      selectedNodeId: null,
+      nodeCache: newCache,
+    });
   },
 
   // Execution cache

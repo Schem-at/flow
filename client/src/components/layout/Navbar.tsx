@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Plus, LogIn, Loader2, ArrowLeft, User, LogOut, ChevronDown } from 'lucide-react';
+import { Plus, LogIn, Loader2, User, LogOut, ChevronDown } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
+import { features } from '../../config/features';
 
 const SCHEMATI_URL = import.meta.env.VITE_SCHEMATI_URL || 'https://schemati.test';
 
@@ -18,23 +19,24 @@ export function Navbar() {
     <div className="h-14 border-b border-white/5 bg-[#0a0a0a] flex items-center justify-between px-4 z-50 relative select-none">
       {/* Left: Logo + nav */}
       <div className="flex items-center gap-4">
-        <Link to="/" className="flex items-center gap-2 group focus:outline-none">
-          <div className="relative w-7 h-7 flex items-center justify-center">
-            <div className="absolute inset-0 bg-brand-500/20 blur-xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-            <svg viewBox="0 0 100 100" fill="none" className="w-full h-full relative z-10">
-              <rect x="24" y="24" width="16" height="16" rx="4" className="fill-neutral-800" />
-              <rect x="24" y="48" width="16" height="16" rx="4" className="fill-neutral-800" />
-              <rect x="48" y="24" width="16" height="16" rx="4" className="fill-neutral-800" />
-              <rect x="72" y="24" width="16" height="16" rx="4" className="fill-brand-500/20 stroke-brand-500" strokeWidth="1.5" />
-              <path d="M40 32 H48 M64 32 H72 M40 56 H48 M32 40 V48" className="stroke-neutral-700" strokeWidth="2" />
-            </svg>
-          </div>
-          <span className="text-sm font-medium transition-colors">
-            <span className="text-neutral-500 group-hover:text-neutral-400">schemat.io</span>
-            <span className="text-neutral-600 mx-0.5">/</span>
-            <span className="text-white group-hover:text-brand-400">flow</span>
-          </span>
-        </Link>
+        {/* icon + "schemat.io" → main site; "flow" → flow home. Separate links so each has its own hover. */}
+        <div className="flex items-center gap-2 text-sm font-medium select-none">
+          <a href={SCHEMATI_URL} title="Back to schemat.io" className="flex items-center gap-2 group focus:outline-none">
+            <div className="relative w-7 h-7 flex items-center justify-center">
+              <div className="absolute inset-0 bg-brand-500/20 blur-xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+              <svg viewBox="0 0 100 100" fill="none" className="w-full h-full relative z-10">
+                <rect x="24" y="24" width="16" height="16" rx="4" className="fill-neutral-800" />
+                <rect x="24" y="48" width="16" height="16" rx="4" className="fill-neutral-800" />
+                <rect x="48" y="24" width="16" height="16" rx="4" className="fill-neutral-800" />
+                <rect x="72" y="24" width="16" height="16" rx="4" className="fill-brand-500/20 stroke-brand-500" strokeWidth="1.5" />
+                <path d="M40 32 H48 M64 32 H72 M40 56 H48 M32 40 V48" className="stroke-neutral-700" strokeWidth="2" />
+              </svg>
+            </div>
+            <span className="text-neutral-500 group-hover:text-neutral-200 transition-colors">schemat.io</span>
+          </a>
+          <span className="text-neutral-600">/</span>
+          <Link to="/" className="text-white hover:text-brand-400 transition-colors focus:outline-none">flow</Link>
+        </div>
 
         <div className="h-5 w-px bg-white/10" />
 
@@ -47,14 +49,16 @@ export function Navbar() {
           >
             Flows
           </Link>
-          <Link
-            to="/modules"
-            className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
-              isActive('/modules') ? 'bg-white/10 text-white' : 'text-neutral-400 hover:text-white hover:bg-white/5'
-            }`}
-          >
-            Modules
-          </Link>
+          {features.modules && (
+            <Link
+              to="/modules"
+              className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                isActive('/modules') ? 'bg-white/10 text-white' : 'text-neutral-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              Modules
+            </Link>
+          )}
           <Link
             to="/editor"
             className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
@@ -63,16 +67,16 @@ export function Navbar() {
           >
             Editor
           </Link>
-
-          <div className="h-4 w-px bg-white/5 mx-1" />
-
-          <a
-            href={SCHEMATI_URL}
-            className="flex items-center gap-1 px-3 py-1 text-xs font-medium text-neutral-500 hover:text-neutral-300 hover:bg-white/5 rounded-md transition-colors"
-          >
-            <ArrowLeft className="w-3 h-3" />
-            Main site
-          </a>
+          {user?.isAdmin && (
+            <Link
+              to="/review"
+              className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                isActive('/review') ? 'bg-amber-500/15 text-amber-300' : 'text-amber-400/70 hover:text-amber-300 hover:bg-amber-500/10'
+              }`}
+            >
+              Review
+            </Link>
+          )}
         </div>
       </div>
 

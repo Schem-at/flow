@@ -1,0 +1,35 @@
+# Flow editor (coupled / schemati mode) — static SPA + same-origin /api passthrough.
+#
+# Terminated upstream by Traefik (TLS), so Caddy just serves HTTP on :80.
+:80 {
+	encode zstd gzip
+
+	# Cross-origin isolation. The editor executes flows in-browser via Web
+	# Workers + WASM (nucleation / schematic-renderer), which need
+	# SharedArrayBuffer. This mirrors the dev Vite server's COOP/COEP headers —
+	# without them, in-browser execution silently fails.
+	header {
+		Cross-Origin-Opener-Policy "same-origin"
+		Cross-Origin-Embedder-Policy "credentialless"
+	}
+
+	# Coupled mode: the SPA calls same-origin /api/* (with the CSRF cookie) using
+	# session credentials. Forward those to the Laravel app — the prod equivalent
+	# of the dev Vite proxy -> schemati-app. The browser sees these as same-origin
+	# (flow.schemat.io/api), so there is no CORS preflight; the session cookie is
+	# delivered because SESSION_DOMAIN spans the parent domain (e.g. .schemat.io).
+	# API_PROXY_TARGET defaults to the in-network app service.
+	@laravel path /api/* /sanctum/*
+	handle @laravel {
+		reverse_proxy {$API_PROXY_TARGET:http://app:80} {
+			header_up X-Forwarded-Proto https
+		}
+	}
+
+	# Static SPA with client-side routing fallback (/editor, /run/:id, ...).
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}
