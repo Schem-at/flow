@@ -219,9 +219,8 @@ declare class DefinitionRegion {
 }
 
 /**
- * Simulation run modes (redstone). NOTE: the published nucleation@0.3.0 wasm
- * ships without the simulation engine — these throw until the 0.3.1 wasm
- * (bridge-full) lands.
+ * Simulation run modes (redstone). Available since nucleation@0.3.2 (wasm
+ * built with bridge-full, so the simulation engine ships in the browser too).
  */
 declare class ExecutionMode {
   static fixedTicks(ticks: number): ExecutionMode;

@@ -22,17 +22,17 @@
  * - `Schematic.BlockPosition` — tiny {x,y,z} compat holder (the old wasm
  *   class is gone; generated APIs take plain coordinates).
  *
- * NOTE: the published nucleation@0.3.0 wasm is built with the core `bridge`
- * feature set — meshing/rendering/simulation exports (MeshResult, Renderer,
- * MchprsWorld, the circuit executor behind ExecutionMode) are ABSENT until a
- * 0.3.1 wasm built with `bridge-full` ships. Calling those APIs throws
- * "wasm.<fn> is not a function".
+ * NOTE: nucleation ≥ 0.3.2 wasm is built with `bridge-full` — the meshing/
+ * rendering/simulation exports (MeshResult, Renderer, MchprsWorld, the
+ * circuit executor behind ExecutionMode) are present and callable. (0.3.0
+ * shipped core-`bridge`-only wasm where those threw "wasm.<fn> is not a
+ * function".)
  */
 
 import type { RuntimeProvider } from './types.js';
 import { initializeSchematicProvider, loadedNucleationModule, SchematicUtils } from '../utils/schematic.js';
 
-export const NUCLEATION_VERSION = '0.3.0';
+export const NUCLEATION_VERSION = '0.3.3';
 
 /** Compat stand-in for the removed wasm `BlockPosition` class (plain coordinates). */
 class BlockPosition {

@@ -80,7 +80,7 @@
       },
       "peerDependencies": {
         "@flow/synthase": "workspace:*",
-        "nucleation": "^0.3.0",
+        "nucleation": "^0.3.3",
       },
       "optionalPeers": [
         "@flow/synthase",
@@ -111,7 +111,7 @@
         "@flow/synthase": "workspace:*",
         "drizzle-orm": "^0.36.4",
         "hono": "^4.7.11",
-        "nucleation": "^0.3.0",
+        "nucleation": "^0.3.3",
         "shared": "workspace:*",
       },
       "devDependencies": {
@@ -1179,7 +1179,7 @@
 
     "normalize-path": ["normalize-path@3.0.0", "", {}, "sha512-6eZs5Ls3WtCisHWp9S2GUy8dqkpGi4BVSz3GaqiE6ezub0512ESztXUwUB6C6IKbQkY2Pnb/mD4WYojCRwcwLA=="],
 
-    "nucleation": ["nucleation@0.3.0", "", {}, "sha512-MAcjdMxcqtXfZRfuiqThEngN+znceVDX7kYQlzBk5tVSTTgt028ooy0mSvI5Ja5KSkuuIE/8NVULsb2gAXN14Q=="],
+    "nucleation": ["nucleation@0.3.3", "", {}, "sha512-Qe15BexGuUXuEvbzML+4F83Le/OmfFmkIBJTfJk/cGdcvFX5m/v8DPQecyMnQRGX7cKao6JMB6mv4UyFNA39AQ=="],
 
     "nwsapi": ["nwsapi@2.2.24", "", {}, "sha512-7YRhZ3jS45LwmSCT4b2sVFHt/WuovaktDU07QrtOBY2PXskss5a9jfmR9jptyumwXST+rFjrmppMY1KT/yn35A=="],
 
