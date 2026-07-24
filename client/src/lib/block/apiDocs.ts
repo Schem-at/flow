@@ -127,28 +127,15 @@ export function parseAmbientDts(
 let cache: ApiGroup[] | null = null;
 
 /** Curated display order for the most-used groups; the rest follow A→Z. */
-const PRIORITY = ['Schematic', 'Schemati', 'Field', 'Image', 'Random', 'Noise', 'Vec3', 'Vec2', 'SchematicUtils', 'Progress', 'Easing', 'Calculator', 'Pathfinding', 'Logger', 'Image', 'MchprsWorldWrapper'];
+const PRIORITY = ['Schematic', 'Schemati', 'Field', 'Image', 'Random', 'Noise', 'Vec3', 'Vec2', 'SchematicUtils', 'Progress', 'Easing', 'Calculator', 'Pathfinding', 'Logger', 'Image', 'MchprsWorld'];
 
 export function getApiDocs(): ApiGroup[] {
   if (cache) return cache;
   const runtime = parseAmbientDts(AMBIENT_DTS, 'runtime');
-  const nucleation = parseAmbientDts(NUCLEATION_AMBIENT_DTS, 'nucleation').filter(
-    // The Schematic alias supersedes the raw wrapper name in the docs.
-    (g) => g.name !== 'SchematicWrapper'
-  );
-  // The Schematic alias class has no members of its own — graft the wrapper's.
-  const wrapper = parseAmbientDts(NUCLEATION_AMBIENT_DTS, 'nucleation').find(
-    (g) => g.name === 'SchematicWrapper'
-  );
+  // Nucleation 0.5.0 (diplomat-tool) already exports a class literally named
+  // `Schematic` with the real API — no more `*Wrapper` alias/graft needed.
+  const nucleation = parseAmbientDts(NUCLEATION_AMBIENT_DTS, 'nucleation');
   const all = [...runtime, ...nucleation];
-  if (wrapper) {
-    all.unshift({
-      name: 'Schematic',
-      doc: 'The live voxel schematic class endowed to every block (nucleation). Construct with new Schematic(), then set_block / copy / paste, or load bytes with from_data.',
-      source: 'nucleation',
-      members: wrapper.members,
-    });
-  }
   cache = all.sort((a, b) => {
     const pa = PRIORITY.indexOf(a.name);
     const pb = PRIORITY.indexOf(b.name);

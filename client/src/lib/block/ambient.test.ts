@@ -33,7 +33,10 @@ describe('AMBIENT_DTS editor declarations', () => {
   it('declares every endowed runtime global (or allowlists it)', () => {
     const missing = endowedGlobals.filter((name) => {
       if (PROVIDED_ELSEWHERE.has(name)) return false;
-      return !new RegExp(`declare (const|class) ${name}\\b`).test(ambientSrc);
+      // A global may also be declared via interface-merging (e.g. `Schematic`,
+      // whose real class now comes from nucleation's own bundled .d.ts, with
+      // ambient.ts only merging in the DX convenience methods).
+      return !new RegExp(`declare (const|class) ${name}\\b|\\binterface ${name}\\b`).test(ambientSrc);
     });
     expect(missing, `endowed globals missing an editor \`declare\` in ambient.ts: ${missing.join(', ')}`).toEqual([]);
   });

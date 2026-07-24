@@ -4,8 +4,6 @@
  */
 
 import { useCallback, useEffect, useState, useRef } from 'react';
-import Editor, { type Monaco } from '@monaco-editor/react';
-import type { editor } from 'monaco-editor';
 import { Zap, Info, ArrowRight, CheckCircle, XCircle, Loader2, Plus, Save, AlertTriangle, ChevronDown, ChevronRight, Copy, Code, Package, Unplug, Pin, PinOff, Upload, Tag, FlaskConical, Maximize2, Minimize2, Play, Square, BookOpen } from 'lucide-react';
 import { useFlowStore, type ExecutionError } from '../../store/flowStore';
 import type { IODefinition, BlockContract, ExecutionResult } from '@flow/core';
@@ -17,7 +15,6 @@ import OutputView from '../blocks/OutputView';
 import { useLocalExecutor } from '../../hooks/useLocalExecutor';
 import { features } from '../../config/features';
 import { missingRequiredInputs, missingInputsMessage } from '../../lib/validateRequiredInputs';
-import { setupAmbientMonaco } from '../../lib/block/ambient';
 
 
 interface CodePanelProps {
@@ -159,8 +156,6 @@ export function CodePanel({ nodeId, onClose, isFullscreen, onToggleFullscreen }:
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
   const initialValidationDone = useRef(false);
   const lastValidatedCode = useRef<string>('');
-  const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
-  const monacoRef = useRef<Monaco | null>(null);
   const saveCodeRef = useRef<() => void>(() => {});
 
   // Find the node - check both by ID and look for code nodes
@@ -327,30 +322,6 @@ export function CodePanel({ nodeId, onClose, isFullscreen, onToggleFullscreen }:
     [nodeId, updateNodeData, validateScript]
   );
 
-  // Handle editor mount to add save keybinding
-  const handleEditorMount = useCallback((editor: editor.IStandaloneCodeEditor, monaco: Monaco) => {
-    editorRef.current = editor;
-    monacoRef.current = monaco;
-
-    // Full ambient autocomplete (nucleation API, Noise, Schemati, …) — the
-    // same setup the workbench block editor gets.
-    setupAmbientMonaco(monaco);
-
-    // Add Ctrl/Cmd+S save keybinding - use ref to avoid stale closure
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
-      saveCodeRef.current();
-    });
-
-    // Auto-save on blur (when editor loses focus)
-    editor.onDidBlurEditorWidget(() => {
-      // Small delay to allow for potential re-focus
-      setTimeout(() => {
-        if (!editor.hasWidgetFocus()) {
-          saveCodeRef.current();
-        }
-      }, 100);
-    });
-  }, []);
 
   // Auto-create input nodes from IO schema
   const createInputNodesFromIO = useCallback(() => {

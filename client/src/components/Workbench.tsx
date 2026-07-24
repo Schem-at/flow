@@ -18,7 +18,6 @@ import type { BlockContract, ExecutionResult } from '@flow/core';
 import { defaultInputsForContract } from '@flow/core';
 import { parseBlockSource, type ParsedBlock } from '../lib/block/parser';
 import { missingRequiredInputs, missingInputsMessage } from '../lib/validateRequiredInputs';
-import { contractToTypeScript } from '../lib/block/codegen';
 import { EXAMPLE_BLOCKS } from '../lib/block/examples';
 import InlineWidgetEditor from './blocks/InlineWidgetEditor';
 import InputControl, { defaultForType } from './blocks/InputControl';
@@ -92,24 +91,6 @@ export default function Workbench() {
     setValues((prev) => reseedValues(contract, prev));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contractKey]);
-
-  // ── edits round-trip into the canonical source ──────────────────────────
-  const handleContractChange = useCallback(
-    (next: BlockContract) => {
-      const body = parsed?.bodyText ?? '';
-      setSource(`${contractToTypeScript(next)}\n\n${body}`.trimEnd() + '\n');
-    },
-    [parsed]
-  );
-
-  const handleBodyChange = useCallback(
-    (body: string) => {
-      // Keep the contract region verbatim — only the body changed.
-      const contractText = parsed?.contractText ?? '';
-      setSource(`${contractText}\n\n${body}`.trimEnd() + '\n');
-    },
-    [parsed]
-  );
 
   const loadExample = useCallback((id: string) => {
     const example = EXAMPLE_BLOCKS.find((e) => e.id === id);

@@ -1,6 +1,5 @@
 {
   "lockfileVersion": 1,
-  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "flow",
@@ -82,7 +81,7 @@
       },
       "peerDependencies": {
         "@flow/synthase": "workspace:*",
-        "nucleation": "^0.2.13",
+        "nucleation": "^0.5.1",
       },
       "optionalPeers": [
         "@flow/synthase",
@@ -113,7 +112,7 @@
         "@flow/synthase": "workspace:*",
         "drizzle-orm": "^0.36.4",
         "hono": "^4.7.11",
-        "nucleation": "^0.2.13",
+        "nucleation": "^0.5.1",
         "shared": "workspace:*",
       },
       "devDependencies": {
@@ -1183,7 +1182,7 @@
 
     "normalize-path": ["normalize-path@3.0.0", "", {}, "sha512-6eZs5Ls3WtCisHWp9S2GUy8dqkpGi4BVSz3GaqiE6ezub0512ESztXUwUB6C6IKbQkY2Pnb/mD4WYojCRwcwLA=="],
 
-    "nucleation": ["nucleation@0.2.13", "", {}, "sha512-udIxzSczAuJgyDQ8Rl1BoBjJox98lU/GQjoY/qBmhDRRnrCXsTf+l93D6vlOxMci/kgmmMMFvkJyIwqjXWU/+A=="],
+    "nucleation": ["nucleation@0.5.1", "", {}, "sha512-EUymKj+asUxsCHfeSHbHG/L3U3OlZAmuPqxkjcJ52j1/xmdEB3zwdGwP2MW+9SZ8iWHctl/3z+BcjI6OCrhchQ=="],
 
     "nwsapi": ["nwsapi@2.2.24", "", {}, "sha512-7YRhZ3jS45LwmSCT4b2sVFHt/WuovaktDU07QrtOBY2PXskss5a9jfmR9jptyumwXST+rFjrmppMY1KT/yn35A=="],
 
@@ -1634,6 +1633,8 @@
     "pretty-format/ansi-styles": ["ansi-styles@5.2.0", "", {}, "sha512-Cxwpt2SfTzTtXcfOlzGEee8O+c+MmUgGrNiBcXnuWxuFJHe6a5Hz7qwhwe5OgaSYI0IJvkLqWX1ASG+cJOkEiA=="],
 
     "schematic-renderer/chokidar": ["chokidar@3.6.0", "", { "dependencies": { "anymatch": "~3.1.2", "braces": "~3.0.2", "glob-parent": "~5.1.2", "is-binary-path": "~2.1.0", "is-glob": "~4.0.1", "normalize-path": "~3.0.0", "readdirp": "~3.6.0" }, "optionalDependencies": { "fsevents": "~2.3.2" } }, "sha512-7VT13fmjotKpGipCW9JEQAusEPE+Ei8nl6/g4FBAmIm0GOOLMua9NDDo/DWp0ZAxCr3cPq5ZpBqmPAQgDda2Pw=="],
+
+    "schematic-renderer/nucleation": ["nucleation@0.2.13", "", {}, "sha512-udIxzSczAuJgyDQ8Rl1BoBjJox98lU/GQjoY/qBmhDRRnrCXsTf+l93D6vlOxMci/kgmmMMFvkJyIwqjXWU/+A=="],
 
     "source-map-support/source-map": ["source-map@0.6.1", "", {}, "sha512-UjgapumWlbMhkBgzT7Ykc5YXUT46F0iKu8SGXq0bcwP5dz/h0Plj6enJqjz1Zbq2l5WaqYnrVbwWOWMyF3F47g=="],
 

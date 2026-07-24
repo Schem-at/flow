@@ -19,13 +19,16 @@
 import nucleationRawDts from 'virtual:nucleation-dts';
 
 /**
- * Turn nucleation's module .d.ts into ambient (global) declarations:
- * strip module syntax, drop the wasm init plumbing, and alias the
- * `Schematic` global the runtime actually endows (SchematicWrapper plus
- * its attached builder/enum statics).
+ * Turn nucleation's per-class .d.ts files into ambient (global) declarations:
+ * strip module syntax, then document the DX convenience methods
+ * (packages/core's `installSchematicMethods`) that the runtime patches onto
+ * nucleation's own `Schematic` class — real nucleation 0.5.0 (diplomat-tool)
+ * already exports a class actually named `Schematic` (no more `*Wrapper`
+ * suffix), so no renaming/aliasing is needed for the base class anymore.
  */
 function ambientizeNucleationDts(raw: string): string {
-  // Everything from InitOutput onward is wasm-bindgen init plumbing.
+  // Guard against any future single-file bundle that reintroduces
+  // wasm-bindgen init plumbing at the tail of the .d.ts.
   const cut = raw.indexOf('export interface InitOutput');
   let body = cut > 0 ? raw.slice(0, cut) : raw;
 
@@ -39,13 +42,12 @@ function ambientizeNucleationDts(raw: string): string {
 
   return `${body}
 
-// ---- Runtime aliases (what the engine actually endows) ----
+// ---- DX convenience methods (what the engine actually endows on top of the
+// real nucleation Schematic class, via packages/core's installSchematicMethods
+// — documented here through declaration merging so Monaco/the docs browser
+// see them too, without redeclaring the (already real) Schematic class). ----
 
-/**
- * The live schematic class available inside blocks — nucleation's
- * SchematicWrapper with builder/enum helpers attached as statics.
- */
-declare class Schematic extends SchematicWrapper {
+interface Schematic {
   /** Solid blocks only by default; pass { includeAir: true } for the raw list. */
   blocks(options?: { includeAir?: boolean }): Array<{ x: number; y: number; z: number; name: string }>;
   // ── fills ──
@@ -85,16 +87,12 @@ declare class Schematic extends SchematicWrapper {
   /** Top non-air block per column. */
   heightmap(): { height: number[][]; surface: string[][] };
   readonly bounds: { width: number; height: number; depth: number; min: [number, number, number]; max: [number, number, number] };
-  // ── statics ──
-  static fromData(data: Uint8Array): Schematic;
-  static isSchematic(value: unknown): boolean;
-  /** Arrange a 2D grid of schematics into one mosaic. */
-  static tileGrid(rows: Schematic[][], options?: { spacing?: number; mode?: 'uniform' | 'packed' }): Schematic;
 }
 declare namespace Schematic {
-  export import SchematicBuilder = SchematicBuilderWrapper;
-  export import ExecutionMode = ExecutionModeWrapper;
-  export import DefinitionRegion = DefinitionRegionWrapper;
+  /** Whether a value is a live Schematic instance. */
+  function isSchematic(value: unknown): boolean;
+  /** Arrange a 2D grid of schematics into one mosaic. */
+  function tileGrid(rows: Schematic[][], options?: { spacing?: number; mode?: 'uniform' | 'packed' }): Schematic;
 }
 `;
 }

@@ -30,7 +30,7 @@ describe('getApiDocs (real ambient sources)', () => {
   it('Schematic leads and carries the real nucleation API', () => {
     expect(groups[0].name).toBe('Schematic');
     const names = groups[0].members.map((m) => m.name);
-    for (const expected of ['set_block', 'get_block', 'blocks', 'from_data', 'to_schematic', 'create_simulation_world']) {
+    for (const expected of ['setBlock', 'getBlock', 'fromData', 'blockCount', 'toSchematicB64']) {
       expect(names).toContain(expected);
     }
     // JSDoc made it through
@@ -47,17 +47,17 @@ describe('getApiDocs (real ambient sources)', () => {
   });
 
   it('nucleation wrapper classes are browsable', () => {
-    expect(byName['MchprsWorldWrapper']).toBeTruthy();
-    expect(byName['MchprsWorldWrapper'].members.map((m) => m.name)).toContain('tick');
+    expect(byName['MchprsWorld']).toBeTruthy();
+    expect(byName['MchprsWorld'].members.map((m) => m.name)).toContain('tick');
   });
 });
 
 describe('searchApiDocs', () => {
   it('filters members by name and doc text', () => {
-    const hits = searchApiDocs('simulation world');
+    const hits = searchApiDocs('full block state');
     const schematic = hits.find((g) => g.name === 'Schematic');
     expect(schematic).toBeTruthy();
-    expect(schematic!.members.some((m) => m.name === 'create_simulation_world')).toBe(true);
+    expect(schematic!.members.some((m) => m.name === 'getBlock')).toBe(true);
   });
 
   it('keeps whole groups when the group name matches', () => {

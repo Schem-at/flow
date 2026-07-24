@@ -46,9 +46,16 @@ export default defineConfig(({ mode }) => {
       },
     },
     resolve: {
-      alias: {
-        "@": path.resolve(__dirname, "./src"),
-      },
+      alias: [
+        { find: "@", replacement: path.resolve(__dirname, "./src") },
+        // nucleation's `diplomat.config.mjs` computes its wasm path with
+        // node:url/node:path, which doesn't bundle for the browser (and
+        // wouldn't be a fetchable URL if it did) — see the shim file for why.
+        {
+          find: /^\.\/diplomat\.config\.mjs$/,
+          replacement: path.resolve(__dirname, "./nucleation-diplomat-config.browser.mjs"),
+        },
+      ],
     },
     optimizeDeps: {
       exclude: ['nucleation'],
