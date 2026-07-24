@@ -3,16 +3,50 @@
  * family of endowments. Swapping nucleation versions means swapping this
  * provider's import/loader; nothing else changes.
  *
- * nucleation's own package handles the env split (browser: import.meta.url wasm,
- * node: fs read), so this provider stays isomorphic.
+ * nucleation ≥ 0.3.0 ships Diplomat-generated bindings (one class per domain
+ * type, camelCase methods, exceptions instead of sentinels, JSON/base64
+ * payloads; the package instantiates its wasm on first import via top-level
+ * await — browser: fetch, node: fs). The endowed `Schematic` is the COMPAT
+ * class from utils/schematic.ts: the new camelCase surface plus deprecated
+ * snake_case aliases, so pre-0.3.0 user flows keep running unchanged.
+ *
+ * Attached statics:
+ * - `Schematic.SchematicBuilder` / `Schematic.DefinitionRegion` /
+ *   `Schematic.ExecutionMode` — the RAW generated classes (their own APIs
+ *   changed upstream: builder methods are no longer chainable, `layers`
+ *   takes JSON, `build()` consumes the builder and returns a raw native
+ *   schematic).
+ * - `Schematic.Diff` / `Schematic.Fingerprint` / `Schematic.Shape` /
+ *   `Schematic.Brush` — the new domain types (diffing/fingerprinting moved
+ *   off the schematic object upstream).
+ * - `Schematic.BlockPosition` — tiny {x,y,z} compat holder (the old wasm
+ *   class is gone; generated APIs take plain coordinates).
+ *
+ * NOTE: nucleation ≥ 0.3.2 wasm is built with `bridge-full` — the meshing/
+ * rendering/simulation exports (MeshResult, Renderer, MchprsWorld, the
+ * circuit executor behind ExecutionMode) are present and callable. (0.3.0
+ * shipped core-`bridge`-only wasm where those threw "wasm.<fn> is not a
+ * function".)
  */
 
 import type { RuntimeProvider } from './types.js';
-import { initializeSchematicProvider, SchematicUtils } from '../utils/schematic.js';
+import { initializeSchematicProvider, loadedNucleationModule, SchematicUtils } from '../utils/schematic.js';
 import { installSchematicMethods } from '../utils/schematic-methods.js';
 import { PROVIDER_DECLARATIONS, PROVIDER_ENDOWMENT_KEYS } from '../runtime-types.js';
 
-export const NUCLEATION_VERSION = '0.2.13';
+export const NUCLEATION_VERSION = '0.3.3';
+
+/** Compat stand-in for the removed wasm `BlockPosition` class (plain coordinates). */
+class BlockPosition {
+  constructor(
+    public x: number,
+    public y: number,
+    public z: number
+  ) {}
+  toArray(): [number, number, number] {
+    return [this.x, this.y, this.z];
+  }
+}
 
 export const nucleationProvider: RuntimeProvider = {
   name: 'nucleation',
@@ -21,145 +55,39 @@ export const nucleationProvider: RuntimeProvider = {
   declarations: () => PROVIDER_DECLARATIONS.nucleation,
 
   async create() {
-    // Explicit init: import + default() happen inside initializeSchematicProvider,
-    // in trusted scope (outside any sandbox). Only the resulting classes are endowed.
+    // Explicit init: the import + wasm instantiation happen inside
+    // initializeSchematicProvider, in trusted scope (outside any sandbox).
+    // Only the resulting classes are endowed.
     const SchematicClass = await initializeSchematicProvider();
-    // The shipped nucleation typings lag the runtime API — treat as untyped.
-    const nucleation = (await import('nucleation')) as Record<string, any>;
+    const nucleation = loadedNucleationModule() as Record<string, unknown> | null;
 
-    wrapPrototypeMethods(SchematicClass, 'Schematic');
-    wrapPrototypeMethods(nucleation.SchematicBuilderWrapper, 'Schematic.SchematicBuilder');
-    wrapPrototypeMethods(nucleation.ExecutionModeWrapper, 'Schematic.ExecutionMode');
-    wrapPrototypeMethods(nucleation.BlockPosition, 'Schematic.BlockPosition');
-    wrapPrototypeMethods(nucleation.DefinitionRegionWrapper, 'Schematic.DefinitionRegion');
-
-    // ── DX wrappers (see docs/dx-audit.md) ────────────────────────────────
-    const proto = (SchematicClass as { prototype: Record<string, any> }).prototype;
-
-    // blocks() excludes air by default — the #1 example-block footgun (every
-    // census/analysis block had to filter it manually). Pass { includeAir:
-    // true } for the raw list.
-    const rawBlocks = proto.blocks;
-    proto.blocks = function (this: unknown, options?: { includeAir?: boolean }) {
-      const all = rawBlocks.call(this);
-      return options?.includeAir
-        ? all
-        : all.filter((b: { name: string }) => b.name !== 'minecraft:air');
-    };
-
-    // Ergonomic build/copy/transform/query methods (fill, line, hollowBox,
-    // clone, merge, stack, mirror, rotate, heightmap, blockCounts, bounds) plus
-    // static factories (fromData, isSchematic, tileGrid). Installed after the
-    // blocks() wrapper so merge/clone/heightmap see the air-filtered list.
+    // Ergonomic build/copy/transform/query methods from main's DX audit
+    // (fill, line, hollowBox, clone, merge, stack, mirror, rotate, heightmap,
+    // blockCounts, bounds + static factories). They call the snake_case
+    // surface, which the 0.3.3 compat class still provides as deprecated
+    // aliases; the compat class's own blocks() already filters air by
+    // default, so main's separate blocks() wrapper is not re-applied here.
     // See utils/schematic-methods.ts (unit-tested without WASM).
     installSchematicMethods(SchematicClass as never);
 
-    const Schematic = SchematicClass as Record<string, unknown> & typeof SchematicClass;
-    (Schematic as Record<string, unknown>).SchematicBuilder = wrapWasmClass(
-      nucleation.SchematicBuilderWrapper,
-      'Schematic.SchematicBuilder'
-    );
-    (Schematic as Record<string, unknown>).ExecutionMode = wrapWasmClass(
-      nucleation.ExecutionModeWrapper,
-      'Schematic.ExecutionMode'
-    );
-    (Schematic as Record<string, unknown>).BlockPosition = wrapWasmClass(
-      nucleation.BlockPosition,
-      'Schematic.BlockPosition'
-    );
-    (Schematic as Record<string, unknown>).DefinitionRegion = wrapWasmClass(
-      nucleation.DefinitionRegionWrapper,
-      'Schematic.DefinitionRegion'
-    );
+    // 0.3.3 domain classes from the loaded module (the 0.2.13-era
+    // wrapPrototypeMethods/wrapWasmClass proxies are gone — the generated
+    // bindings throw typed exceptions, no null-pointer sniffing needed).
+    const Schematic = SchematicClass as unknown as Record<string, unknown>;
+    if (nucleation) {
+      Schematic.SchematicBuilder = nucleation.SchematicBuilder;
+      Schematic.DefinitionRegion = nucleation.DefinitionRegion;
+      Schematic.ExecutionMode = nucleation.ExecutionMode;
+      Schematic.Diff = nucleation.Diff;
+      Schematic.Fingerprint = nucleation.Fingerprint;
+      Schematic.Shape = nucleation.Shape;
+      Schematic.Brush = nucleation.Brush;
+    }
+    Schematic.BlockPosition = BlockPosition;
 
     return {
-      Schematic,
+      Schematic: SchematicClass,
       SchematicUtils,
     };
   },
 };
-
-/**
- * Helper to wrap WASM classes and provide better error messages
- */
-function wrapWasmClass(Class: any, name: string) {
-  if (!Class) return Class;
-
-  const handler: ProxyHandler<any> = {
-    construct(target, args) {
-      args.forEach((arg, i) => {
-        if (arg === undefined || arg === null) {
-          throw new Error(`${name} constructor: Argument ${i} cannot be null or undefined`);
-        }
-      });
-      try {
-        return new target(...args);
-      } catch (err) {
-        const error = err as Error;
-        throw new Error(`${name} constructor failed: ${error.message}`);
-      }
-    },
-    get(target, prop, receiver) {
-      const value = Reflect.get(target, prop, receiver);
-
-      // Wrap static methods
-      if (typeof value === 'function' && typeof prop === 'string' && !['prototype', 'name', 'length', 'toString'].includes(prop)) {
-        return function(this: any, ...args: any[]) {
-          args.forEach((arg, i) => {
-            if (arg === undefined || arg === null) {
-              throw new Error(`${name}.${prop}: Argument ${i} cannot be null or undefined`);
-            }
-          });
-          try {
-            return value.apply(this, args);
-          } catch (err) {
-            const error = err as Error;
-            if (error.message?.includes('null pointer')) {
-               throw new Error(`${name}.${prop} failed: Null pointer passed to Rust. This usually means an argument was invalid or a WASM object was already freed.`);
-            }
-            throw new Error(`${name}.${prop} failed: ${error.message}`);
-          }
-        };
-      }
-      return value;
-    }
-  };
-
-  return new Proxy(Class, handler);
-}
-
-/**
- * Helper to wrap prototype methods of WASM classes
- */
-function wrapPrototypeMethods(Class: any, name: string) {
-  if (!Class || !Class.prototype) return;
-
-  const proto = Class.prototype;
-  const props = Object.getOwnPropertyNames(proto);
-
-  for (const prop of props) {
-    // Use getOwnPropertyDescriptor to avoid triggering getters
-    const descriptor = Object.getOwnPropertyDescriptor(proto, prop);
-    if (!descriptor || !descriptor.value) continue;
-
-    const value = descriptor.value;
-    if (typeof value === 'function' && prop !== 'constructor') {
-      proto[prop] = function(this: any, ...args: any[]) {
-        args.forEach((arg, i) => {
-          if (arg === undefined || arg === null) {
-            throw new Error(`${name}.${prop}: Argument ${i} cannot be null or undefined`);
-          }
-        });
-        try {
-          return value.apply(this, args);
-        } catch (err) {
-          const error = err as Error;
-          if (error.message?.includes('null pointer')) {
-             throw new Error(`${name}.${prop} failed: Null pointer passed to Rust. This usually means an argument was invalid or a WASM object was already freed.`);
-          }
-          throw new Error(`${name}.${prop} failed: ${error.message}`);
-        }
-      };
-    }
-  }
-}

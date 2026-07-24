@@ -116,7 +116,7 @@ type Outputs = {
 function generate(inputs) {
   const result = new Schematic();
   for (let x = 0; x < inputs.size; x++) {
-    result.set_block(x, 0, 0, inputs.material);
+    result.setBlock(x, 0, 0, inputs.material);
   }
   return { result };
 }

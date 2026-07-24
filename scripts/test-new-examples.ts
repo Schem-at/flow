@@ -2,9 +2,10 @@ import { compileBlock } from '../packages/core/src/compile/index';
 import { executeInCompartment } from '../packages/synthase/src/compartment-executor';
 import { EXAMPLE_BLOCKS } from '../client/src/lib/block/examples';
 
-const nucleation = await import('nucleation');
-if (typeof (nucleation as any).default === 'function') { try { await (nucleation as any).default(); } catch {} }
-const Schematic = (nucleation as any).SchematicWrapper;
+// nucleation >= 0.3.0: the endowed class is @flow/core's compat wrapper (the
+// Diplomat-generated package instantiates its wasm on import — no default() init).
+const { initializeSchematicProvider } = await import('../packages/core/src/utils/schematic');
+const Schematic = await initializeSchematicProvider();
 
 const ctx = { Schematic, Math: Object.assign(Object.create(Math), { TAU: Math.PI * 2 }), Logger: console, Progress: { report: () => {} } };
 const run = async (id: string, inputs: Record<string, unknown>) => {
@@ -16,8 +17,8 @@ const run = async (id: string, inputs: Record<string, unknown>) => {
 // A small test schematic
 const s = new Schematic();
 for (let x = 0; x < 4; x++) for (let z = 0; z < 4; z++) {
-  s.set_block(x, 0, z, 'minecraft:stone');
-  if ((x + z) % 2 === 0) s.set_block(x, 1, z, 'minecraft:oak_planks');
+  s.setBlock(x, 0, z, 'minecraft:stone');
+  if ((x + z) % 2 === 0) s.setBlock(x, 1, z, 'minecraft:oak_planks');
 }
 
 const census = await run('block-census', { schematic: s });
