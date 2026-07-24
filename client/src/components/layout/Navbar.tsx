@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Plus, LogIn, Loader2, User, LogOut, ChevronDown } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
+import { useFlowStore } from '../../store/flowStore';
 import { features } from '../../config/features';
 
 const SCHEMATI_URL = import.meta.env.VITE_SCHEMATI_URL || 'https://schemati.test';
@@ -84,6 +85,9 @@ export function Navbar() {
       <div className="flex items-center gap-3">
         <Link
           to="/editor"
+          // Reset the global store first so /editor starts blank instead of
+          // the URL-sync bouncing back to the last-opened flow.
+          onClick={() => useFlowStore.getState().clearFlow()}
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-brand-500/10 text-brand-400 hover:bg-brand-500/20 rounded-md transition-colors"
         >
           <Plus className="w-3.5 h-3.5" />

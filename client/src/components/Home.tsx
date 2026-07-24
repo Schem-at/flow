@@ -9,6 +9,7 @@ import {
 import { Navbar } from './layout/Navbar';
 import { useAuth } from '../hooks/useAuth';
 import { toast } from '../lib/toast';
+import { useFlowStore } from '../store/flowStore';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || '';
 
@@ -86,6 +87,14 @@ const visibilityColor: Record<string, string> = {
 
 export function Home() {
   const navigate = useNavigate();
+
+  // "New flow" must start blank. The flow store is global and still holds the
+  // last-opened (saved) flow's id, so navigating to a bare /editor would let
+  // the editor's URL-sync bounce you back to that flow. Reset first.
+  const startNewFlow = () => {
+    useFlowStore.getState().clearFlow();
+    navigate('/editor');
+  };
   const queryClient = useQueryClient();
   const { isAuthenticated } = useAuth();
   const [search, setSearch] = useState('');
@@ -202,7 +211,7 @@ export function Home() {
             </div>
             {isAuthenticated && (
               <button
-                onClick={() => navigate('/editor')}
+                onClick={startNewFlow}
                 className="group flex items-center gap-2 px-4 py-2.5 bg-brand-500 hover:bg-brand-400 text-white text-xs font-semibold rounded-lg transition-all hover:shadow-[0_0_20px_rgba(219,69,240,0.35)] active:scale-[0.98]"
               >
                 <Plus className="w-4 h-4 transition-transform group-hover:rotate-90" />
@@ -293,7 +302,7 @@ export function Home() {
               </p>
               {!search && isAuthenticated && (
                 <button
-                  onClick={() => navigate('/editor')}
+                  onClick={startNewFlow}
                   className="flex items-center gap-2 px-4 py-2 text-xs font-medium bg-brand-500/10 text-brand-400 hover:bg-brand-500/15 border border-brand-500/10 rounded-lg transition-all"
                 >
                   <Plus className="w-3.5 h-3.5" />
@@ -541,7 +550,7 @@ export function Home() {
               {/* New flow ghost card */}
               {isAuthenticated && (
                 <button
-                  onClick={() => navigate('/editor')}
+                  onClick={startNewFlow}
                   className="group border border-dashed border-neutral-800/40 rounded-xl p-4 flex flex-col items-center justify-center gap-2 min-h-[140px] hover:border-brand-500/20 hover:bg-brand-500/[0.02] transition-all duration-200 cursor-pointer"
                 >
                   <div className="w-8 h-8 rounded-lg border border-dashed border-neutral-700/50 flex items-center justify-center group-hover:border-brand-500/30 transition-colors">
