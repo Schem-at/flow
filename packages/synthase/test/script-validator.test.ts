@@ -119,8 +119,9 @@ describe("ScriptValidator", () => {
       `;
 
 			const result = validator.validateScript(script);
-			expect(result.valid).toBe(false);
-			expect(result.errors).toContain("Use of eval() is prohibited");
+			// Dangerous patterns are advisory lint warnings; the SES compartment
+			// (compartment-executor) is the real isolation boundary.
+			expect(result.warnings).toContain("Use of eval() is prohibited");
 		});
 
 		it("should detect Function constructor", () => {
@@ -133,8 +134,7 @@ describe("ScriptValidator", () => {
       `;
 
 			const result = validator.validateScript(script);
-			expect(result.valid).toBe(false);
-			expect(result.errors).toContain(
+			expect(result.warnings).toContain(
 				"Use of Function constructor is prohibited"
 			);
 		});
@@ -151,8 +151,9 @@ describe("ScriptValidator", () => {
       `;
 
 			const result = validator.validateScript(script);
-			expect(result.valid).toBe(false);
-			expect(result.errors).toContain("Potential infinite while loop detected");
+			expect(result.warnings).toContain(
+				"Potential infinite while loop detected"
+			);
 		});
 
 		it("should detect prototype manipulation", () => {
@@ -165,8 +166,7 @@ describe("ScriptValidator", () => {
       `;
 
 			const result = validator.validateScript(script);
-			expect(result.valid).toBe(false);
-			expect(result.errors).toContain("Prototype manipulation is prohibited");
+			expect(result.warnings).toContain("Prototype manipulation is prohibited");
 		});
 
 		it("should detect very large loops", () => {
@@ -181,8 +181,7 @@ describe("ScriptValidator", () => {
       `;
 
 			const result = validator.validateScript(script);
-			expect(result.valid).toBe(false);
-			expect(result.errors).toContain(
+			expect(result.warnings).toContain(
 				"Very large loop detected - potential DoS"
 			);
 		});
@@ -197,8 +196,7 @@ describe("ScriptValidator", () => {
       `;
 
 			const result = validator.validateScript(script);
-			expect(result.valid).toBe(false);
-			expect(result.errors).toContain("Use of setInterval is discouraged");
+			expect(result.warnings).toContain("Use of setInterval is discouraged");
 		});
 	});
 
@@ -443,8 +441,7 @@ describe("ScriptValidator", () => {
       `;
 
 			const result = validator.validateScript(script);
-			expect(result.valid).toBe(false);
-			expect(result.errors).toContain("Use of badFunction is prohibited");
+			expect(result.warnings).toContain("Use of badFunction is prohibited");
 		});
 
 		it("should allow removing dangerous patterns", () => {

@@ -78,6 +78,22 @@ export class ScriptValidator {
 		},
 	];
 
+	// Structural requirements for the legacy `export const io` script format.
+	// These are hard errors (unlike the advisory dangerousPatterns above): a
+	// script in this format is unusable without an io declaration and a default
+	// export. NOTE: only the legacy path (Synthase / validateScript) is gated on
+	// these; v2 compiled blocks run via the SES compartment and never reach here.
+	private requiredPatterns = [
+		{
+			pattern: /export\s+const\s+io\s*=/,
+			message: "Missing required 'export const io = ...' declaration",
+		},
+		{
+			pattern: /export\s+default/,
+			message: "Missing required 'export default function' declaration",
+		},
+	];
+
 	/**
 	 * Remove comments from code
 	 */
@@ -197,7 +213,15 @@ export class ScriptValidator {
 		const strippedContent = this.stripComments(content);
 		const maskedContent = this.maskStrings(strippedContent);
 
-		// Lint hints only — never errors, never a security control.
+		// Structural requirements for the legacy io-format — hard errors.
+		for (const required of this.requiredPatterns) {
+			if (!required.pattern.test(strippedContent)) {
+				errors.push(required.message);
+			}
+		}
+
+		// Lint hints only — never errors, never a security control. The real
+		// isolation boundary is the SES compartment (see compartment-executor).
 		for (const danger of this.dangerousPatterns) {
 			if (danger.pattern.test(maskedContent)) {
 				warnings.push(danger.message);
@@ -205,6 +229,8 @@ export class ScriptValidator {
 		}
 
 		this.validateStructure(content, errors, warnings);
+
+		this.validateIOSchema(strippedContent, errors, warnings);
 
 		return {
 			valid: errors.length === 0,
@@ -325,10 +351,10 @@ export class ScriptValidator {
 	}
 
 	/**
-	 * Validate IO schema structure
-	 * @deprecated The v2 block format has no `export const io`; kept unused for reference until fully removed.
+	 * Validate IO schema structure. Applies only to the legacy `export const io`
+	 * script format handled by validateScript; v2 compiled blocks have no `io`
+	 * export and are validated/executed via the SES compartment instead.
 	 */
-	// @ts-expect-error - intentionally unused
 	private validateIOSchema(
 		content: string,
 		errors: string[],
