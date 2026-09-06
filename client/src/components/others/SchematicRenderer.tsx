@@ -1,6 +1,7 @@
 import { SchematicRenderer as Renderer } from 'schematic-renderer';
 import { useRef, useState, useEffect, useCallback } from 'react';
 import { Download } from 'lucide-react';
+import { schematicArrayBuffer } from '../../lib/schematicBytes';
 import { getSharedRendererContext } from '../../lib/schematicRendererContext';
 
 /**
@@ -17,6 +18,7 @@ const SchematicRenderer = ({ schematic }: { schematic: Uint8Array | ArrayBuffer 
     const readyRef = useRef<Promise<Renderer> | null>(null);
     const hasFramedRef = useRef(false);
     const loadSeqRef = useRef(0);
+    const loadQueueRef = useRef<Promise<void>>(Promise.resolve());
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const ref = useRef<HTMLDivElement>(null);
@@ -58,11 +60,11 @@ const SchematicRenderer = ({ schematic }: { schematic: Uint8Array | ArrayBuffer 
         if (!schematic) return;
 
         try {
-            // Convert to blob - create a copy to ensure we have a proper ArrayBuffer
+            // Blob snapshots the supplied bytes; no extra typed-array copy is needed.
             const bytes = schematic instanceof Uint8Array
                 ? schematic
                 : new Uint8Array(schematic);
-            const blob = new Blob([new Uint8Array(bytes)], {
+            const blob = new Blob([bytes as BlobPart], {
                 type: 'application/octet-stream'
             });
 
@@ -81,28 +83,6 @@ const SchematicRenderer = ({ schematic }: { schematic: Uint8Array | ArrayBuffer 
             console.error('Failed to download schematic:', err);
         }
     }, [schematic]);
-
-    /** Coerce worker/cross-realm values into a standalone ArrayBuffer. */
-    const toArrayBuffer = (value: Uint8Array | ArrayBuffer): ArrayBuffer | null => {
-        if (value instanceof Uint8Array) return value.slice().buffer;
-        if (value instanceof ArrayBuffer) return value;
-        if (ArrayBuffer.isView(value)) {
-            const view = value as Uint8Array;
-            const buf = view.buffer as ArrayBuffer;
-            return buf.slice(view.byteOffset, view.byteOffset + view.byteLength);
-        }
-        if (value && typeof value === 'object' && 'byteLength' in (value as object)) {
-            // Cross-realm typed array — instanceof fails across worker boundaries
-            const arr = value as unknown as { buffer?: ArrayBuffer; byteLength: number; byteOffset?: number; [index: number]: number };
-            if (arr.buffer) {
-                return arr.buffer.slice(arr.byteOffset || 0, (arr.byteOffset || 0) + arr.byteLength);
-            }
-            const temp = new Uint8Array(arr.byteLength);
-            for (let i = 0; i < arr.byteLength; i++) temp[i] = arr[i];
-            return temp.buffer;
-        }
-        return null;
-    };
 
     // Create the viewport renderer ONCE per mount, on the shared context.
     useEffect(() => {
@@ -145,6 +125,7 @@ const SchematicRenderer = ({ schematic }: { schematic: Uint8Array | ArrayBuffer 
 
         return () => {
             cancelled = true;
+            loadSeqRef.current++;
             readyRef.current = null;
             hasFramedRef.current = false;
             const renderer = rendererRef.current;
@@ -160,7 +141,8 @@ const SchematicRenderer = ({ schematic }: { schematic: Uint8Array | ArrayBuffer 
         if (!schematic) return;
         const seq = ++loadSeqRef.current;
 
-        (async () => {
+        loadQueueRef.current = loadQueueRef.current.catch(() => {}).then(async () => {
+            if (seq !== loadSeqRef.current) return;
             const ready = readyRef.current;
             if (!ready) return;
             setIsLoading(true);
@@ -169,13 +151,9 @@ const SchematicRenderer = ({ schematic }: { schematic: Uint8Array | ArrayBuffer 
                 const renderer = await ready;
                 if (seq !== loadSeqRef.current) return; // newer data superseded this load
 
-                const data = toArrayBuffer(schematic);
-                if (!data) {
-                    setError('Invalid schematic format');
-                    return;
-                }
-
+                const data = schematicArrayBuffer(schematic);
                 await renderer.schematicManager?.removeAllSchematics?.();
+                if (seq !== loadSeqRef.current) return;
                 await renderer.schematicManager?.loadSchematic('viewed-schematic', data);
                 if (seq !== loadSeqRef.current) return;
 
@@ -197,7 +175,7 @@ const SchematicRenderer = ({ schematic }: { schematic: Uint8Array | ArrayBuffer 
             } finally {
                 if (seq === loadSeqRef.current) setIsLoading(false);
             }
-        })();
+        });
     }, [schematic]);
 
     const userOrbitedRef = useRef(false);
