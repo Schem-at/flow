@@ -1,3 +1,4 @@
+import { getToolInputContract } from '@flow/core';
 /**
  * tracePlan — the pure, unit-testable core of the live canvas's SINGLE
  * execution engine.
@@ -54,19 +55,7 @@ export function isFlowInputNode(node: TracePlanNode): boolean {
  * `value`.
  */
 export function collectFlowInputs(nodes: TracePlanNode[]): Record<string, unknown> {
-  const inputs: Record<string, unknown> = {};
-  const used = new Set<string>();
-  for (const node of nodes) {
-    if (!isFlowInputNode(node)) continue;
-    const base = (node.data.label as string) || node.id;
-    let name = base;
-    let i = 2;
-    while (used.has(name)) name = `${base}_${i++}`;
-    used.add(name);
-    inputs[name] =
-      node.type === 'file_input' ? (node.data as { fileData?: unknown }).fileData : node.data.value;
-  }
-  return inputs;
+  return getToolInputContract({ nodes }).defaults;
 }
 
 /** Output / file_output node types whose value comes from `__outputs[name]`. */

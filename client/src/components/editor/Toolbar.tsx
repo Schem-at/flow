@@ -6,6 +6,7 @@ import { uuid } from '../../lib/uuid';
 import { useCallback, useState } from 'react';
 import {
   Zap,
+  FormInput,
   Hash,
   Type,
   ToggleLeft,
@@ -86,6 +87,7 @@ const nodeCategories: { name: string; nodes: NodeTemplate[] }[] = [
   {
     name: 'Inputs',
     nodes: [
+      { type: 'form', label: 'Form', Icon: FormInput, description: 'Build a custom form and its input API', color: 'text-brand-300', bg: 'bg-brand-500/10', border: 'border-brand-500/20', config: { fields: [], bundle: { enabled: true, name: 'values' } } },
       {
         type: 'input',
         label: 'Number',
@@ -149,7 +151,7 @@ const nodeCategories: { name: string; nodes: NodeTemplate[] }[] = [
         type: 'output',
         label: 'Output',
         Icon: ArrowRightFromLine,
-        description: 'Flow output with optional download',
+        description: 'Tool output with optional download',
         color: 'text-cyan-400',
         bg: 'bg-cyan-500/10',
         border: 'border-cyan-500/20',

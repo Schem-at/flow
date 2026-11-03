@@ -3,6 +3,7 @@
  * Works in both browser and Node/Bun environments
  */
 
+import { isNativeSchematic } from '../utils/native-values.js';
 import type { ExecutionResult, IODefinition } from '../types/index.js';
 import { EXECUTION_LIMITS } from '../utils/constants.js';
 import { processInputSchematics } from '../utils/schematic.js';
@@ -71,13 +72,12 @@ export class SynthaseService {
    */
   private isSchematicWrapper(value: unknown): boolean {
     if (!value || typeof value !== 'object') return false;
-    
+
     const obj = value as Record<string, unknown>;
-    
+
     // Check for SchematicWrapper methods or WASM pointer
-    return typeof obj.to_schematic === 'function' || 
-           typeof obj.set_block === 'function' ||
-           '__wbg_ptr' in obj;
+    return isNativeSchematic(value) || typeof obj.to_schematic === 'function' ||
+           typeof obj.set_block === 'function';
   }
 
   /**
@@ -113,7 +113,7 @@ export class SynthaseService {
 
     try {
       const startTime = performance.now();
-      
+
       // Process inputs to convert SchematicData back to SchematicWrapper
       // This allows scripts to receive WASM objects even when data was serialized for transfer
       const processedInputs = await processInputSchematics(inputs);
@@ -196,7 +196,7 @@ export class SynthaseService {
       const validation = await synthase.validate(this.prepareSource(scriptContent), {
         contextProviders: this.contextProviders,
       });
-      
+
       return {
         valid: true,
         io: validation.io as IODefinition,
@@ -218,11 +218,11 @@ export class SynthaseService {
   async createReusableExecutor(scriptContent: string): Promise<{ success: boolean; executor?: ReusableExecutor; error?: string }> {
     try {
       const synthase = await this.getSynthase();
-      
+
       const reusable = await synthase.createReusable(this.prepareSource(scriptContent), {
         contextProviders: this.contextProviders,
       });
-      
+
       return {
         success: true,
         executor: reusable as unknown as ReusableExecutor,
@@ -284,7 +284,7 @@ interface SynthaseModule {
     code: string,
     options: { contextProviders: ContextProviders }
   ) => Promise<{ io: unknown; dependencies?: string[] }>;
-  
+
   createReusable: (
     code: string,
     options: { contextProviders: ContextProviders }
@@ -292,4 +292,3 @@ interface SynthaseModule {
 }
 
 export default SynthaseService;
-

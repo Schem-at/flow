@@ -5,7 +5,7 @@
  * from what actually autocompletes.
  */
 
-import { AMBIENT_DTS, NUCLEATION_AMBIENT_DTS } from './ambient';
+import { AMBIENT_DTS, NUCLEATION_REFERENCE_DTS, COMPAT_SCHEMATIC_DTS } from './ambient';
 
 export interface ApiMember {
   /** Member name (method or property). */
@@ -134,8 +134,9 @@ export function getApiDocs(): ApiGroup[] {
   const runtime = parseAmbientDts(AMBIENT_DTS, 'runtime');
   // Nucleation 0.5.0 (diplomat-tool) already exports a class literally named
   // `Schematic` with the real API — no more `*Wrapper` alias/graft needed.
-  const nucleation = parseAmbientDts(NUCLEATION_AMBIENT_DTS, 'nucleation');
-  const all = [...runtime, ...nucleation];
+  const nucleation = parseAmbientDts(NUCLEATION_REFERENCE_DTS, 'nucleation').map(group => ({ ...group, name: `Nucleation.${group.name}` }));
+  const compat = parseAmbientDts(COMPAT_SCHEMATIC_DTS, 'runtime');
+  const all = [...runtime, ...compat, ...nucleation];
   cache = all.sort((a, b) => {
     const pa = PRIORITY.indexOf(a.name);
     const pb = PRIORITY.indexOf(b.name);

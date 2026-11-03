@@ -41,7 +41,7 @@ export const nodeTypes = {
   code: wrap(CodeNode),
 
   // Universal I/O nodes
-  file_input: wrap(FileInputNode),
+  file_input: wrap(InputNode),
   output: wrap(OutputNode),
 
   // Unified input node - handles primitive data types

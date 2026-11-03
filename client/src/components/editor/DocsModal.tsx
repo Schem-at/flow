@@ -1,3 +1,6 @@
+import { useFlowStore } from '../../store/flowStore';
+import { methodNode } from '../../lib/block/methodNode';
+import capabilities from '../../generated/nucleationCapabilities.json';
 /**
  * DocsModal — searchable API reference for block authors. Content is parsed
  * from the same ambient declarations Monaco uses (nucleation .d.ts + standard
@@ -17,9 +20,10 @@ const SOURCE_BADGE: Record<ApiGroup['source'], { label: string; cls: string }> =
   types: { label: 'types', cls: 'bg-neutral-500/10 text-neutral-300 border-neutral-500/20' },
 };
 
-export function DocsModal() {
-  const [open, setOpen] = useState(false);
+export function DocsModal({ initiallyOpen = false }: { initiallyOpen?: boolean }) {
+  const [open, setOpen] = useState(initiallyOpen);
   const [query, setQuery] = useState('');
+  const [notice, setNotice] = useState('');
   const [selected, setSelected] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -115,6 +119,8 @@ export function DocsModal() {
                     {SOURCE_BADGE[active.source].label}
                   </span>
                 </div>
+                {(capabilities.missing as Record<string,string[]>)[active.name] && <p className="mb-3 rounded border border-amber-500/20 p-3 text-xs text-amber-300">This package declares methods for {active.name} that are missing in its WASM build. The API is retained; these methods require an upstream package fix.</p>}
+                {notice && <p role="status" className="mb-3 text-xs text-fuchsia-300">{notice}</p>}
                 {active.doc && <p className="mb-4 max-w-3xl text-xs leading-relaxed text-neutral-400">{active.doc}</p>}
                 <div className="space-y-2">
                   {active.members.map((member, idx) => (
@@ -125,6 +131,7 @@ export function DocsModal() {
                       <code className="block whitespace-pre-wrap break-all font-mono text-[11px] leading-relaxed text-sky-300">
                         {member.signature}
                       </code>
+                      {active.source==='nucleation' && member.kind==='method' && <button className="mt-2 rounded border border-white/10 px-2 py-1 text-xs text-fuchsia-300" onClick={async()=>{try{const data=await methodNode(active,member,getApiDocs());const state=useFlowStore.getState();state.addNode({id:crypto.randomUUID(),type:'code',position:{x:Math.max(0,...state.nodes.map(n=>n.position.x))+350,y:120},data});setNotice(`Added ${data.label} to your editor graph.`);}catch(e){setNotice(String(e));}}}>Add as node</button>}
                       {member.doc && (
                         <p className="mt-1.5 text-[11px] leading-relaxed text-neutral-400">{member.doc}</p>
                       )}

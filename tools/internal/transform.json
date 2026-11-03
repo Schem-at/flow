@@ -1,0 +1,123 @@
+{
+  "id": "transform",
+  "name": "Transform schematic",
+  "version": "1.0.0",
+  "metadata": {
+    "tool": {
+      "timeout": 30,
+      "output": "schematic"
+    }
+  },
+  "nodes": [
+    {
+      "id": "file",
+      "type": "input",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "data": {
+        "label": "file",
+        "dataType": "object",
+        "value": null
+      }
+    },
+    {
+      "id": "rotate",
+      "type": "input",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "data": {
+        "label": "rotate",
+        "dataType": "object",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": "transform",
+      "type": "code",
+      "position": {
+        "x": 400,
+        "y": 0
+      },
+      "data": {
+        "code": "type Inputs = { file: any; rotate: number[] }; function generate(inputs: Inputs) { if (inputs.rotate.length !== 3 || inputs.rotate.some(v=>![0,90,180,270].includes(v))) throw new Error('Invalid rotation'); const schematic=Nucleation.Schematic.fromData(Bytes.read(inputs.file)); if(inputs.rotate[0]) schematic.rotateSchematicX(inputs.rotate[0]); if(inputs.rotate[1]) schematic.rotateSchematicY(inputs.rotate[1]); if(inputs.rotate[2]) schematic.rotateSchematicZ(inputs.rotate[2]); return { schematic }; }",
+        "contract": {
+          "inputs": {
+            "file": {
+              "kind": "object",
+              "fields": {}
+            },
+            "rotate": {
+              "kind": "list",
+              "of": {
+                "kind": "number"
+              }
+            }
+          },
+          "outputs": {
+            "schematic": {
+              "kind": "schematic"
+            }
+          }
+        },
+        "io": {
+          "inputs": {
+            "file": {
+              "type": "object"
+            },
+            "rotate": {
+              "type": "object"
+            }
+          },
+          "outputs": {
+            "schematic": {
+              "type": "schematic"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "output",
+      "type": "output",
+      "position": {
+        "x": 800,
+        "y": 0
+      },
+      "data": {
+        "label": "schematic",
+        "dataType": "schematic"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "file",
+      "source": "file",
+      "target": "transform",
+      "sourceHandle": "value",
+      "targetHandle": "file"
+    },
+    {
+      "id": "rotate",
+      "source": "rotate",
+      "target": "transform",
+      "sourceHandle": "value",
+      "targetHandle": "rotate"
+    },
+    {
+      "id": "out",
+      "source": "transform",
+      "target": "output",
+      "sourceHandle": "schematic",
+      "targetHandle": "input"
+    }
+  ]
+}

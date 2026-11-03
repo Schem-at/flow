@@ -1,0 +1,11 @@
+FROM oven/bun:1
+WORKDIR /app
+COPY package.json bun.lock tsconfig.json ./
+COPY packages ./packages
+COPY shared ./shared
+COPY server ./server
+COPY client/package.json ./client/package.json
+RUN bun install --frozen-lockfile && bun run --filter @flow/synthase build && bun run --filter @flow/core build && bun run --filter shared build
+ENV NODE_ENV=production TOOLS_ISOLATED_JOB=1
+USER 1000:1000
+CMD ["timeout", "-s", "KILL", "315", "bun", "run", "server/src/worker/container-entry.ts"]

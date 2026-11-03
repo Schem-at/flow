@@ -18,6 +18,7 @@ interface ModuleRef {
 }
 
 interface CodeNodeData {
+  description?: string;
   label?: string;
   code?: string;
   io?: IODefinition;
@@ -181,7 +182,7 @@ const CodeNode = memo(({ id, data, selected }: NodeProps & { data: CodeNodeData 
   return (
     <div
       className={`
-        relative min-w-[280px] rounded-xl overflow-visible
+        relative w-[640px] rounded-xl overflow-visible
         bg-neutral-900 
         border transition-all duration-200
         ${selected
@@ -291,6 +292,7 @@ const CodeNode = memo(({ id, data, selected }: NodeProps & { data: CodeNodeData 
 
         {/* Code Preview or Module Info */}
         <div className="p-3 flex-1 min-w-0">
+          {data.description && <p className="mb-3 text-xs leading-relaxed text-neutral-400">{data.description}</p>}
           {isModule ? (
             <div className="bg-cyan-950/20 rounded-lg p-3 border border-cyan-800/20 flex items-center gap-3">
               <Package className="w-5 h-5 text-cyan-500/50 shrink-0" />

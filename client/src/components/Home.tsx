@@ -1,5 +1,6 @@
+import { EXAMPLE_FLOWS } from '../lib/exampleFlows';
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Plus, Search, MoreVertical, Pencil, Trash2, Copy, Play, GitFork,
@@ -88,7 +89,7 @@ const visibilityColor: Record<string, string> = {
 export function Home() {
   const navigate = useNavigate();
 
-  // "New flow" must start blank. The flow store is global and still holds the
+  // "New tool" must start blank. The flow store is global and still holds the
   // last-opened (saved) flow's id, so navigating to a bare /editor would let
   // the editor's URL-sync bounce you back to that flow. Reset first.
   const startNewFlow = () => {
@@ -106,7 +107,7 @@ export function Home() {
     queryFn: async () => {
       const res = await fetch(`${SERVER_URL}/api/flows`, { credentials: 'include' });
       const json = await res.json();
-      if (!json.success) throw new Error(json.error || 'Failed to load flows');
+      if (!json.success) throw new Error(json.error || 'Failed to load tools');
       return json.flows as Flow[];
     },
   });
@@ -114,7 +115,7 @@ export function Home() {
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
       const res = await fetch(`${SERVER_URL}/api/flows/${id}`, { method: 'DELETE', credentials: 'include' });
-      if (!res.ok) throw new Error('Failed to delete flow');
+      if (!res.ok) throw new Error('Failed to delete tool');
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['flows'] }),
   });
@@ -139,7 +140,7 @@ export function Home() {
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
       });
-      if (!res.ok) throw new Error('Failed to fork flow');
+      if (!res.ok) throw new Error('Failed to remix tool');
       return res.json();
     },
     onSuccess: (data) => {
@@ -161,7 +162,7 @@ export function Home() {
           edges: original.flow?.jsonContent?.edges || [],
         }),
       });
-      if (!res.ok) throw new Error('Failed to duplicate flow');
+      if (!res.ok) throw new Error('Failed to duplicate tool');
       return res.json();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['flows'] }),
@@ -180,7 +181,7 @@ export function Home() {
   const publicCount = allFlows.filter(f => f.visibility === 'public' && !f.isOwner).length;
 
   return (
-    <div className="min-h-screen bg-[#07070a] text-white">
+    <div className="tools-home min-h-screen text-white">
       {/* Dot grid background */}
       <div
         className="fixed inset-0 opacity-[0.03] pointer-events-none"
@@ -193,20 +194,20 @@ export function Home() {
       <div className="relative z-10">
         <Navbar />
 
-        <div className="max-w-5xl mx-auto px-6 pt-8 pb-16">
+        <div className="tools-rails mx-auto px-6 pt-12 pb-16">
           {/* Header */}
           <div className="relative bg-grid-pattern flex items-end justify-between mb-8">
             <div>
               <div className="mb-2">
                 <span className="inline-block rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[10px] font-medium uppercase tracking-[0.2em] text-neutral-400">
-                  Schemat.io · Flow
+                  Schemat.io · Tools
                 </span>
               </div>
-              <h1 className="text-2xl font-semibold tracking-tight">
-                Flows
+              <h1 className="tools-heading">
+                Tools
               </h1>
               <p className="text-sm text-neutral-500 mt-1 font-light">
-                {allFlows.length} flow{allFlows.length !== 1 ? 's' : ''} in workspace
+                {allFlows.length} tool{allFlows.length !== 1 ? 's' : ''} in workspace
               </p>
             </div>
             {isAuthenticated && (
@@ -215,10 +216,30 @@ export function Home() {
                 className="group flex items-center gap-2 px-4 py-2.5 bg-brand-500 hover:bg-brand-400 text-white text-xs font-semibold rounded-lg transition-all hover:shadow-[0_0_20px_rgba(219,69,240,0.35)] active:scale-[0.98]"
               >
                 <Plus className="w-4 h-4 transition-transform group-hover:rotate-90" />
-                New Flow
+                New tool
               </button>
             )}
           </div>
+
+          <section className="tools-band mb-10" aria-label="Nucleation showcases">
+            <div className="mb-5">
+              <p className="tools-eyebrow">Explore Nucleation</p>
+              <h2 className="text-xl font-semibold mt-2">Start with something that works.</h2>
+              <p className="text-sm text-neutral-400 mt-2">Run an example, open its graph, and make it yours.</p>
+            </div>
+            <div className="grid gap-px bg-white/10 sm:grid-cols-2 lg:grid-cols-4 border border-white/10">
+              {EXAMPLE_FLOWS.filter(graph => graph.metadata?.tool?.tags?.includes('Showcase')).map(graph => (
+                <div key={graph.id} className="bg-[#101012] p-5 flex flex-col gap-3">
+                  <h3 className="font-semibold text-sm">{graph.name}</h3>
+                  <p className="text-xs text-neutral-400 leading-relaxed flex-1">{graph.metadata?.description}</p>
+                  <div className="flex gap-4 text-xs pt-2">
+                    <Link className="text-brand-300 hover:text-white" to={`/run?example=${graph.id}`}>Run example →</Link>
+                    <Link className="text-neutral-400 hover:text-white" to={`/editor?example=${graph.id}`}>Remix</Link>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
 
           {/* Toolbar */}
           <div className="flex items-center gap-3 mb-6">
@@ -266,7 +287,7 @@ export function Home() {
                   <Loader2 className="w-5 h-5 text-brand-500 animate-spin" />
                 </div>
               </div>
-              <span className="text-xs font-mono text-neutral-600">Loading flows...</span>
+              <span className="text-xs font-mono text-neutral-600">Loading tools...</span>
             </div>
           )}
 
@@ -293,7 +314,7 @@ export function Home() {
                 </div>
               </div>
               <p className="text-sm text-neutral-400 mb-1">
-                {search ? 'No matches' : filter === 'mine' ? 'No flows yet' : 'Nothing here'}
+                {search ? 'No matches' : filter === 'mine' ? 'No tools yet' : 'Nothing here'}
               </p>
               <p className="text-xs text-neutral-600 mb-6 max-w-[280px] text-center">
                 {search
@@ -306,7 +327,7 @@ export function Home() {
                   className="flex items-center gap-2 px-4 py-2 text-xs font-medium bg-brand-500/10 text-brand-400 hover:bg-brand-500/15 border border-brand-500/10 rounded-lg transition-all"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  Create your first flow
+                  Create your first tool
                 </button>
               )}
             </div>
@@ -437,7 +458,7 @@ export function Home() {
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    if (confirm('Delete this flow permanently?')) deleteMutation.mutate(flow.id);
+                                    if (confirm('Delete this tool permanently?')) deleteMutation.mutate(flow.id);
                                     setMenuOpen(null);
                                   }}
                                   className="flex items-center gap-2.5 w-full px-3 py-2 text-[11px] text-red-400/80 hover:bg-red-500/5 transition-colors"
@@ -547,7 +568,7 @@ export function Home() {
                 </div>
               ))}
 
-              {/* New flow ghost card */}
+              {/* New tool ghost card */}
               {isAuthenticated && (
                 <button
                   onClick={startNewFlow}
@@ -556,7 +577,7 @@ export function Home() {
                   <div className="w-8 h-8 rounded-lg border border-dashed border-neutral-700/50 flex items-center justify-center group-hover:border-brand-500/30 transition-colors">
                     <Plus className="w-4 h-4 text-neutral-700 group-hover:text-brand-500/70 transition-colors" />
                   </div>
-                  <span className="text-xs text-neutral-700 group-hover:text-neutral-500 transition-colors">New flow</span>
+                  <span className="text-xs text-neutral-700 group-hover:text-neutral-500 transition-colors">New tool</span>
                 </button>
               )}
             </div>

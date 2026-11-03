@@ -9,7 +9,7 @@ import { db, apiKeys, type ApiKey } from '../db/index.js';
 import type { ApiScope, JwtPayload, ApiErrorCode } from 'shared';
 
 // JWT secret - in production, use env var
-const JWT_SECRET = process.env.JWT_SECRET || 'polymerase-dev-secret-change-in-production';
+const JWT_SECRET = process.env.JWT_SECRET || '';
 
 /**
  * Hash an API key using SHA-256
@@ -38,6 +38,7 @@ export async function generateApiKey(): Promise<{ key: string; prefix: string; h
  * Verify JWT token
  */
 async function verifyJwt(token: string): Promise<JwtPayload | null> {
+  if (JWT_SECRET.length < 32) return null;
   try {
     // Simple JWT verification (in production, use a proper JWT library)
     const [headerB64, payloadB64, signatureB64] = token.split('.');
@@ -84,6 +85,7 @@ async function verifyJwt(token: string): Promise<JwtPayload | null> {
  * Create JWT token
  */
 export async function createJwt(payload: Omit<JwtPayload, 'iat' | 'iss' | 'aud'>): Promise<string> {
+  if (JWT_SECRET.length < 32) throw new Error('Configure JWT_SECRET with at least 32 characters before issuing API tokens.');
   const header = { alg: 'HS256', typ: 'JWT' };
   
   const fullPayload: JwtPayload = {

@@ -146,6 +146,9 @@ export function positionalInputNames(source: string): string[] | null {
     if (colon < 0) return null; // `inputs` — legacy single object arg
     if (p.slice(colon + 1).trim().startsWith('{')) return null; // `inputs: { … }` object arg
     const name = p.slice(0, colon).trim();
+    // The canonical typed object form uses the contract's named Inputs alias.
+    // Treating it as a positional port passes inputs.inputs (undefined).
+    if (name === 'inputs' && /^Inputs\s*$/.test(p.slice(colon + 1).trim())) return null;
     return IDENTIFIER_RE.test(name) ? [name] : null;
   }
 

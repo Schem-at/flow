@@ -1,0 +1,257 @@
+{
+  "id": "circuit-lab",
+  "name": "Circuit lab",
+  "version": "1.0.0",
+  "metadata": {
+    "description": "Build a redstone circuit, inspect its connections, and simulate a lever input with TickSimulation. Remix the graph to test your own schematic.",
+    "tool": {
+      "schemaVersion": 1,
+      "slug": "circuit-lab",
+      "icon": "cube",
+      "tags": [
+        "redstone",
+        "educative"
+      ],
+      "timeout": 60,
+      "output": "generic"
+    },
+    "examples": [
+      {
+        "name": "Default example",
+        "inputs": {
+          "powered": true,
+          "ticks": 8
+        }
+      }
+    ]
+  },
+  "nodes": [
+    {
+      "id": "powered",
+      "type": "input",
+      "position": {
+        "x": 352,
+        "y": 432
+      },
+      "data": {
+        "label": "powered",
+        "dataType": "boolean",
+        "value": true,
+        "default": true,
+        "toolField": {
+          "group": "Settings",
+          "order": 0
+        }
+      }
+    },
+    {
+      "id": "ticks",
+      "type": "input",
+      "position": {
+        "x": 352,
+        "y": 752
+      },
+      "data": {
+        "label": "ticks",
+        "dataType": "number",
+        "value": 8,
+        "default": 8,
+        "min": 1,
+        "max": 40,
+        "step": 1,
+        "widgetType": "slider",
+        "toolField": {
+          "group": "Settings",
+          "order": 1
+        }
+      }
+    },
+    {
+      "id": "build",
+      "type": "code",
+      "position": {
+        "x": 12,
+        "y": 12
+      },
+      "data": {
+        "label": "Build test circuit",
+        "code": "type Inputs = {}; type Outputs = { world: Nucleation.TickSimulation; schematic: Nucleation.Schematic }; function generate() { const schematic=Nucleation.Schematic.create('Lever and lamp'); schematic.fillCuboid(0,0,0,4,0,0,'minecraft:stone'); schematic.setBlock(0,1,0,'minecraft:lever[face=floor,facing=east,powered=false]'); for(let x=1;x<4;x++) schematic.setBlock(x,1,0,'minecraft:redstone_wire[east=side,west=side,north=none,south=none,power=0]'); schematic.setBlock(4,1,0,'minecraft:redstone_lamp[lit=false]'); const world=Nucleation.TickSimulation.fromSchematic(schematic,Nucleation.TickSettleMode.Placement,0,0,0,''); return { world, schematic };  }",
+        "contract": {
+          "inputs": {},
+          "outputs": {
+            "world": {
+              "kind": "native",
+              "className": "TickSimulation"
+            },
+            "schematic": {
+              "kind": "schematic"
+            }
+          }
+        },
+        "io": {
+          "inputs": {},
+          "outputs": {
+            "world": {
+              "type": "object"
+            },
+            "schematic": {
+              "type": "schematic"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "simulate",
+      "type": "code",
+      "position": {
+        "x": 752,
+        "y": 600
+      },
+      "data": {
+        "label": "Analyze and simulate",
+        "code": "type Outputs = { schematic: Nucleation.Schematic; analysis: {} }; type Inputs = { world: Nucleation.TickSimulation; schematic: Nucleation.Schematic; powered: boolean; ticks: number }; function generate(inputs: Inputs) { inputs.world.recordTimeline(); if(inputs.powered) inputs.world.useBlock(0,1,0); inputs.world.run(inputs.ticks); inputs.world.stopTimeline(); inputs.world.bakeTo(inputs.schematic); return { schematic: inputs.schematic, analysis: { ticks:inputs.world.tickCount(),machineGraph:JSON.parse(inputs.world.machineGraphJson()),activity:JSON.parse(inputs.world.timelineActivityJson()),lampLit:inputs.world.getBlock(4,1,0).includes('lit=true') } }; }",
+        "contract": {
+          "inputs": {
+            "world": {
+              "kind": "native",
+              "className": "TickSimulation"
+            },
+            "schematic": {
+              "kind": "schematic"
+            },
+            "powered": {
+              "kind": "boolean"
+            },
+            "ticks": {
+              "kind": "number"
+            }
+          },
+          "outputs": {
+            "schematic": {
+              "kind": "schematic"
+            },
+            "analysis": {
+              "kind": "object",
+              "fields": {}
+            }
+          }
+        },
+        "io": {
+          "inputs": {
+            "world": {
+              "type": "object"
+            },
+            "schematic": {
+              "type": "schematic"
+            },
+            "powered": {
+              "type": "boolean"
+            },
+            "ticks": {
+              "type": "number"
+            }
+          },
+          "outputs": {
+            "schematic": {
+              "type": "schematic"
+            },
+            "analysis": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "out-schematic",
+      "type": "output",
+      "position": {
+        "x": 1492,
+        "y": 386.66666666666663
+      },
+      "data": {
+        "label": "schematic",
+        "dataType": "schematic"
+      }
+    },
+    {
+      "id": "out-analysis",
+      "type": "output",
+      "position": {
+        "x": 1492,
+        "y": 706.6666666666666
+      },
+      "data": {
+        "label": "analysis",
+        "dataType": "object"
+      }
+    },
+    {
+      "id": "out-world",
+      "type": "output",
+      "position": {
+        "x": 752,
+        "y": 280
+      },
+      "data": {
+        "label": "world",
+        "fieldType": {
+          "kind": "native",
+          "className": "TickSimulation"
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "build-simulate-world",
+      "source": "build",
+      "target": "simulate",
+      "sourceHandle": "world",
+      "targetHandle": "world"
+    },
+    {
+      "id": "powered-simulate-powered",
+      "source": "powered",
+      "target": "simulate",
+      "sourceHandle": "output",
+      "targetHandle": "powered"
+    },
+    {
+      "id": "ticks-simulate-ticks",
+      "source": "ticks",
+      "target": "simulate",
+      "sourceHandle": "output",
+      "targetHandle": "ticks"
+    },
+    {
+      "id": "out-schematic",
+      "source": "simulate",
+      "target": "out-schematic",
+      "sourceHandle": "schematic",
+      "targetHandle": "input"
+    },
+    {
+      "id": "out-analysis",
+      "source": "simulate",
+      "target": "out-analysis",
+      "sourceHandle": "analysis",
+      "targetHandle": "input"
+    },
+    {
+      "id": "build-sim-schematic",
+      "source": "build",
+      "target": "simulate",
+      "sourceHandle": "schematic",
+      "targetHandle": "schematic"
+    },
+    {
+      "id": "out-world",
+      "source": "build",
+      "sourceHandle": "world",
+      "target": "out-world",
+      "targetHandle": "input"
+    }
+  ]
+}

@@ -26,6 +26,7 @@ declare const self: Worker;
 // ============================================================================
 
 export type ExecutionWorkerRequest =
+  | { kind: 'tool'; general?: boolean; skinProfiles?: Record<string,{skin:string;name:string;slim:boolean}>; graph: unknown; inputs: Record<string, unknown>; timeout: number }
   | { kind: 'script'; code: string; inputs: Record<string, unknown>; timeout: number }
   | {
       kind: 'flow';
@@ -375,6 +376,11 @@ self.onmessage = async (event: MessageEvent<ExecutionWorkerRequest>) => {
   try {
     let payload: unknown;
     switch (req.kind) {
+      case 'tool': {
+        const { executeTool } = await import('../services/toolExecution.js');
+        payload = await executeTool(req.graph, req.inputs, req.timeout, req.general, req.skinProfiles);
+        break;
+      }
       case 'script':
         payload = await handleScript(req);
         break;

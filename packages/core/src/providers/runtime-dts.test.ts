@@ -53,6 +53,6 @@ describe('runtime ↔ declared keys parity (drift guard)', () => {
     // (create() needs WASM; we assert the manifest instead, which the codegen + the
     // declaration-coverage test above tie back to the actual declarations.)
     const { keys } = createDefaultRegistry().endowmentManifest().find((p) => p.name === 'nucleation')!;
-    expect(keys.sort()).toEqual(['Schematic', 'SchematicUtils']);
+    expect(keys.sort()).toEqual(['Nucleation', 'Schematic', 'SchematicUtils']);
   });
 });

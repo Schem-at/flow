@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { PROVIDER_ENDOWMENT_KEYS } from '@flow/core';
+import { createDefaultRegistry } from '@flow/core';
+import { AMBIENT_DTS, NUCLEATION_AMBIENT_DTS } from './ambient';
 
 /**
  * Editor ambient-dts drift guard.
@@ -22,12 +21,9 @@ const PROVIDED_ELSEWHERE = new Set(['Math', '__hostNow']);
 
 // Read the source directly (avoids importing ambient.ts, which pulls the
 // `virtual:nucleation-dts` Vite module). vitest runs with cwd = client root.
-const ambientSrc = readFileSync(
-  resolve(process.cwd(), 'src/lib/block/ambient.ts'),
-  'utf8',
-);
+const ambientSrc = AMBIENT_DTS + NUCLEATION_AMBIENT_DTS;
 
-const endowedGlobals = [...new Set(Object.values(PROVIDER_ENDOWMENT_KEYS).flat())];
+const endowedGlobals = [...new Set(createDefaultRegistry().endowmentManifest().flatMap(provider => provider.keys))];
 
 describe('AMBIENT_DTS editor declarations', () => {
   it('declares every endowed runtime global (or allowlists it)', () => {
@@ -36,7 +32,7 @@ describe('AMBIENT_DTS editor declarations', () => {
       // A global may also be declared via interface-merging (e.g. `Schematic`,
       // whose real class now comes from nucleation's own bundled .d.ts, with
       // ambient.ts only merging in the DX convenience methods).
-      return !new RegExp(`declare (const|class) ${name}\\b|\\binterface ${name}\\b`).test(ambientSrc);
+      return !new RegExp(`declare (const|class|namespace) ${name}\\b|\\binterface ${name}\\b`).test(ambientSrc);
     });
     expect(missing, `endowed globals missing an editor \`declare\` in ambient.ts: ${missing.join(', ')}`).toEqual([]);
   });

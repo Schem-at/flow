@@ -8,3 +8,6 @@ server/data
 **/*.log
 Dockerfile
 .dockerignore
+**/.env
+**/.env.*
+**/coverage

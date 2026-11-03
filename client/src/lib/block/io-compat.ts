@@ -37,6 +37,7 @@ export function flowTypeToLegacyPort(type: FlowType): IOPort {
       return { type: 'schematic' };
     case 'image':
     case 'object':
+    case 'palette': case 'username': case 'file': case 'set': case 'native': case 'animation': case 'simulation': case 'chart':
     case 'unknown':
       return { type: 'object' };
   }

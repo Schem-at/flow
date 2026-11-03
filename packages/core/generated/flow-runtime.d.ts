@@ -121,6 +121,7 @@ declare const Table: { [key: string]: any };
 declare const Mcfunction: { builder(): any; [key: string]: any };
 declare const McfunctionBuilder: any;
 
+declare const Bytes: { read(value: unknown): Uint8Array; text(value: unknown): string; fromBase64(value: string): Uint8Array; toBase64(value: Uint8Array): string };
 // ── vendor: wrapped third-party libraries ────────────────────────────────────
 declare const Pathfinding: { [key: string]: any };
 
@@ -164,6 +165,8 @@ declare const Asm: {
   packBytes(value: number, byteCount: number, opts?: { endian?: 'le' | 'be' }): number[];
 };
 // ── nucleation ───────────────────────────────────────────────────────────────
+/** Complete public API of the installed Nucleation package. */
+declare const Nucleation: typeof import('nucleation');
 interface SchematicBlock { x: number; y: number; z: number; name: string }
 interface SchematicBounds { width: number; height: number; depth: number; min: Vec3; max: Vec3 }
 
@@ -214,6 +217,16 @@ declare const SchematicUtils: {
   cylinder(s: Schematic, cx: number, cy: number, cz: number, radius: number, height: number, block: string, hollow?: boolean): void;
 };
 
+
+declare const Blocks: {
+  palette(choice?: object): any;
+  image(file: unknown, width?: number): Promise<any>;
+  skin(username: string): Promise<any>;
+  pixelArt(image: any, palette: any, orientation?: string, dither?: boolean): Schematic;
+  statue(skin: any, palette: any, scale?: number, overlay?: string, parts?: string[]): Schematic;
+  measure(schematic: unknown): { dimensions: number[]; block_count: number; blocks_used: object; palette_size: number; placed: number };
+  export(schematic: unknown, format?: string): { base64: string; format: string };
+};
 // ── platform: Schemati ───────────────────────────────────────────────────────
 declare const Schemati: {
   searchSchematics(options: { tag?: string; search?: string; limit?: number }): Promise<any[]>;

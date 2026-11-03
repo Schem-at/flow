@@ -10,6 +10,8 @@ import type { LogCallback } from '../utils/logger.js';
 export interface RuntimeEnv {
   /** Where this worker runs. Environment branching belongs INSIDE providers. */
   kind: 'browser' | 'node';
+  /** Assets resolved by a trusted gateway before isolated execution. */
+  skinProfiles?: Record<string, {skin:string;name:string;slim:boolean}>;
   /** Worker-level log sink (wired to postMessage in the browser worker). */
   logCallback?: LogCallback;
   /** Worker-level progress sink. */
@@ -21,6 +23,8 @@ export interface RuntimeEnv {
    * to same-origin; node workers fall back to SCHEMATI_URL / SCHEMATI_API_TOKEN.
    */
   schemati?: { baseUrl?: string; token?: string };
+  /** Trusted host decoder; the browser uses OffscreenCanvas by default. */
+  decodeImage?: import('../tools/assets.js').ImageDecoder;
 }
 
 export interface RuntimeProvider {

@@ -30,7 +30,7 @@ describe('getApiDocs (real ambient sources)', () => {
   it('Schematic leads and carries the real nucleation API', () => {
     expect(groups[0].name).toBe('Schematic');
     const names = groups[0].members.map((m) => m.name);
-    for (const expected of ['setBlock', 'getBlock', 'fromData', 'blockCount', 'toSchematicB64']) {
+    for (const expected of ['setBlock', 'getBlock', 'fromData', 'blockCount', 'toSchematic']) {
       expect(names).toContain(expected);
     }
     // JSDoc made it through
@@ -46,16 +46,18 @@ describe('getApiDocs (real ambient sources)', () => {
     expect(byName['Schemati'].members.map((m) => m.name)).toContain('uploadSchematic');
   });
 
-  it('nucleation wrapper classes are browsable', () => {
-    expect(byName['MchprsWorld']).toBeTruthy();
-    expect(byName['MchprsWorld'].members.map((m) => m.name)).toContain('tick');
+  it('the full native API is browsable under its runtime namespace', () => {
+    expect(byName['Nucleation.BuildAnimation'].members.map(m => m.name)).toContain('toAnimatedGlbB64');
+    expect(byName['Nucleation.AnimationEffect'].members.map(m => m.name)).toContain('addTween');
+    expect(byName['Nucleation.MchprsWorld']).toBeTruthy();
+    expect(byName['Nucleation.MchprsWorld'].members.map((m) => m.name)).toContain('tick');
   });
 });
 
 describe('searchApiDocs', () => {
   it('filters members by name and doc text', () => {
     const hits = searchApiDocs('full block state');
-    const schematic = hits.find((g) => g.name === 'Schematic');
+    const schematic = hits.find((g) => g.name === 'Nucleation.Schematic');
     expect(schematic).toBeTruthy();
     expect(schematic!.members.some((m) => m.name === 'getBlock')).toBe(true);
   });

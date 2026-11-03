@@ -4,10 +4,10 @@
  * values renders as a gallery of the element viewer.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Download, BarChart3 } from 'lucide-react';
 import type { FlowType } from '@flow/core';
-import SchematicRenderer from '../others/SchematicRenderer';
+const SchematicRenderer = lazy(() => import('../others/SchematicRenderer'));
 import { getTypeEntry, type ViewerProps } from './registry';
 import { downloadText, rowsToCsv, downloadBarChartPng } from '../../lib/downloadFile';
 
@@ -125,26 +125,30 @@ export function SchematicViewer({ value, getData }: ViewerProps) {
   const [resolving, setResolving] = useState(false);
 
   useEffect(() => {
+    let alive = true;
     const direct = toBytes(value);
     if (direct) {
       setBytes(direct);
+      setResolving(false);
       return;
     }
-    const handleId =
-      value && typeof value === 'object'
-        ? ((value as Record<string, unknown>)._schematicHandle as string | undefined)
-        : undefined;
+    const handleId = value && typeof value === 'object'
+      ? (value as Record<string, unknown>)._schematicHandle as string | undefined
+      : undefined;
     if (handleId && getData) {
       setResolving(true);
       getData(handleId)
-        .then((data) => setBytes(toBytes(data)))
-        .finally(() => setResolving(false));
+        .then((data) => { if (alive) setBytes(toBytes(data)); })
+        .catch(() => { /* A cancelled worker invalidates its old handles. */ })
+        .finally(() => { if (alive) setResolving(false); });
     } else {
       setBytes(null);
+      setResolving(false);
     }
+    return () => { alive = false; };
   }, [value, getData]);
 
-  if (resolving) {
+  if (resolving && !bytes) {
     return <p className="text-xs text-neutral-500">Loading schematic…</p>;
   }
   if (!bytes) {
@@ -165,7 +169,7 @@ export function SchematicViewer({ value, getData }: ViewerProps) {
   }
   return (
     <div className="h-64 overflow-hidden rounded-md border border-neutral-800">
-      <SchematicRenderer schematic={bytes} />
+      <Suspense fallback={<p className="p-6 text-neutral-500" role="status">Loading preview…</p>}><SchematicRenderer schematic={bytes} /></Suspense>
     </div>
   );
 }

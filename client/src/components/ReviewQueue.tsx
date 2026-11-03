@@ -63,7 +63,7 @@ export function ReviewQueue() {
     onSuccess: (_d, vars) => {
       queryClient.invalidateQueries({ queryKey: ['review-queue'] });
       queryClient.invalidateQueries({ queryKey: ['flows'] });
-      toast(`Flow ${vars.action === 'approve' ? 'approved & published' : vars.action === 'reject' ? 'sent back to author' : 'banned'}`, 'success');
+      toast(`Tool ${vars.action === 'approve' ? 'approved & published' : vars.action === 'reject' ? 'sent back to author' : 'banned'}`, 'success');
       setPending(null);
       setNote('');
     },
@@ -87,7 +87,7 @@ export function ReviewQueue() {
           </div>
           <div>
             <h1 className="text-lg font-semibold text-white">Review queue</h1>
-            <p className="text-xs text-neutral-500">Approve, request changes on, or ban flows awaiting moderation.</p>
+            <p className="text-xs text-neutral-500">Approve, request changes on, or ban tools awaiting moderation.</p>
           </div>
           {flows.length > 0 && (
             <span className="ml-auto text-xs font-mono px-2 py-1 rounded-lg bg-amber-500/15 text-amber-300">{flows.length} pending</span>

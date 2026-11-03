@@ -1,32 +1,8 @@
 /**
- * nucleation provider — encapsulates the WASM init and exposes the Schematic
- * family of endowments. Swapping nucleation versions means swapping this
- * provider's import/loader; nothing else changes.
- *
- * nucleation ≥ 0.3.0 ships Diplomat-generated bindings (one class per domain
- * type, camelCase methods, exceptions instead of sentinels, JSON/base64
- * payloads; the package instantiates its wasm on first import via top-level
- * await — browser: fetch, node: fs). The endowed `Schematic` is the COMPAT
- * class from utils/schematic.ts: the new camelCase surface plus deprecated
- * snake_case aliases, so pre-0.3.0 user flows keep running unchanged.
- *
- * Attached statics:
- * - `Schematic.SchematicBuilder` / `Schematic.DefinitionRegion` /
- *   `Schematic.ExecutionMode` — the RAW generated classes (their own APIs
- *   changed upstream: builder methods are no longer chainable, `layers`
- *   takes JSON, `build()` consumes the builder and returns a raw native
- *   schematic).
- * - `Schematic.Diff` / `Schematic.Fingerprint` / `Schematic.Shape` /
- *   `Schematic.Brush` — the new domain types (diffing/fingerprinting moved
- *   off the schematic object upstream).
- * - `Schematic.BlockPosition` — tiny {x,y,z} compat holder (the old wasm
- *   class is gone; generated APIs take plain coordinates).
- *
- * NOTE: nucleation ≥ 0.3.2 wasm is built with `bridge-full` — the meshing/
- * rendering/simulation exports (MeshResult, Renderer, MchprsWorld, the
- * circuit executor behind ExecutionMode) are present and callable. (0.3.0
- * shipped core-`bridge`-only wasm where those threw "wasm.<fn> is not a
- * function".)
+ * The installed package's complete public API is available as Nucleation.*.
+ * The legacy Schematic helper remains for saved graphs. It is optional.
+ * TickSimulation is the default simulator for examples; MCHPRS remains an
+ * option for fast logical redstone. Upstream builds must supply its WASM exports.
  */
 
 import type { RuntimeProvider } from './types.js';
@@ -34,7 +10,7 @@ import { initializeSchematicProvider, loadedNucleationModule, SchematicUtils } f
 import { installSchematicMethods } from '../utils/schematic-methods.js';
 import { PROVIDER_DECLARATIONS, PROVIDER_ENDOWMENT_KEYS } from '../runtime-types.js';
 
-export const NUCLEATION_VERSION = '0.3.3';
+export const NUCLEATION_VERSION = '0.10.23';
 
 /** Compat stand-in for the removed wasm `BlockPosition` class (plain coordinates). */
 class BlockPosition {
@@ -85,7 +61,9 @@ export const nucleationProvider: RuntimeProvider = {
     }
     Schematic.BlockPosition = BlockPosition;
 
+    // Public exports stay unchanged; upstream additions need no Tools wrapper.
     return {
+      Nucleation: Object.freeze({ ...nucleation }),
       Schematic: SchematicClass,
       SchematicUtils,
     };

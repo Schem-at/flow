@@ -1,0 +1,136 @@
+{
+  "id": "building-footprints",
+  "name": "Building footprints",
+  "version": "1.0.0",
+  "metadata": {
+    "description": "Turn projected building footprints into blocks with Geo. Replace the synthetic sample with projected OpenStreetMap data; fetching and latitude/longitude projection remain under your control.",
+    "tool": {
+      "schemaVersion": 1,
+      "slug": "building-footprints",
+      "icon": "cube",
+      "tags": [
+        "minecraft",
+        "shape"
+      ],
+      "timeout": 60,
+      "output": "generic"
+    },
+    "examples": [
+      {
+        "name": "Default example",
+        "inputs": {
+          "footprints": "[{\"polygon\": [[0, 0], [8, 0], [8, 10], [0, 10]], \"height\": 16, \"block\": \"minecraft:bricks\"}, {\"polygon\": [[12, 2], [22, 2], [22, 14], [12, 14]], \"height\": 28, \"block\": \"minecraft:quartz_block\"}]"
+        }
+      }
+    ]
+  },
+  "nodes": [
+    {
+      "id": "footprints",
+      "type": "input",
+      "position": {
+        "x": 12,
+        "y": 68.66666666666667
+      },
+      "data": {
+        "label": "footprints",
+        "dataType": "string",
+        "value": "[{\"polygon\": [[0, 0], [8, 0], [8, 10], [0, 10]], \"height\": 16, \"block\": \"minecraft:bricks\"}, {\"polygon\": [[12, 2], [22, 2], [22, 14], [12, 14]], \"height\": 28, \"block\": \"minecraft:quartz_block\"}]",
+        "default": "[{\"polygon\": [[0, 0], [8, 0], [8, 10], [0, 10]], \"height\": 16, \"block\": \"minecraft:bricks\"}, {\"polygon\": [[12, 2], [22, 2], [22, 14], [12, 14]], \"height\": 28, \"block\": \"minecraft:quartz_block\"}]",
+        "toolField": {
+          "group": "Settings",
+          "order": 0
+        }
+      }
+    },
+    {
+      "id": "extrude",
+      "type": "code",
+      "position": {
+        "x": 412,
+        "y": 18.66666666666667
+      },
+      "data": {
+        "label": "Extrude projected footprints",
+        "code": "type Outputs = { schematic: Nucleation.Schematic; buildings: number }; type Inputs = { footprints: string }; function generate(inputs: Inputs) { const buildings=JSON.parse(inputs.footprints); return { schematic: Nucleation.Geo.extrudeFootprints(JSON.stringify(buildings),'minecraft:grass_block','Building footprints'), buildings: buildings.length }; }",
+        "contract": {
+          "inputs": {
+            "footprints": {
+              "kind": "string"
+            }
+          },
+          "outputs": {
+            "schematic": {
+              "kind": "schematic"
+            },
+            "buildings": {
+              "kind": "number"
+            }
+          }
+        },
+        "io": {
+          "inputs": {
+            "footprints": {
+              "type": "string"
+            }
+          },
+          "outputs": {
+            "schematic": {
+              "type": "schematic"
+            },
+            "buildings": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "out-schematic",
+      "type": "output",
+      "position": {
+        "x": 1152,
+        "y": 12
+      },
+      "data": {
+        "label": "schematic",
+        "dataType": "schematic"
+      }
+    },
+    {
+      "id": "out-buildings",
+      "type": "output",
+      "position": {
+        "x": 1152,
+        "y": 332
+      },
+      "data": {
+        "label": "buildings",
+        "dataType": "number"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "footprints-extrude-footprints",
+      "source": "footprints",
+      "target": "extrude",
+      "sourceHandle": "output",
+      "targetHandle": "footprints"
+    },
+    {
+      "id": "out-schematic",
+      "source": "extrude",
+      "target": "out-schematic",
+      "sourceHandle": "schematic",
+      "targetHandle": "input"
+    },
+    {
+      "id": "out-buildings",
+      "source": "extrude",
+      "target": "out-buildings",
+      "sourceHandle": "buildings",
+      "targetHandle": "input"
+    }
+  ]
+}

@@ -197,7 +197,7 @@ export function Documentation() {
               <div className="grid md:grid-cols-2 gap-6 mt-6">
                 <div className="p-6 bg-neutral-900/50 border border-neutral-800 rounded-xl">
                   <h3 className="font-bold text-white mb-2">Input Nodes</h3>
-                  <p className="text-sm">Provide data to your flow, such as numbers, strings, or NBT structures.</p>
+                  <p className="text-sm">Provide data to your tool, such as numbers, strings, or NBT structures.</p>
                 </div>
                 <div className="p-6 bg-neutral-900/50 border border-neutral-800 rounded-xl">
                   <h3 className="font-bold text-white mb-2">Processing Nodes</h3>

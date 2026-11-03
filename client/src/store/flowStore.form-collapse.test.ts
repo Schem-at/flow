@@ -4,6 +4,7 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useFlowStore } from './flowStore';
+import { getToolInputContract } from '@flow/core';
 
 function seed() {
   useFlowStore.setState({
@@ -57,4 +58,24 @@ describe('group-collapse inputs ↔ form', () => {
     const made = s.nodes.find((n) => n.id === formId)!;
     expect(made.type).toBe('group'); // falls through to the normal group path
   });
+});
+
+it('keeps constants private when inputs become a form and are ungrouped again', () => {
+  seed();
+  useFlowStore.getState().updateNodeData('a', { isConstant: true });
+  const id = useFlowStore.getState().groupSelected(['a', 'b'])!;
+  expect(getToolInputContract({ nodes: useFlowStore.getState().nodes }).fields.map(f => f.name)).toEqual(['beta']);
+  useFlowStore.getState().ungroupNode(id);
+  expect(getToolInputContract({ nodes: useFlowStore.getState().nodes }).fields.map(f => f.name)).toEqual(['beta']);
+});
+
+it('preserves native field types and form presentation when grouping and ungrouping', () => {
+  seed();
+  const fieldType = { kind: 'palette' as const };
+  const toolField = { label: 'Building blocks', group: 'Materials', advanced: true };
+  useFlowStore.getState().updateNodeData('a', { fieldType, toolField });
+  const formId = useFlowStore.getState().groupSelected(['a', 'b'])!;
+  expect(useFlowStore.getState().nodes.find(n => n.id === formId)?.data.fields?.[0]).toMatchObject({ fieldType, toolField });
+  useFlowStore.getState().ungroupNode(formId);
+  expect(useFlowStore.getState().nodes.find(n => n.data.label === 'alpha')?.data).toMatchObject({ fieldType, toolField });
 });

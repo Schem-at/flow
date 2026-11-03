@@ -115,7 +115,7 @@ const nodeTemplates: NodeTemplate[] = [
     type: 'output',
     label: 'Output',
     Icon: ArrowRightFromLine,
-    description: 'Flow output (for subflows) with optional download',
+    description: 'Tool output (for subflows) with optional download',
     color: 'text-cyan-400',
     bg: 'bg-cyan-500/10',
     keywords: ['output', 'export', 'download', 'save', 'return', 'result'],

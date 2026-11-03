@@ -12,6 +12,8 @@ import type { RuntimeProvider, RuntimeEnv } from './types.js';
 import { standardProvider } from './standard.js';
 import { toolkitProvider } from './toolkit.js';
 import { PROVIDER_DECLARATIONS, PROVIDER_ENDOWMENT_KEYS } from '../runtime-types.js';
+import { bytesToBase64, base64ToBytes } from '../utils/base64.js';
+import { assetBytes } from '../tools/assets.js';
 
 export const flowlibProvider: RuntimeProvider = {
   name: 'flowlib',
@@ -27,6 +29,9 @@ export const flowlibProvider: RuntimeProvider = {
     // context-coupled builders (Field.fromNoise reads context.Noise lazily).
     Object.assign(context, std);
     const tk = await toolkitProvider.create(env, context);
-    return { ...std, ...tk };
+    return { ...std, ...tk, Bytes: {
+      toBase64: bytesToBase64, fromBase64: base64ToBytes,
+      read: assetBytes, text: (value: unknown) => new TextDecoder().decode(assetBytes(value)),
+    } };
   },
 };

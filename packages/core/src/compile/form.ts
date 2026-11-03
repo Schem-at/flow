@@ -14,6 +14,11 @@
 import type { FlowLike } from './flow-compiler.js';
 
 export interface FormField {
+  isConstant?: boolean;
+  /** Public API key; name is the stable graph handle. */
+  inputName?: string;
+  toolField?: import('../tools/fields.js').ToolFieldPresentation;
+  fieldType?: import('../types/flow-type.js').FlowType;
   name: string;
   label?: string;
   dataType?: 'number' | 'string' | 'boolean' | 'enum';
@@ -37,7 +42,7 @@ export function isFormNodeData(data: unknown): data is FormNodeData {
 }
 
 /** Widget-config keys copied verbatim onto the synthetic input node's data. */
-const FIELD_KEYS = ['dataType', 'widgetType', 'value', 'min', 'max', 'step', 'options'] as const;
+const FIELD_KEYS = ['isConstant', 'inputName', 'toolField', 'fieldType', 'dataType', 'widgetType', 'value', 'min', 'max', 'step', 'options'] as const;
 
 export function expandFormNodes(flow: FlowLike): FlowLike {
   if (!flow.nodes.some((n) => n.type === 'form')) return flow;
@@ -60,6 +65,7 @@ export function expandFormNodes(flow: FlowLike): FlowLike {
       for (const k of FIELD_KEYS) {
         if (field[k] !== undefined) data[k] = field[k];
       }
+      data.toolField = { group: node.data.label, ...field.toolField };
       nodes.push({ id: fieldId(field.name), type: 'input', data });
       remap.set(`${node.id}::${field.name}`, { source: fieldId(field.name), sourceHandle: 'output' });
     }

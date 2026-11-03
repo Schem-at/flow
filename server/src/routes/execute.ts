@@ -20,6 +20,27 @@ import {
 
 const executeRouter = new Hono();
 
+/** Internal Laravel-to-Flow adapter. Graphs stay in Laravel/the authored catalogue. */
+executeRouter.post('/tool', async (c) => {
+  const body = await c.req.json();
+  if (!body.graph || !Array.isArray(body.graph.nodes) || !Array.isArray(body.graph.edges)) {
+    return c.json({ success: false, error: 'A Flow graph is required.' }, 422);
+  }
+  const timeout = Math.min(300000, Math.max(1000, Number(body.timeout) || 60000));
+  let kill: (() => void) | undefined;
+  const cancel = () => kill?.();
+  c.req.raw.signal.addEventListener('abort', cancel, { once: true });
+  try {
+    const result = await runInExecutionWorker({ kind: 'tool', graph: body.graph, inputs: body.inputs ?? {}, timeout }, {
+      timeoutMs: timeout + EXECUTION_WORKER_GRACE_MS,
+      registerKill: callback => { kill = callback; if (c.req.raw.signal.aborted) callback(); },
+    });
+    return c.json({ success: true, output: result });
+  } catch (error) {
+    return c.json({ success: false, error: (error as Error).message }, 422);
+  } finally { c.req.raw.signal.removeEventListener('abort', cancel); }
+});
+
 /**
  * POST /api/execute - Execute a flow (JSON body)
  */

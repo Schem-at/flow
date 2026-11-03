@@ -1,15 +1,17 @@
+import { getToolInputContract, inputName, inputDefault } from '@flow/core';
+import { useAuth } from '../hooks/useAuth';
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   Play, Loader2, AlertCircle, Workflow, Pencil, Zap,
-  Download, Clock, Globe, Lock, Link2, ChevronDown
+  Clock, Globe, Lock, Link2
 } from 'lucide-react';
 import Markdown from 'react-markdown';
 import { Navbar } from './layout/Navbar';
 import { useLocalExecutor } from '../hooks/useLocalExecutor';
-import type { BlockContract, CompiledFlow, FlowLike } from '@flow/core';
-import { defaultInputsForContract, compileFlow, hashFlow, isAssetNodeData, assetNodeValue, expandFormNodes } from '@flow/core';
+import type { CompiledFlow, FlowLike } from '@flow/core';
+import { compileFlow, validateToolInputs, hashFlow } from '@flow/core';
 import { EXAMPLE_FLOWS } from '../lib/exampleFlows';
 import { hydrateModuleToGroup, type ModuleResolvePayload } from '../lib/moduleHydrate';
 import {
@@ -19,30 +21,30 @@ import {
   EMBED_READY,
   type EmbedContext,
 } from '../lib/embedContext';
-import SchematicRenderer from './others/SchematicRenderer';
+import { GeneratedToolForm } from './GeneratedToolForm';
+import { inputFieldType } from '@flow/core';
+import { ToolOutput } from './blocks/NativeViewers';
+import { ToolComments } from './ToolComments';
+import { toolApi } from '../lib/toolApi';
+import { resumeTool } from '../lib/resumeTool';
 
 /**
  * Tool-mode flow folding: compile the whole graph into ONE script per content
  * hash and run it in a single worker call — no per-node serialization
- * round-trips. Falls back to the per-node walk when folding isn't possible.
+ * round-trips. Invalid graphs report their compile error before execution.
  * Module instances are hydrated into group nodes (see resolveModuleNodes) before
- * folding, so they fold statically rather than forcing the per-node fallback.
+ * folding, so the same contract applies to their execution.
  */
 const foldCache = new Map<string, CompiledFlow>();
-function getFoldedFlowCached(flow: FlowLike | null): CompiledFlow | null {
+function getFoldedFlowCached(flow: FlowLike | null, trace = false): CompiledFlow | null {
   if (!flow) return null;
-  try {
-    const hash = hashFlow(flow);
-    const hit = foldCache.get(hash);
-    if (hit) return hit;
-    const folded = compileFlow(flow);
-    foldCache.set(hash, folded);
-    if (foldCache.size > 20) foldCache.delete(foldCache.keys().next().value!);
-    return folded;
-  } catch (error) {
-    console.log('[FlowRunner] folding unavailable:', (error as Error).message);
-    return null;
-  }
+  const hash = hashFlow(flow) + String(trace);
+  const hit = foldCache.get(hash);
+  if (hit) return hit;
+  const folded = compileFlow(flow, { trace });
+  foldCache.set(hash, folded);
+  if (foldCache.size > 20) foldCache.delete(foldCache.keys().next().value!);
+  return folded;
 }
 
 /**
@@ -133,8 +135,6 @@ interface FlowData {
   owner?: { username: string; avatar: string } | null;
 }
 
-const INPUT_TYPES = ['number_input', 'text_input', 'boolean_input', 'select_input', 'input', 'file_input'];
-const OUTPUT_TYPES = ['output', 'viewer', 'file_output'];
 
 /**
  * Normalize a built-in EXAMPLE_FLOWS entry (flat { nodes, edges }) into the same
@@ -173,25 +173,9 @@ function exampleToFlowData(example: (typeof EXAMPLE_FLOWS)[number]): FlowData {
 }
 
 function getInputDefault(node: FlowNode): unknown {
-  if (node.data.value !== undefined) return node.data.value;
-  if (node.data.config?.default !== undefined) return node.data.config.default;
-  const firstOutput = node.data.io?.outputs ? Object.values(node.data.io.outputs)[0] : null;
-  if (firstOutput?.default !== undefined) return firstOutput.default;
-  switch (node.type) {
-    case 'number_input': return 0;
-    case 'boolean_input': return false;
-    default: return '';
-  }
+  return inputDefault(node);
 }
 
-function getSelectOptions(node: FlowNode): { value: string; label: string }[] {
-  const opts = node.data.config?.options || [];
-  return (opts as unknown[]).map((o) => {
-    if (typeof o === 'string') return { value: o, label: o };
-    if (typeof o === 'object' && o && 'value' in o) return o as { value: string; label: string };
-    return { value: String(o), label: String(o) };
-  });
-}
 
 interface FlowRunnerProps {
   /** Chromeless embed mode: no Navbar / Edit link, suitable for an <iframe>. */
@@ -202,17 +186,26 @@ export function FlowRunner({ embed = false }: FlowRunnerProps = {}) {
   const { flowId: urlFlowId } = useParams();
   const [searchParams] = useSearchParams();
   const exampleId = searchParams.get('example');
-  const { executeScript } = useLocalExecutor();
+  const officialTool = searchParams.get('tool');
+  const { executeScript, workerClient, getData } = useLocalExecutor();
+  const { isAuthenticated } = useAuth();
+  const [historyError,setHistoryError] = useState('');
   const [inputs, setInputs] = useState<Record<string, unknown>>({});
   const [outputs, setOutputs] = useState<Record<string, unknown>>({});
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [executionTime, setExecutionTime] = useState<number | null>(null);
-  const [liveMode, setLiveMode] = useState(true);
+  const [liveMode, setLiveMode] = useState(false);
+  const [debug, setDebug] = useState(false);
+  const [exampleInputName, setExampleInputName] = useState('');
+  const [trace, setTrace] = useState<Record<string, any>>({});
+  const runningRef = useRef(false);
+  const runEpochRef = useRef(0);
+  const queuedRef = useRef(false);
+  const runLatestRef = useRef<() => void>(() => {});
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputsReadyRef = useRef(false);
   // Cache node outputs between runs to skip unchanged nodes
-  const nodeOutputCacheRef = useRef<Map<string, { inputHash: string; outputs: Record<string, unknown> }>>(new Map());
 
   // ── Embed context injection ─────────────────────────────────────────────
   // Start from the URL-param fallback (always available). postMessage from an
@@ -246,13 +239,15 @@ export function FlowRunner({ embed = false }: FlowRunnerProps = {}) {
     return id ? EXAMPLE_FLOWS.find((f) => f.id === id) ?? null : null;
   }, [exampleId, urlFlowId]);
 
-  const apiFlowId = example ? null : urlFlowId ?? null;
+  const apiFlowId = example ? null : officialTool ?? urlFlowId ?? null;
 
   const { data: apiData, isLoading: isApiLoading } = useQuery<FlowData>({
-    queryKey: ['flow-run', apiFlowId],
+    queryKey: ['flow-run', apiFlowId, officialTool],
     queryFn: async () => {
-      const res = await fetch(`${SERVER_URL}/api/flows/${apiFlowId}`, { credentials: 'include' });
+      const res = await fetch(officialTool ? `${SERVER_URL}/api/tools/definitions/${encodeURIComponent(officialTool)}` : `${SERVER_URL}/api/flows/${apiFlowId}?published=1`, { credentials: 'include' });
       const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? 'Unable to load tool');
+      if (officialTool) return exampleToFlowData(json.graph);
       if (!json.success) throw new Error(json.error);
       return json.flow as FlowData;
     },
@@ -265,18 +260,17 @@ export function FlowRunner({ embed = false }: FlowRunnerProps = {}) {
   );
   const isLoading = !example && isApiLoading;
   // The id used for file caching: examples share their stable example id.
-  const flowId = example ? example.id : urlFlowId;
+  const flowId = example ? example.id : officialTool ?? urlFlowId;
 
-  const { inputNodes, codeNodes, outputNodes, edges } = useMemo(() => {
-    if (!data?.jsonContent) return { inputNodes: [], codeNodes: [], outputNodes: [], edges: [] };
+  const history = useQuery({queryKey:['tool-history',flowId],queryFn:()=>toolApi<{runs:{id:string;input:Record<string,unknown>;created_at:string}[]}>(`tools/runs?tool=${encodeURIComponent(flowId!)}`),enabled:!!flowId && !example && isAuthenticated});
+  const { inputNodes, edges } = useMemo(() => {
+    if (!data?.jsonContent) return { inputNodes: [], edges: [] };
     const nodes = data.jsonContent.nodes;
     // Form nodes expand into one synthetic `input` per field so the run panel
     // lists each field. (The fold path stays on RAW nodes/edges below; compileFlow
     // expands forms itself.) Synthetic inputs carry inline widget config, so we
     // project it into `config` the same way exampleToFlowData does.
-    const expandedInputs = (expandFormNodes({ nodes, edges: data.jsonContent.edges } as FlowLike)
-      .nodes as unknown as FlowNode[])
-      .filter((n) => INPUT_TYPES.includes(n.type))
+    const expandedInputs = (getToolInputContract({ nodes, edges: data.jsonContent.edges }).nodes as unknown as FlowNode[])
       .map((node) => {
         const d = node.data as Record<string, unknown>;
         if (d.config || ['min', 'max', 'step', 'options'].every((k) => d[k] === undefined)) return node;
@@ -288,32 +282,38 @@ export function FlowRunner({ embed = false }: FlowRunnerProps = {}) {
       });
     return {
       inputNodes: expandedInputs,
-      codeNodes: nodes.filter(n => n.type === 'code'),
-      outputNodes: nodes.filter(n => OUTPUT_TYPES.includes(n.type)),
       edges: data.jsonContent.edges,
     };
   }, [data]);
 
-  // Code can live INSIDE a group/map (no top-level code node), so the flow is
-  // still executable — don't gate run/live on top-level codeNodes alone.
-  const hasExecutable =
-    codeNodes.length > 0 ||
-    (data?.jsonContent?.nodes ?? []).some((n) => n.type === 'group' || n.type === 'map');
+  const hasExecutable = (data?.jsonContent?.nodes ?? []).some(n => !['frame', 'comment'].includes(n.type));
 
   // Clear node output cache when flow definition changes (code updates, etc.)
   useEffect(() => {
-    nodeOutputCacheRef.current.clear();
-  }, [data]);
+    setOutputs({}); setError(null);
+    runEpochRef.current++;
+    queuedRef.current = false;
+    if (runningRef.current) void workerClient.cancelExecution();
+    runningRef.current = false; setIsRunning(false);
+  }, [data, workerClient]);
+
+  useEffect(() => () => {
+    runEpochRef.current++;
+    queuedRef.current = false;
+    void workerClient.resetSession();
+    runningRef.current = false;
+  }, [workerClient]);
 
   // Initialize default inputs + restore cached files
   useEffect(() => {
     if (inputNodes.length === 0) return;
 
+    let disposed = false;
     const init = async () => {
       const defaults: Record<string, unknown> = {};
       for (const n of inputNodes) {
-        const label = n.data.label || n.id;
-        if (n.type === 'file_input' && flowId) {
+        const label = inputName(n);
+        if (inputFieldType(n).kind === 'file' && flowId) {
           const cached = await getCachedFile(flowId, label);
           if (cached) {
             defaults[label] = cached;
@@ -322,10 +322,11 @@ export function FlowRunner({ embed = false }: FlowRunnerProps = {}) {
         }
         defaults[label] = getInputDefault(n);
       }
-      setInputs(defaults);
+      if (!disposed) setInputs(defaults);
     };
 
     init();
+    return () => { disposed = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inputNodes, flowId]);
 
@@ -337,98 +338,10 @@ export function FlowRunner({ embed = false }: FlowRunnerProps = {}) {
     if (!embed || inputNodes.length === 0) return;
     const keys = Object.keys(embedCtx);
     if (keys.length === 0) return;
-    const names = inputNodes.map((n) => n.data.label || n.id);
+    const names = inputNodes.map((n) => inputName(n));
     setInputs((prev) => prefillInputsFromContext(prev, embedCtx, names));
   }, [embed, embedCtx, inputNodes]);
 
-  // Get topological execution order for code nodes
-  const getExecutionOrder = (): FlowNode[] => {
-    if (codeNodes.length <= 1) return codeNodes;
-
-    const nodeIds = new Set(codeNodes.map(n => n.id));
-    const deps = new Map<string, Set<string>>();
-    codeNodes.forEach(n => deps.set(n.id, new Set()));
-
-    // Build dependency graph from edges between code nodes
-    for (const edge of edges) {
-      if (nodeIds.has(edge.source) && nodeIds.has(edge.target)) {
-        deps.get(edge.target)!.add(edge.source);
-      }
-    }
-
-    // Topological sort
-    const sorted: FlowNode[] = [];
-    const visited = new Set<string>();
-    const visit = (id: string) => {
-      if (visited.has(id)) return;
-      visited.add(id);
-      for (const dep of deps.get(id) || []) visit(dep);
-      const node = codeNodes.find(n => n.id === id);
-      if (node) sorted.push(node);
-    };
-    codeNodes.forEach(n => visit(n.id));
-    return sorted;
-  };
-
-  // Resolve inputs for a code node from user inputs + previous node outputs
-  const resolveNodeInputs = (
-    node: FlowNode,
-    nodeOutputs: Map<string, Record<string, unknown>>,
-  ): Record<string, unknown> => {
-    // Contract defaults first — unconnected inputs keep their declared default.
-    const contract = (node.data as { contract?: BlockContract }).contract;
-    const resolved: Record<string, unknown> = contract
-      ? defaultInputsForContract(contract)
-      : {};
-    const nodeInputs = node.data.io?.inputs || {};
-
-    for (const [handleName] of Object.entries(nodeInputs)) {
-      // Find edge targeting this handle
-      const edge = edges.find(e => e.target === node.id && e.targetHandle === handleName);
-      if (!edge) continue;
-
-      const sourceNode = data?.jsonContent.nodes.find(n => n.id === edge.source);
-      if (!sourceNode) continue;
-
-      if (INPUT_TYPES.includes(sourceNode.type)) {
-        // Input node — get from user inputs
-        const label = sourceNode.data.label || sourceNode.id;
-        resolved[handleName] = inputs[label];
-      } else if (sourceNode.type === 'asset' && isAssetNodeData(sourceNode.data)) {
-        // Bundled asset — decode from the flow itself, no user input needed
-        resolved[handleName] = assetNodeValue(sourceNode.data);
-      } else if (sourceNode.type === 'code') {
-        // Code node — get from its outputs
-        const prevOutputs = nodeOutputs.get(sourceNode.id);
-        if (prevOutputs && edge.sourceHandle) {
-          resolved[handleName] = prevOutputs[edge.sourceHandle];
-        }
-      }
-    }
-
-    // Also handle default handle connections
-    const defaultEdge = edges.find(e => e.target === node.id && e.targetHandle === 'default');
-    if (defaultEdge) {
-      const sourceNode = data?.jsonContent.nodes.find(n => n.id === defaultEdge.source);
-      if (sourceNode && INPUT_TYPES.includes(sourceNode.type)) {
-        const label = sourceNode.data.label || sourceNode.id;
-        const val = inputs[label];
-        // If using default handle, pass as first input key or 'input'
-        const firstKey = Object.keys(nodeInputs)[0] || 'input';
-        resolved[firstKey] = val;
-      } else if (sourceNode?.type === 'code') {
-        const prevOutputs = nodeOutputs.get(sourceNode.id);
-        if (prevOutputs && defaultEdge.sourceHandle) {
-          const firstKey = Object.keys(nodeInputs)[0] || 'input';
-          resolved[firstKey] = prevOutputs[defaultEdge.sourceHandle];
-        }
-      }
-    }
-
-    return resolved;
-  };
-
-  // Convert File objects to DataValue format for the execution engine
   const prepareFileInput = async (value: unknown): Promise<unknown> => {
     if (value instanceof File) {
       const arrayBuffer = await value.arrayBuffer();
@@ -462,19 +375,23 @@ export function FlowRunner({ embed = false }: FlowRunnerProps = {}) {
     return flat;
   };
 
-  const handleRun = async () => {
+  const handleRun = async (resumeAt?: string) => {
+    if (runningRef.current) { queuedRef.current = true; return; }
     if (!hasExecutable) {
-      setError('No code nodes found in this flow');
+      setError('This tool has no executable graph.');
       return;
     }
 
-    console.log('[FlowRunner] handleRun called, codeNodes:', codeNodes.length, 'outputNodes:', outputNodes.length);
+    runningRef.current = true;
+    const epoch = ++runEpochRef.current;
     setIsRunning(true);
     setError(null);
-    // Don't clear outputs — let them update in place to avoid remounting the schematic renderer
+    if (!resumeAt) setTrace({});
     const start = performance.now();
 
     try {
+      if (!resumeAt) await workerClient.resetSession();
+      if (epoch !== runEpochRef.current) return;
       // Prepare file inputs
       const preparedInputs = { ...inputs };
       for (const [key, val] of Object.entries(preparedInputs)) {
@@ -482,135 +399,50 @@ export function FlowRunner({ embed = false }: FlowRunnerProps = {}) {
       }
 
       // ── folded fast path: one worker call for the whole graph ────────────
-      // (?fold=0 forces the per-node walk, for comparison/debugging)
-      const foldDisabled = new URLSearchParams(window.location.search).get('fold') === '0';
       // Hydrate module-ref group nodes (and legacy code-node moduleRefs) before folding.
       const resolvedNodes = data?.jsonContent ? await resolveModuleNodes(data.jsonContent.nodes) : null;
-      const folded = foldDisabled
-        ? null
-        : getFoldedFlowCached(resolvedNodes ? ({ nodes: resolvedNodes, edges } as FlowLike) : null);
-      if (folded) {
+      if (epoch !== runEpochRef.current) return;
+      const resume = resumeAt && resolvedNodes ? resumeTool({ nodes: resolvedNodes, edges } as FlowLike, resumeAt, trace) : null;
+      const folded = getFoldedFlowCached(resume?.graph ?? (resolvedNodes ? ({ nodes: resolvedNodes, edges } as FlowLike) : null), debug);
+      if (!folded) throw new Error('No graph is available to run.');
+      {
         console.log(`[FlowRunner] folded run ${folded.hash}: ${folded.nodeOrder.join(' → ')}`);
-        const rawResult = await executeScript(folded.source, preparedInputs);
+        const rawResult = await executeScript(folded.source, resume?.inputs ?? validateToolInputs({ nodes: resolvedNodes, edges }, preparedInputs), { returnHandles: true, timeout: Math.min(300000, ((data?.metadata as any)?.tool?.timeout ?? 60) * 1000) });
         if (!rawResult.success) {
-          throw new Error(rawResult.error?.message || 'Flow execution failed');
+          throw new Error(rawResult.error?.message || 'Tool execution failed');
         }
+        if (epoch !== runEpochRef.current || queuedRef.current) return;
         setExecutionTime(performance.now() - start);
-        setOutputs(flattenResult(rawResult));
+        const flat = flattenResult(rawResult);
+        if (flat.__trace) { setTrace(prev => ({...prev, ...flat.__trace as object})); setOutputs(resumeAt ? {...outputs,...flat.__outputs as Record<string,unknown>} : flat.__outputs as Record<string,unknown>); const failures = Object.entries(flat.__trace as Record<string,any>).filter(([,v])=>v.status === "error"); if(failures.length)setError(failures.map(([id,v])=>`${id}: ${v.message}`).join("\n")); }
+        else setOutputs(flat);
+        if (!resumeAt && !example && isAuthenticated && flowId) {
+          const recorded=Object.fromEntries(inputNodes.filter(n=>inputFieldType(n).kind!=='file').map(n=>[inputName(n),inputs[inputName(n)]]));
+          void toolApi('tools/runs','POST',{tool_id:flowId,input:recorded}).then(()=>{setHistoryError('');void history.refetch();}).catch(()=>setHistoryError('Your result is ready, but this run could not be added to history.'));
+        }
         return;
       }
 
-      const executionOrder = getExecutionOrder();
-      const nodeOutputs = new Map<string, Record<string, unknown>>();
-
-      // Per-node fallback walk (used only when folding is disabled/unavailable).
-      // Modules no longer resolve here — they fold as hydrated group nodes above.
-      const resolveCode = async (node: FlowNode): Promise<string> => node.data.code || '';
-
-      // Execute code nodes in order, skipping nodes whose inputs haven't changed
-      for (const node of executionOrder) {
-        const nodeInputs = resolveNodeInputs(node, nodeOutputs);
-
-        // For file inputs not resolved via edges, check prepared inputs
-        for (const [key, val] of Object.entries(nodeInputs)) {
-          if (val instanceof File) {
-            nodeInputs[key] = await prepareFileInput(val);
-          }
-        }
-
-        // Hash inputs to detect changes (skip expensive nodes when inputs are identical)
-        const inputHash = JSON.stringify(nodeInputs, (_, v) =>
-          v instanceof Uint8Array ? `u8[${v.length}]` :
-          ArrayBuffer.isView(v) ? `view[${(v as Uint8Array).length}]` : v
-        );
-        const cached = nodeOutputCacheRef.current.get(node.id);
-        if (cached && cached.inputHash === inputHash) {
-          nodeOutputs.set(node.id, cached.outputs);
-          continue; // Skip execution — inputs unchanged
-        }
-
-        const code = await resolveCode(node);
-        const rawResult = await executeScript(code, nodeInputs);
-        const flat = flattenResult(rawResult);
-        nodeOutputs.set(node.id, flat);
-
-        // Cache for next run
-        nodeOutputCacheRef.current.set(node.id, { inputHash, outputs: flat });
-      }
-
-      // Collect final outputs from the last code node + any output/viewer nodes
-      const lastNodeId = executionOrder[executionOrder.length - 1]?.id;
-      const finalOutputs: Record<string, unknown> = {};
-
-      console.log('[FlowRunner] nodeOutputs:', Object.fromEntries(nodeOutputs));
-      console.log('[FlowRunner] outputNodes:', outputNodes.map(n => `${n.id}(${n.type})`));
-
-      // Map output/viewer nodes to their source data
-      for (const outNode of outputNodes) {
-        const edge = edges.find(e => e.target === outNode.id);
-        console.log('[FlowRunner] outNode:', outNode.id, 'edge:', edge?.source, ':', edge?.sourceHandle);
-        if (edge && edge.source) {
-          const sourceOutputs = nodeOutputs.get(edge.source);
-          console.log('[FlowRunner] sourceOutputs keys:', sourceOutputs ? Object.keys(sourceOutputs) : 'NONE');
-          if (sourceOutputs && edge.sourceHandle) {
-            const val = sourceOutputs[edge.sourceHandle];
-            console.log('[FlowRunner] mapped:', outNode.data.label, '=', val ? typeof val : 'undefined');
-            finalOutputs[outNode.data.label || edge.sourceHandle] = val;
-          }
-        }
-      }
-
-      // If no output nodes found, use last code node's outputs
-      if (Object.keys(finalOutputs).length === 0 && lastNodeId) {
-        Object.assign(finalOutputs, nodeOutputs.get(lastNodeId) || {});
-      }
-
-      setExecutionTime(performance.now() - start);
-      setOutputs(finalOutputs);
     } catch (err) {
+      if (epoch !== runEpochRef.current) return;
       console.error('[FlowRunner] Execution error:', err);
       setError(err instanceof Error ? err.message : String(err));
       setExecutionTime(performance.now() - start);
     } finally {
+      if (epoch !== runEpochRef.current) return;
+      runningRef.current = false;
       setIsRunning(false);
+      if (queuedRef.current) {
+        queuedRef.current = false;
+        queueMicrotask(() => runLatestRef.current());
+      }
     }
   };
+  runLatestRef.current = () => void handleRun();
 
   const setInput = useCallback((key: string, value: unknown) => {
     setInputs(prev => ({ ...prev, [key]: value }));
   }, []);
-
-  // Memoize output categorization to avoid recreating Uint8Arrays on every render
-  const { schematicOutputs, nonSchematicOutputs } = useMemo(() => {
-    const schematics: { key: string; bytes: Uint8Array }[] = [];
-    const nonSchematics: { key: string; value: unknown }[] = [];
-
-    for (const [key, value] of Object.entries(outputs)) {
-      if (value && typeof value === 'object' && '__wbg_ptr' in (value as Record<string, unknown>)) continue;
-
-      const val = value as Record<string, unknown> | null;
-      const isSchematicObj = val && typeof val === 'object' && 'format' in val && 'data' in val;
-      const outputNode = outputNodes.find(n => n.data.label === key);
-      const isSchematic = isSchematicObj || outputNode?.type === 'viewer';
-
-      if (isSchematic && isSchematicObj && val) {
-        const rawData = val.data;
-        let bytes: Uint8Array | null = null;
-        if (typeof rawData === 'string') {
-          bytes = new Uint8Array(atob(rawData).split('').map(c => c.charCodeAt(0)));
-        } else if (rawData instanceof Uint8Array) {
-          bytes = rawData;
-        } else if (rawData && typeof rawData === 'object') {
-          bytes = new Uint8Array(Object.values(rawData as Record<string, number>));
-        }
-        if (bytes) schematics.push({ key, bytes });
-      } else {
-        nonSchematics.push({ key, value });
-      }
-    }
-
-    return { schematicOutputs: schematics, nonSchematicOutputs: nonSchematics };
-  }, [outputs, outputNodes]);
 
   // Auto-run in live mode with debounce
   useEffect(() => {
@@ -636,7 +468,7 @@ export function FlowRunner({ embed = false }: FlowRunnerProps = {}) {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#07070a]">
+      <div className="tools-runner min-h-screen bg-[#0a0a0b]">
         {!embed && <Navbar />}
         <div className="flex items-center justify-center py-32">
           <Loader2 className="w-6 h-6 text-green-500 animate-spin" />
@@ -647,11 +479,11 @@ export function FlowRunner({ embed = false }: FlowRunnerProps = {}) {
 
   if (!data) {
     return (
-      <div className="min-h-screen bg-[#07070a]">
+      <div className="tools-runner min-h-screen bg-[#0a0a0b]">
         {!embed && <Navbar />}
         <div className="flex flex-col items-center justify-center py-32">
           <AlertCircle className="w-6 h-6 text-red-500 mb-2" />
-          <p className="text-sm text-neutral-400">Flow not found</p>
+          <p className="text-sm text-neutral-400">Tool not found</p>
         </div>
       </div>
     );
@@ -661,22 +493,12 @@ export function FlowRunner({ embed = false }: FlowRunnerProps = {}) {
   const VisIcon = visIcon;
 
   return (
-    <div className="min-h-screen bg-[#07070a]">
-      {/* Dot grid (skipped in embed mode for a flatter iframe surface) */}
-      {!embed && (
-        <div
-          className="fixed inset-0 opacity-[0.03] pointer-events-none"
-          style={{
-            backgroundImage: 'radial-gradient(circle, #22c55e 0.5px, transparent 0.5px)',
-            backgroundSize: '24px 24px',
-          }}
-        />
-      )}
-
+    <div className="tools-runner min-h-screen bg-[#0a0a0b]">
       <div className="relative z-10">
         {!embed && <Navbar />}
 
-        <div className={`max-w-3xl mx-auto px-6 pb-16 ${embed ? 'pt-4' : 'pt-8'}`}>
+        <div className={`tools-rails mx-auto px-6 pb-16 ${embed ? 'pt-4' : 'pt-8'}`}>
+          {!embed && <Link to="/" className="mb-6 inline-flex text-xs text-neutral-500 hover:text-white">← All tools</Link>}
           {/* Header */}
           <div className="mb-8">
             <div className="flex items-start justify-between">
@@ -685,7 +507,7 @@ export function FlowRunner({ embed = false }: FlowRunnerProps = {}) {
                   <div className="w-8 h-8 rounded-lg bg-brand-500/[0.07] border border-brand-500/10 flex items-center justify-center">
                     <Workflow className="w-4 h-4 text-brand-500/60" />
                   </div>
-                  <h1 className="text-xl font-semibold text-white">{data.name}</h1>
+                  <h1 className="text-3xl font-semibold tracking-tight text-white">{data.name}</h1>
                   <span className="text-[10px] font-mono text-neutral-600">v{data.version}</span>
                   <VisIcon className="w-3 h-3 text-neutral-600" />
                 </div>
@@ -701,160 +523,54 @@ export function FlowRunner({ embed = false }: FlowRunnerProps = {}) {
                   </div>
                 )}
               </div>
-              {!embed && data.canEdit && (
+              {!embed && !data.canEdit && !example && !officialTool && <button className="text-sm text-neutral-400" onClick={async()=>{try{const result=await toolApi(`flows/${data.id}/fork`,"POST",{});window.location.assign(`/editor/${result.flow.id}`);}catch(e){setError(String(e));}}}>Remix tool</button>}
+              {!embed && (data.canEdit || example || officialTool) && (
                 <Link
-                  to={`/editor/${data.id}`}
+                  to={officialTool ? `/editor?tool=${encodeURIComponent(officialTool)}` : example ? `/editor?example=${example.id}` : `/editor/${data.id}`}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-neutral-400 hover:text-white hover:bg-white/5 rounded-md transition-colors"
                 >
-                  <Pencil className="w-3 h-3" /> Edit
+                  <Pencil className="w-3 h-3" /> Edit graph
                 </Link>
               )}
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {!embed && <div className="mb-6 flex items-center justify-between border-b border-white/10 text-xs"><span className="border-b-2 border-brand-400 px-1 py-3 text-white">Use tool</span><span className="text-neutral-500">Runs in your browser</span></div>}
+          <div className="tool-workspace">
             {/* Left: Inputs + Run */}
             <div>
               <div className="bg-[#0c0c10] border border-neutral-800/40 rounded-xl overflow-hidden">
                 <div className="px-4 py-3 border-b border-neutral-800/30">
-                  <h2 className="text-xs font-mono uppercase tracking-wider text-neutral-500">Inputs</h2>
+                  <h2 className="text-xs font-mono uppercase tracking-wider text-neutral-500">Configure</h2>
                 </div>
 
-                <div className="p-4 space-y-4">
-                  {inputNodes.length === 0 && (
-                    <p className="text-xs text-neutral-600 text-center py-4">No inputs — this flow runs without parameters</p>
-                  )}
-
-                  {inputNodes.map(node => {
-                    const label = node.data.label || node.id;
-                    const desc = node.data.config?.description as string | undefined ||
-                      (node.data.io?.outputs ? Object.values(node.data.io.outputs)[0]?.description : undefined);
-                    const value = inputs[label];
-                    // Generic `input` nodes (examples + expanded form fields) carry
-                    // their widget hint in data.dataType/widgetType/config, not in a
-                    // legacy `*_input` type — map them to the right widget so they
-                    // render as sliders / toggles / selects instead of plain text.
-                    const wt = (node.data as Record<string, unknown>).widgetType as string | undefined;
-                    const hasOptions = ((node.data.config?.options as unknown[] | undefined)?.length ?? 0) > 0;
-                    const effType =
-                      node.type !== 'input'
-                        ? node.type
-                        : node.data.dataType === 'file'
-                          ? 'file_input'
-                          : node.data.dataType === 'boolean' || wt === 'toggle' || wt === 'boolean'
-                            ? 'boolean_input'
-                            : hasOptions || wt === 'select'
-                              ? 'select_input'
-                              : node.data.dataType === 'number'
-                                ? 'number_input'
-                                : 'text_input';
-
-                    return (
-                      <div key={node.id}>
-                        <label className="block text-xs font-medium text-neutral-300 mb-1">
-                          {label}
-                          {desc && <span className="text-neutral-600 font-normal ml-1.5">— {desc}</span>}
-                        </label>
-
-                        {effType === 'number_input' && (
-                          <div className="flex items-center gap-3">
-                            <input
-                              type="range"
-                              min={node.data.config?.min as number ?? 0}
-                              max={node.data.config?.max as number ?? 100}
-                              step={node.data.config?.step as number ?? 1}
-                              value={Number(value) || 0}
-                              onChange={e => setInput(label, Number(e.target.value))}
-                              className="flex-1"
-                            />
-                            <input
-                              type="number"
-                              value={Number(value) || 0}
-                              onChange={e => setInput(label, Number(e.target.value))}
-                              className="w-20 bg-[#07070a] border border-neutral-800/40 rounded px-2 py-1 text-xs text-white font-mono text-center focus:outline-none focus:border-green-500/30"
-                            />
-                          </div>
-                        )}
-
-                        {effType === 'text_input' && (
-                          <input
-                            type="text"
-                            value={String(value ?? '')}
-                            onChange={e => setInput(label, e.target.value)}
-                            className="w-full bg-[#07070a] border border-neutral-800/40 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500/30 placeholder:text-neutral-700"
-                          />
-                        )}
-
-                        {effType === 'boolean_input' && (
-                          <button
-                            onClick={() => setInput(label, !value)}
-                            className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-medium transition-all ${
-                              value
-                                ? 'bg-green-500/10 border-green-500/20 text-green-400'
-                                : 'bg-[#07070a] border-neutral-800/40 text-neutral-500'
-                            }`}
-                          >
-                            <div className={`w-3 h-3 rounded-sm ${value ? 'bg-green-500' : 'bg-neutral-700'}`} />
-                            {value ? 'True' : 'False'}
-                          </button>
-                        )}
-
-                        {effType === 'select_input' && (
-                          <div className="relative">
-                            <select
-                              value={String(value ?? '')}
-                              onChange={e => setInput(label, e.target.value)}
-                              className="w-full bg-[#07070a] border border-neutral-800/40 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500/30 appearance-none"
-                            >
-                              {getSelectOptions(node).map(opt => (
-                                <option key={opt.value} value={opt.value}>{opt.label}</option>
-                              ))}
-                            </select>
-                            <ChevronDown className="w-3.5 h-3.5 text-neutral-600 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                          </div>
-                        )}
-
-                        {effType === 'file_input' && (
-                          <div>
-                            <input
-                              type="file"
-                              onChange={e => {
-                                const file = e.target.files?.[0] ?? null;
-                                setInput(label, file);
-                                if (file && flowId) cacheFile(flowId, label, file);
-                              }}
-                              className="w-full text-xs text-neutral-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border file:border-neutral-800/40 file:bg-[#07070a] file:text-neutral-400 file:text-xs file:font-medium hover:file:bg-white/5 file:transition-colors file:cursor-pointer"
-                            />
-                            {value instanceof File && (
-                              <div className="mt-1 text-[9px] text-green-500/60 font-mono flex items-center gap-1">
-                                <span className="w-1.5 h-1.5 rounded-full bg-green-500/50" />
-                                {(value as File).name} ({Math.round((value as File).size / 1024)}KB)
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                      </div>
-                    );
-                  })}
+                <div className="tool-form-body">
+                  {(data.metadata as any)?.examples?.length>0 && <select aria-label="Example inputs" className="w-full rounded border border-white/15 bg-neutral-950 p-2 text-sm text-neutral-300" value={exampleInputName} onChange={e=>{setExampleInputName(e.target.value);const item=(data.metadata as any).examples.find((x:any)=>x.name===e.target.value);if(item)setInputs(prev=>({...prev,...item.inputs}));}}><option value="">Try example inputs…</option>{(data.metadata as any).examples.map((e:any)=><option key={e.name}>{e.name}</option>)}</select>}
+                  <GeneratedToolForm nodes={inputNodes} values={inputs} disabled={isRunning} onChange={(name, value) => {
+                    setInput(name, value);
+                    if (value instanceof File && flowId) void cacheFile(flowId, name, value);
+                  }} />
                 </div>
 
+                <div className="flex items-center justify-between px-4 py-2 text-xs text-neutral-500"><span>Runs on your device</span><button onClick={()=>setInputs(Object.fromEntries(inputNodes.map(n=>[inputName(n),getInputDefault(n)])))}>Reset inputs</button></div>
+                {history.data?.runs.length ? <div className="px-4 pb-3"><select aria-label="Previous runs" className="w-full rounded border border-white/15 bg-neutral-950 p-2 text-xs text-neutral-400" value="" onChange={e=>{const run=history.data.runs.find(r=>r.id===e.target.value);if(run)setInputs(prev=>({...prev,...run.input}));}}><option value="">Restore inputs from a previous run…</option>{history.data.runs.map(r=><option key={r.id} value={r.id}>{new Date(r.created_at).toLocaleString()}</option>)}</select></div> : null}
+                {historyError && <p className="px-4 text-xs text-amber-400">{historyError}</p>}
                 {/* Run controls */}
                 <div className="px-4 py-3 border-t border-neutral-800/30 space-y-2">
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={handleRun}
+                      onClick={() => handleRun()}
                       // Code can live INSIDE a group/map (no top-level code node),
                       // so the flow is still runnable — don't gate on codeNodes alone.
                       disabled={isRunning || !hasExecutable}
-                      className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-green-500 hover:bg-green-400 disabled:bg-neutral-800 disabled:text-neutral-600 text-black font-semibold text-sm rounded-lg transition-all hover:shadow-[0_0_20px_rgba(34,197,94,0.3)] active:scale-[0.98]"
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-neutral-100 hover:bg-white disabled:bg-neutral-800 disabled:text-neutral-600 text-neutral-950 font-semibold text-sm rounded-lg transition-colors"
                     >
                       {isRunning ? (
                         <Loader2 className="w-4 h-4 animate-spin" />
                       ) : (
                         <Play className="w-4 h-4 fill-current" />
                       )}
-                      {isRunning ? 'Running...' : 'Run'}
+                      {isRunning ? 'Running…' : 'Run tool'}
                     </button>
                     <button
                       onClick={() => setLiveMode(!liveMode)}
@@ -869,6 +585,13 @@ export function FlowRunner({ embed = false }: FlowRunnerProps = {}) {
                       Live
                     </button>
                   </div>
+                  <label className="flex gap-2 text-xs text-neutral-400"><input type="checkbox" checked={debug} disabled={isRunning} onChange={e=>setDebug(e.target.checked)}/> Inspect node timings and results</label>
+                  {isRunning && (
+                    <button className="w-full text-xs py-2 text-neutral-300 border border-white/10" onClick={() => {
+                      runEpochRef.current++; queuedRef.current = false; runningRef.current = false;
+                      void workerClient.cancelExecution(); setIsRunning(false); setError('Run cancelled.');
+                    }}>Cancel run</button>
+                  )}
                   {executionTime !== null && (
                     <div className="flex items-center justify-center gap-1 text-[10px] font-mono text-neutral-600">
                       <Clock className="w-2.5 h-2.5" />
@@ -881,10 +604,10 @@ export function FlowRunner({ embed = false }: FlowRunnerProps = {}) {
             </div>
 
             {/* Right: Outputs */}
-            <div>
+            <div className="tool-preview-column min-w-0">
               <div className="bg-[#0c0c10] border border-neutral-800/40 rounded-xl overflow-hidden">
                 <div className="px-4 py-3 border-b border-neutral-800/30">
-                  <h2 className="text-xs font-mono uppercase tracking-wider text-neutral-500">Output</h2>
+                  <h2 className="text-xs font-mono uppercase tracking-wider text-neutral-500">Result</h2>
                 </div>
 
                 <div className="p-4">
@@ -898,79 +621,24 @@ export function FlowRunner({ embed = false }: FlowRunnerProps = {}) {
                   )}
 
                   {Object.keys(outputs).length === 0 && !error && (
-                    <div className="flex flex-col items-center justify-center py-12 text-neutral-700">
+                    <div className="tool-preview-empty flex flex-col items-center justify-center text-neutral-600">
                       <Workflow className="w-8 h-8 mb-2" />
-                      <p className="text-xs">Run the flow to see output</p>
+                      <p className="mt-2 text-sm text-neutral-400">Your result will appear here</p><p className="mt-2 text-xs">Choose your inputs, then run the tool.</p>
                     </div>
                   )}
 
-                  {/* Schematic renderers — stable keys, memoized data */}
-                  {schematicOutputs.map(({ key, bytes }) => (
-                    <div key={`schem-${key}`} className="mb-4">
-                      <div className="text-[10px] font-mono uppercase tracking-wider text-neutral-600 mb-2">{key}</div>
-                      <div className="rounded-lg overflow-hidden border border-neutral-800/40 h-64">
-                        <SchematicRenderer schematic={bytes} />
-                      </div>
-                      <button
-                        onClick={() => {
-                          const blob = new Blob([bytes], { type: 'application/octet-stream' });
-                          const url = URL.createObjectURL(blob);
-                          const a = document.createElement('a');
-                          a.href = url;
-                          a.download = `${key}.schem`;
-                          a.click();
-                          URL.revokeObjectURL(url);
-                        }}
-                        className="flex items-center gap-1 mt-2 text-[10px] text-green-500/70 hover:text-green-400 transition-colors"
-                      >
-                        <Download className="w-2.5 h-2.5" /> Download .schem
-                      </button>
-                    </div>
-                  ))}
-
-                  {/* Non-schematic outputs */}
-                  {nonSchematicOutputs.map(({ key, value }) => (
-                    <div key={key} className="mb-4 last:mb-0">
-                      <div className="text-[10px] font-mono uppercase tracking-wider text-neutral-600 mb-2">{key}</div>
-                      {typeof value === 'string' ? (
-                        <div className="bg-[#07070a] border border-neutral-800/40 rounded-lg p-3">
-                          <pre className="text-xs text-neutral-300 whitespace-pre-wrap font-mono">{value}</pre>
-                        </div>
-                      ) : typeof value === 'number' || typeof value === 'boolean' ? (
-                        <div className="bg-[#07070a] border border-neutral-800/40 rounded-lg px-3 py-2">
-                          <span className="text-sm font-mono text-green-400">{String(value)}</span>
-                        </div>
-                      ) : value && typeof value === 'object' ? (
-                        <div className="bg-[#07070a] border border-neutral-800/40 rounded-lg p-3">
-                          <pre className="text-xs text-neutral-300 whitespace-pre-wrap font-mono">{JSON.stringify(value, null, 2)}</pre>
-                        </div>
-                      ) : (
-                        <div className="bg-[#07070a] border border-neutral-800/40 rounded-lg px-3 py-2">
-                          <span className="text-xs text-neutral-600 italic">null</span>
-                        </div>
-                      )}
-                      {typeof value === 'string' && value.length > 100 && (
-                        <button
-                          onClick={() => {
-                            const blob = new Blob([value], { type: 'text/plain' });
-                            const url = URL.createObjectURL(blob);
-                            const a = document.createElement('a');
-                            a.href = url;
-                            a.download = `${key}.txt`;
-                            a.click();
-                            URL.revokeObjectURL(url);
-                          }}
-                          className="flex items-center gap-1 mt-1.5 text-[10px] text-neutral-600 hover:text-neutral-400 transition-colors"
-                        >
-                          <Download className="w-2.5 h-2.5" /> Download as file
-                        </button>
-                      )}
-                    </div>
-                  ))}
+                  {Object.entries(outputs).map(([name,value]) => {
+                    const viewer = <ToolOutput name={name} value={value} getData={getData} active={!isRunning} preferredFormat={typeof inputs.format === 'string' ? inputs.format : undefined}/>;
+                    return /^(metadata|stats|info)$/i.test(name)
+                      ? <details key={name} className="my-4 border-t border-white/10 pt-4"><summary className="mb-3 cursor-pointer text-xs text-neutral-400">{name}</summary>{viewer}</details>
+                      : <div key={name} className="mb-6"><h3 className="mb-3 text-xs text-neutral-500">{name}</h3>{viewer}</div>;
+                  })}
+                  {debug && Object.entries(trace).map(([id,entry])=><details key={id} className="border-t border-white/10 py-3 text-xs text-neutral-400"><summary className="cursor-pointer">{data.jsonContent.nodes.find(n=>n.id===id)?.data.label ?? id} · {entry.status} · {entry.ms?.toFixed(1)} ms</summary><pre className="my-3 max-h-48 overflow-auto whitespace-pre-wrap">{JSON.stringify(entry.value,null,2)}</pre>{entry.message && <p className="text-red-400">{entry.message}</p>}{data.jsonContent.nodes.some(n=>n.id===id && n.type==='code') && <button disabled={isRunning} className="rounded border border-white/10 px-3 py-2" onClick={()=>handleRun(id)}>Run from here</button>}</details>)}
                 </div>
               </div>
             </div>
           </div>
+          {!embed && (officialTool || (urlFlowId && !example)) && <ToolComments tool={officialTool ?? urlFlowId!}/>}
         </div>
       </div>
     </div>

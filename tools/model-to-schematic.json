@@ -1,0 +1,688 @@
+{
+  "id": "model-to-schematic",
+  "name": "Model to schematic",
+  "version": "1.0.0",
+  "metadata": {
+    "description": "Turn a 3D model or landscape scan into blocks. Set its height, width or depth, and optionally bake lighting into your palette.",
+    "tool": {
+      "schemaVersion": 1,
+      "slug": "model-to-schematic",
+      "icon": "cube-transparent",
+      "tags": [
+        "minecraft",
+        "shape"
+      ],
+      "timeout": 300,
+      "output": "schematic"
+    },
+    "examples": [
+      {
+        "name": "Sample material model",
+        "inputs": {
+          "file": {
+            "base64": "Z2xURgIAAABQLAAAFCMAAEpTT057ImFzc2V0Ijp7InZlcnNpb24iOiIyLjAifSwiZXh0ZW5zaW9uc1VzZWQiOlsiS0hSX21hdGVyaWFsc190cmFuc21pc3Npb24iLCJLSFJfbWF0ZXJpYWxzX2VtaXNzaXZlX3N0cmVuZ3RoIl0sImJ1ZmZlclZpZXdzIjpbeyJidWZmZXIiOjAsImJ5dGVPZmZzZXQiOjAsImJ5dGVMZW5ndGgiOjcwfSx7ImJ1ZmZlciI6MCwiYnl0ZU9mZnNldCI6NzIsImJ5dGVMZW5ndGgiOjc0fSx7ImJ1ZmZlciI6MCwiYnl0ZU9mZnNldCI6MTQ4LCJieXRlTGVuZ3RoIjo3Mn0seyJidWZmZXIiOjAsImJ5dGVPZmZzZXQiOjIyMCwiYnl0ZUxlbmd0aCI6NzB9LHsiYnVmZmVyIjowLCJieXRlT2Zmc2V0IjoyOTIsImJ5dGVMZW5ndGgiOjQ4fSx7ImJ1ZmZlciI6MCwiYnl0ZU9mZnNldCI6MzQwLCJieXRlTGVuZ3RoIjozMn0seyJidWZmZXIiOjAsImJ5dGVPZmZzZXQiOjM3MiwiYnl0ZUxlbmd0aCI6MzJ9LHsiYnVmZmVyIjowLCJieXRlT2Zmc2V0Ijo0MDQsImJ5dGVMZW5ndGgiOjMyfSx7ImJ1ZmZlciI6MCwiYnl0ZU9mZnNldCI6NDM2LCJieXRlTGVuZ3RoIjo2NH0seyJidWZmZXIiOjAsImJ5dGVPZmZzZXQiOjUwMCwiYnl0ZUxlbmd0aCI6MTJ9LHsiYnVmZmVyIjowLCJieXRlT2Zmc2V0Ijo1MTIsImJ5dGVMZW5ndGgiOjQ4fSx7ImJ1ZmZlciI6MCwiYnl0ZU9mZnNldCI6NTYwLCJieXRlTGVuZ3RoIjozMn0seyJidWZmZXIiOjAsImJ5dGVPZmZzZXQiOjU5MiwiYnl0ZUxlbmd0aCI6MzJ9LHsiYnVmZmVyIjowLCJieXRlT2Zmc2V0Ijo2MjQsImJ5dGVMZW5ndGgiOjMyfSx7ImJ1ZmZlciI6MCwiYnl0ZU9mZnNldCI6NjU2LCJieXRlTGVuZ3RoIjo2NH0seyJidWZmZXIiOjAsImJ5dGVPZmZzZXQiOjcyMCwiYnl0ZUxlbmd0aCI6MTJ9LHsiYnVmZmVyIjowLCJieXRlT2Zmc2V0Ijo3MzIsImJ5dGVMZW5ndGgiOjQ4fSx7ImJ1ZmZlciI6MCwiYnl0ZU9mZnNldCI6NzgwLCJieXRlTGVuZ3RoIjozMn0seyJidWZmZXIiOjAsImJ5dGVPZmZzZXQiOjgxMiwiYnl0ZUxlbmd0aCI6MzJ9LHsiYnVmZmVyIjowLCJieXRlT2Zmc2V0Ijo4NDQsImJ5dGVMZW5ndGgiOjMyfSx7ImJ1ZmZlciI6MCwiYnl0ZU9mZnNldCI6ODc2LCJieXRlTGVuZ3RoIjo2NH0seyJidWZmZXIiOjAsImJ5dGVPZmZzZXQiOjk0MCwiYnl0ZUxlbmd0aCI6MTJ9LHsiYnVmZmVyIjowLCJieXRlT2Zmc2V0Ijo5NTIsImJ5dGVMZW5ndGgiOjQ4fSx7ImJ1ZmZlciI6MCwiYnl0ZU9mZnNldCI6MTAwMCwiYnl0ZUxlbmd0aCI6MzJ9LHsiYnVmZmVyIjowLCJieXRlT2Zmc2V0IjoxMDMyLCJieXRlTGVuZ3RoIjozMn0seyJidWZmZXIiOjAsImJ5dGVPZmZzZXQiOjEwNjQsImJ5dGVMZW5ndGgiOjMyfSx7ImJ1ZmZlciI6MCwiYnl0ZU9mZnNldCI6MTA5NiwiYnl0ZUxlbmd0aCI6NjR9LHsiYnVmZmVyIjowLCJieXRlT2Zmc2V0IjoxMTYwLCJieXRlTGVuZ3RoIjoxMn0seyJidWZmZXIiOjAsImJ5dGVPZmZzZXQiOjExNzIsImJ5dGVMZW5ndGgiOjQ4fSx7ImJ1ZmZlciI6MCwiYnl0ZU9mZnNldCI6MTIyMCwiYnl0ZUxlbmd0aCI6MzJ9LHsiYnVmZmVyIjowLCJieXRlT2Zmc2V0IjoxMjUyLCJieXRlTGVuZ3RoIjozMn0seyJidWZmZXIiOjAsImJ5dGVPZmZzZXQiOjEyODQsImJ5dGVMZW5ndGgiOjMyfSx7ImJ1ZmZlciI6MCwiYnl0ZU9mZnNldCI6MTMxNiwiYnl0ZUxlbmd0aCI6NjR9LHsiYnVmZmVyIjowLCJieXRlT2Zmc2V0IjoxMzgwLCJieXRlTGVuZ3RoIjoxMn0seyJidWZmZXIiOjAsImJ5dGVPZmZzZXQiOjEzOTIsImJ5dGVMZW5ndGgiOjQ4fSx7ImJ1ZmZlciI6MCwiYnl0ZU9mZnNldCI6MTQ0MCwiYnl0ZUxlbmd0aCI6MzJ9LHsiYnVmZmVyIjowLCJieXRlT2Zmc2V0IjoxNDcyLCJieXRlTGVuZ3RoIjozMn0seyJidWZmZXIiOjAsImJ5dGVPZmZzZXQiOjE1MDQsImJ5dGVMZW5ndGgiOjMyfSx7ImJ1ZmZlciI6MCwiYnl0ZU9mZnNldCI6MTUzNiwiYnl0ZUxlbmd0aCI6NjR9LHsiYnVmZmVyIjowLCJieXRlT2Zmc2V0IjoxNjAwLCJieXRlTGVuZ3RoIjoxMn0seyJidWZmZXIiOjAsImJ5dGVPZmZzZXQiOjE2MTIsImJ5dGVMZW5ndGgiOjQ4fSx7ImJ1ZmZlciI6MCwiYnl0ZU9mZnNldCI6MTY2MCwiYnl0ZUxlbmd0aCI6MzJ9LHsiYnVmZmVyIjowLCJieXRlT2Zmc2V0IjoxNjkyLCJieXRlTGVuZ3RoIjozMn0seyJidWZmZXIiOjAsImJ5dGVPZmZzZXQiOjE3MjQsImJ5dGVMZW5ndGgiOjMyfSx7ImJ1ZmZlciI6MCwiYnl0ZU9mZnNldCI6MTc1NiwiYnl0ZUxlbmd0aCI6NjR9LHsiYnVmZmVyIjowLCJieXRlT2Zmc2V0IjoxODIwLCJieXRlTGVuZ3RoIjoxMn0seyJidWZmZXIiOjAsImJ5dGVPZmZzZXQiOjE4MzIsImJ5dGVMZW5ndGgiOjQ4fSx7ImJ1ZmZlciI6MCwiYnl0ZU9mZnNldCI6MTg4MCwiYnl0ZUxlbmd0aCI6MzJ9LHsiYnVmZmVyIjowLCJieXRlT2Zmc2V0IjoxOTEyLCJieXRlTGVuZ3RoIjozMn0seyJidWZmZXIiOjAsImJ5dGVPZmZzZXQiOjE5NDQsImJ5dGVMZW5ndGgiOjMyfSx7ImJ1ZmZlciI6MCwiYnl0ZU9mZnNldCI6MTk3NiwiYnl0ZUxlbmd0aCI6NjR9LHsiYnVmZmVyIjowLCJieXRlT2Zmc2V0IjoyMDQwLCJieXRlTGVuZ3RoIjoxMn0seyJidWZmZXIiOjAsImJ5dGVPZmZzZXQiOjIwNTIsImJ5dGVMZW5ndGgiOjQ4fSx7ImJ1ZmZlciI6MCwiYnl0ZU9mZnNldCI6MjEwMCwiYnl0ZUxlbmd0aCI6MzJ9LHsiYnVmZmVyIjowLCJieXRlT2Zmc2V0IjoyMTMyLCJieXRlTGVuZ3RoIjozMn0seyJidWZmZXIiOjAsImJ5dGVPZmZzZXQiOjIxNjQsImJ5dGVMZW5ndGgiOjMyfSx7ImJ1ZmZlciI6MCwiYnl0ZU9mZnNldCI6MjE5NiwiYnl0ZUxlbmd0aCI6NjR9LHsiYnVmZmVyIjowLCJieXRlT2Zmc2V0IjoyMjYwLCJieXRlTGVuZ3RoIjoxMn0seyJidWZmZXIiOjAsImJ5dGVPZmZzZXQiOjIyNzIsImJ5dGVMZW5ndGgiOjY0fV0sImFjY2Vzc29ycyI6W3siYnVmZmVyVmlldyI6NCwiY29tcG9uZW50VHlwZSI6NTEyNiwiY291bnQiOjQsInR5cGUiOiJWRUMzIiwibWluIjpbMCwwLDBdLCJtYXgiOls0LDQsMF19LHsiYnVmZmVyVmlldyI6NSwiY29tcG9uZW50VHlwZSI6NTEyNiwiY291bnQiOjQsInR5cGUiOiJWRUMyIn0seyJidWZmZXJWaWV3Ijo2LCJjb21wb25lbnRUeXBlIjo1MTI2LCJjb3VudCI6NCwidHlwZSI6IlZFQzIifSx7ImJ1ZmZlclZpZXciOjcsImNvbXBvbmVudFR5cGUiOjUxMjMsImNvdW50Ijo0LCJ0eXBlIjoiVkVDNCJ9LHsiYnVmZmVyVmlldyI6OCwiY29tcG9uZW50VHlwZSI6NTEyNiwiY291bnQiOjQsInR5cGUiOiJWRUM0In0seyJidWZmZXJWaWV3Ijo5LCJjb21wb25lbnRUeXBlIjo1MTIzLCJjb3VudCI6NiwidHlwZSI6IlNDQUxBUiJ9LHsiYnVmZmVyVmlldyI6MTAsImNvbXBvbmVudFR5cGUiOjUxMjYsImNvdW50Ijo0LCJ0eXBlIjoiVkVDMyIsIm1pbiI6WzYsMCwwXSwibWF4IjpbMTAsNCwwXX0seyJidWZmZXJWaWV3IjoxMSwiY29tcG9uZW50VHlwZSI6NTEyNiwiY291bnQiOjQsInR5cGUiOiJWRUMyIn0seyJidWZmZXJWaWV3IjoxMiwiY29tcG9uZW50VHlwZSI6NTEyNiwiY291bnQiOjQsInR5cGUiOiJWRUMyIn0seyJidWZmZXJWaWV3IjoxMywiY29tcG9uZW50VHlwZSI6NTEyMywiY291bnQiOjQsInR5cGUiOiJWRUM0In0seyJidWZmZXJWaWV3IjoxNCwiY29tcG9uZW50VHlwZSI6NTEyNiwiY291bnQiOjQsInR5cGUiOiJWRUM0In0seyJidWZmZXJWaWV3IjoxNSwiY29tcG9uZW50VHlwZSI6NTEyMywiY291bnQiOjYsInR5cGUiOiJTQ0FMQVIifSx7ImJ1ZmZlclZpZXciOjE2LCJjb21wb25lbnRUeXBlIjo1MTI2LCJjb3VudCI6NCwidHlwZSI6IlZFQzMiLCJtaW4iOlsxMiwwLDBdLCJtYXgiOlsxNiw0LDBdfSx7ImJ1ZmZlclZpZXciOjE3LCJjb21wb25lbnRUeXBlIjo1MTI2LCJjb3VudCI6NCwidHlwZSI6IlZFQzIifSx7ImJ1ZmZlclZpZXciOjE4LCJjb21wb25lbnRUeXBlIjo1MTI2LCJjb3VudCI6NCwidHlwZSI6IlZFQzIifSx7ImJ1ZmZlclZpZXciOjE5LCJjb21wb25lbnRUeXBlIjo1MTIzLCJjb3VudCI6NCwidHlwZSI6IlZFQzQifSx7ImJ1ZmZlclZpZXciOjIwLCJjb21wb25lbnRUeXBlIjo1MTI2LCJjb3VudCI6NCwidHlwZSI6IlZFQzQifSx7ImJ1ZmZlclZpZXciOjIxLCJjb21wb25lbnRUeXBlIjo1MTIzLCJjb3VudCI6NiwidHlwZSI6IlNDQUxBUiJ9LHsiYnVmZmVyVmlldyI6MjIsImNvbXBvbmVudFR5cGUiOjUxMjYsImNvdW50Ijo0LCJ0eXBlIjoiVkVDMyIsIm1pbiI6WzE4LDAsMF0sIm1heCI6WzIyLDQsMF19LHsiYnVmZmVyVmlldyI6MjMsImNvbXBvbmVudFR5cGUiOjUxMjYsImNvdW50Ijo0LCJ0eXBlIjoiVkVDMiJ9LHsiYnVmZmVyVmlldyI6MjQsImNvbXBvbmVudFR5cGUiOjUxMjYsImNvdW50Ijo0LCJ0eXBlIjoiVkVDMiJ9LHsiYnVmZmVyVmlldyI6MjUsImNvbXBvbmVudFR5cGUiOjUxMjMsImNvdW50Ijo0LCJ0eXBlIjoiVkVDNCJ9LHsiYnVmZmVyVmlldyI6MjYsImNvbXBvbmVudFR5cGUiOjUxMjYsImNvdW50Ijo0LCJ0eXBlIjoiVkVDNCJ9LHsiYnVmZmVyVmlldyI6MjcsImNvbXBvbmVudFR5cGUiOjUxMjMsImNvdW50Ijo2LCJ0eXBlIjoiU0NBTEFSIn0seyJidWZmZXJWaWV3IjoyOCwiY29tcG9uZW50VHlwZSI6NTEyNiwiY291bnQiOjQsInR5cGUiOiJWRUMzIiwibWluIjpbMjQsMCwwXSwibWF4IjpbMjgsNCwwXX0seyJidWZmZXJWaWV3IjoyOSwiY29tcG9uZW50VHlwZSI6NTEyNiwiY291bnQiOjQsInR5cGUiOiJWRUMyIn0seyJidWZmZXJWaWV3IjozMCwiY29tcG9uZW50VHlwZSI6NTEyNiwiY291bnQiOjQsInR5cGUiOiJWRUMyIn0seyJidWZmZXJWaWV3IjozMSwiY29tcG9uZW50VHlwZSI6NTEyMywiY291bnQiOjQsInR5cGUiOiJWRUM0In0seyJidWZmZXJWaWV3IjozMiwiY29tcG9uZW50VHlwZSI6NTEyNiwiY291bnQiOjQsInR5cGUiOiJWRUM0In0seyJidWZmZXJWaWV3IjozMywiY29tcG9uZW50VHlwZSI6NTEyMywiY291bnQiOjYsInR5cGUiOiJTQ0FMQVIifSx7ImJ1ZmZlclZpZXciOjM0LCJjb21wb25lbnRUeXBlIjo1MTI2LCJjb3VudCI6NCwidHlwZSI6IlZFQzMiLCJtaW4iOlszMCwwLDBdLCJtYXgiOlszNCw0LDBdfSx7ImJ1ZmZlclZpZXciOjM1LCJjb21wb25lbnRUeXBlIjo1MTI2LCJjb3VudCI6NCwidHlwZSI6IlZFQzIifSx7ImJ1ZmZlclZpZXciOjM2LCJjb21wb25lbnRUeXBlIjo1MTI2LCJjb3VudCI6NCwidHlwZSI6IlZFQzIifSx7ImJ1ZmZlclZpZXciOjM3LCJjb21wb25lbnRUeXBlIjo1MTIzLCJjb3VudCI6NCwidHlwZSI6IlZFQzQifSx7ImJ1ZmZlclZpZXciOjM4LCJjb21wb25lbnRUeXBlIjo1MTI2LCJjb3VudCI6NCwidHlwZSI6IlZFQzQifSx7ImJ1ZmZlclZpZXciOjM5LCJjb21wb25lbnRUeXBlIjo1MTIzLCJjb3VudCI6NiwidHlwZSI6IlNDQUxBUiJ9LHsiYnVmZmVyVmlldyI6NDAsImNvbXBvbmVudFR5cGUiOjUxMjYsImNvdW50Ijo0LCJ0eXBlIjoiVkVDMyIsIm1pbiI6WzM2LDAsMF0sIm1heCI6WzQwLDQsMF19LHsiYnVmZmVyVmlldyI6NDEsImNvbXBvbmVudFR5cGUiOjUxMjYsImNvdW50Ijo0LCJ0eXBlIjoiVkVDMiJ9LHsiYnVmZmVyVmlldyI6NDIsImNvbXBvbmVudFR5cGUiOjUxMjYsImNvdW50Ijo0LCJ0eXBlIjoiVkVDMiJ9LHsiYnVmZmVyVmlldyI6NDMsImNvbXBvbmVudFR5cGUiOjUxMjMsImNvdW50Ijo0LCJ0eXBlIjoiVkVDNCJ9LHsiYnVmZmVyVmlldyI6NDQsImNvbXBvbmVudFR5cGUiOjUxMjYsImNvdW50Ijo0LCJ0eXBlIjoiVkVDNCJ9LHsiYnVmZmVyVmlldyI6NDUsImNvbXBvbmVudFR5cGUiOjUxMjMsImNvdW50Ijo2LCJ0eXBlIjoiU0NBTEFSIn0seyJidWZmZXJWaWV3Ijo0NiwiY29tcG9uZW50VHlwZSI6NTEyNiwiY291bnQiOjQsInR5cGUiOiJWRUMzIiwibWluIjpbNDIsMCwwLjI1XSwibWF4IjpbNDYsNCwwLjI1XX0seyJidWZmZXJWaWV3Ijo0NywiY29tcG9uZW50VHlwZSI6NTEyNiwiY291bnQiOjQsInR5cGUiOiJWRUMyIn0seyJidWZmZXJWaWV3Ijo0OCwiY29tcG9uZW50VHlwZSI6NTEyNiwiY291bnQiOjQsInR5cGUiOiJWRUMyIn0seyJidWZmZXJWaWV3Ijo0OSwiY29tcG9uZW50VHlwZSI6NTEyMywiY291bnQiOjQsInR5cGUiOiJWRUM0In0seyJidWZmZXJWaWV3Ijo1MCwiY29tcG9uZW50VHlwZSI6NTEyNiwiY291bnQiOjQsInR5cGUiOiJWRUM0In0seyJidWZmZXJWaWV3Ijo1MSwiY29tcG9uZW50VHlwZSI6NTEyMywiY291bnQiOjYsInR5cGUiOiJTQ0FMQVIifSx7ImJ1ZmZlclZpZXciOjUyLCJjb21wb25lbnRUeXBlIjo1MTI2LCJjb3VudCI6NCwidHlwZSI6IlZFQzMiLCJtaW4iOls0MiwwLDBdLCJtYXgiOls0Niw0LDBdfSx7ImJ1ZmZlclZpZXciOjUzLCJjb21wb25lbnRUeXBlIjo1MTI2LCJjb3VudCI6NCwidHlwZSI6IlZFQzIifSx7ImJ1ZmZlclZpZXciOjU0LCJjb21wb25lbnRUeXBlIjo1MTI2LCJjb3VudCI6NCwidHlwZSI6IlZFQzIifSx7ImJ1ZmZlclZpZXciOjU1LCJjb21wb25lbnRUeXBlIjo1MTIzLCJjb3VudCI6NCwidHlwZSI6IlZFQzQifSx7ImJ1ZmZlclZpZXciOjU2LCJjb21wb25lbnRUeXBlIjo1MTI2LCJjb3VudCI6NCwidHlwZSI6IlZFQzQifSx7ImJ1ZmZlclZpZXciOjU3LCJjb21wb25lbnRUeXBlIjo1MTIzLCJjb3VudCI6NiwidHlwZSI6IlNDQUxBUiJ9LHsiYnVmZmVyVmlldyI6NTgsImNvbXBvbmVudFR5cGUiOjUxMjYsImNvdW50IjoxLCJ0eXBlIjoiTUFUNCJ9XSwiaW1hZ2VzIjpbeyJidWZmZXJWaWV3IjowLCJtaW1lVHlwZSI6ImltYWdlL3BuZyJ9LHsiYnVmZmVyVmlldyI6MSwibWltZVR5cGUiOiJpbWFnZS9wbmcifSx7ImJ1ZmZlclZpZXciOjIsIm1pbWVUeXBlIjoiaW1hZ2UvcG5nIn0seyJidWZmZXJWaWV3IjozLCJtaW1lVHlwZSI6ImltYWdlL3BuZyJ9XSwidGV4dHVyZXMiOlt7InNvdXJjZSI6MH0seyJzb3VyY2UiOjF9LHsic291cmNlIjoyfSx7InNvdXJjZSI6M31dLCJtYXRlcmlhbHMiOlt7InBick1ldGFsbGljUm91Z2huZXNzIjp7ImJhc2VDb2xvclRleHR1cmUiOnsiaW5kZXgiOjB9fX0seyJhbHBoYU1vZGUiOiJNQVNLIiwiYWxwaGFDdXRvZmYiOjAuNSwicGJyTWV0YWxsaWNSb3VnaG5lc3MiOnsiYmFzZUNvbG9yVGV4dHVyZSI6eyJpbmRleCI6MH19fSx7ImFscGhhTW9kZSI6IkJMRU5EIiwicGJyTWV0YWxsaWNSb3VnaG5lc3MiOnsiYmFzZUNvbG9yRmFjdG9yIjpbMSwxLDEsMF19fSx7ImFscGhhTW9kZSI6IkJMRU5EIiwicGJyTWV0YWxsaWNSb3VnaG5lc3MiOnsiYmFzZUNvbG9yRmFjdG9yIjpbMSwxLDEsMC4yNV19fSx7ImV4dGVuc2lvbnMiOnsiS0hSX21hdGVyaWFsc190cmFuc21pc3Npb24iOnsidHJhbnNtaXNzaW9uRmFjdG9yIjoxLCJ0cmFuc21pc3Npb25UZXh0dXJlIjp7ImluZGV4IjoyLCJ0ZXhDb29yZCI6MX19fX0seyJlbWlzc2l2ZUZhY3RvciI6WzEsMSwxXSwiZW1pc3NpdmVUZXh0dXJlIjp7ImluZGV4IjoxLCJ0ZXhDb29yZCI6MX0sImV4dGVuc2lvbnMiOnsiS0hSX21hdGVyaWFsc19lbWlzc2l2ZV9zdHJlbmd0aCI6eyJlbWlzc2l2ZVN0cmVuZ3RoIjoyfX0sInBick1ldGFsbGljUm91Z2huZXNzIjp7ImJhc2VDb2xvckZhY3RvciI6WzAsMCwwLDFdfX0seyJwYnJNZXRhbGxpY1JvdWdobmVzcyI6eyJiYXNlQ29sb3JGYWN0b3IiOlswLjUsMC41LDAuNSwxXSwiYmFzZUNvbG9yVGV4dHVyZSI6eyJpbmRleCI6M319fSx7InBick1ldGFsbGljUm91Z2huZXNzIjp7ImJhc2VDb2xvckZhY3RvciI6WzEsMCwwLDFdfX1dLCJtZXNoZXMiOlt7InByaW1pdGl2ZXMiOlt7ImF0dHJpYnV0ZXMiOnsiUE9TSVRJT04iOjAsIlRFWENPT1JEXzAiOjEsIlRFWENPT1JEXzEiOjIsIkpPSU5UU18wIjozLCJXRUlHSFRTXzAiOjR9LCJpbmRpY2VzIjo1LCJtYXRlcmlhbCI6MH0seyJhdHRyaWJ1dGVzIjp7IlBPU0lUSU9OIjo2LCJURVhDT09SRF8wIjo3LCJURVhDT09SRF8xIjo4LCJKT0lOVFNfMCI6OSwiV0VJR0hUU18wIjoxMH0sImluZGljZXMiOjExLCJtYXRlcmlhbCI6MX0seyJhdHRyaWJ1dGVzIjp7IlBPU0lUSU9OIjoxMiwiVEVYQ09PUkRfMCI6MTMsIlRFWENPT1JEXzEiOjE0LCJKT0lOVFNfMCI6MTUsIldFSUdIVFNfMCI6MTZ9LCJpbmRpY2VzIjoxNywibWF0ZXJpYWwiOjJ9LHsiYXR0cmlidXRlcyI6eyJQT1NJVElPTiI6MTgsIlRFWENPT1JEXzAiOjE5LCJURVhDT09SRF8xIjoyMCwiSk9JTlRTXzAiOjIxLCJXRUlHSFRTXzAiOjIyfSwiaW5kaWNlcyI6MjMsIm1hdGVyaWFsIjozfSx7ImF0dHJpYnV0ZXMiOnsiUE9TSVRJT04iOjI0LCJURVhDT09SRF8wIjoyNSwiVEVYQ09PUkRfMSI6MjYsIkpPSU5UU18wIjoyNywiV0VJR0hUU18wIjoyOH0sImluZGljZXMiOjI5LCJtYXRlcmlhbCI6NH0seyJhdHRyaWJ1dGVzIjp7IlBPU0lUSU9OIjozMCwiVEVYQ09PUkRfMCI6MzEsIlRFWENPT1JEXzEiOjMyLCJKT0lOVFNfMCI6MzMsIldFSUdIVFNfMCI6MzR9LCJpbmRpY2VzIjozNSwibWF0ZXJpYWwiOjV9LHsiYXR0cmlidXRlcyI6eyJQT1NJVElPTiI6MzYsIlRFWENPT1JEXzAiOjM3LCJURVhDT09SRF8xIjozOCwiSk9JTlRTXzAiOjM5LCJXRUlHSFRTXzAiOjQwfSwiaW5kaWNlcyI6NDEsIm1hdGVyaWFsIjo2fSx7ImF0dHJpYnV0ZXMiOnsiUE9TSVRJT04iOjQyLCJURVhDT09SRF8wIjo0MywiVEVYQ09PUkRfMSI6NDQsIkpPSU5UU18wIjo0NSwiV0VJR0hUU18wIjo0Nn0sImluZGljZXMiOjQ3LCJtYXRlcmlhbCI6MX0seyJhdHRyaWJ1dGVzIjp7IlBPU0lUSU9OIjo0OCwiVEVYQ09PUkRfMCI6NDksIlRFWENPT1JEXzEiOjUwLCJKT0lOVFNfMCI6NTEsIldFSUdIVFNfMCI6NTJ9LCJpbmRpY2VzIjo1MywibWF0ZXJpYWwiOjd9XX1dLCJub2RlcyI6W3sibWVzaCI6MCwic2tpbiI6MCwidHJhbnNsYXRpb24iOlsxMDAsMCwwXX0seyJ0cmFuc2xhdGlvbiI6WzIsMyw0XX0seyJtZXNoIjowLCJ0cmFuc2xhdGlvbiI6WzEwMDAsMCwwXX1dLCJza2lucyI6W3siam9pbnRzIjpbMV0sImludmVyc2VCaW5kTWF0cmljZXMiOjU0fV0sInNjZW5lcyI6W3sibm9kZXMiOlswLDFdfSx7Im5vZGVzIjpbMl19XSwic2NlbmUiOjAsImJ1ZmZlcnMiOlt7ImJ5dGVMZW5ndGgiOjIzMzZ9XX0gIAkAAEJJTgCJUE5HDQoaCgAAAA1JSERSAAAAAQAAAAEIBgAAAB8VxIkAAAANSURBVHicY/j//z8DAAj8Av6nmqCgAAAAAElFTkSuQmCCAACJUE5HDQoaCgAAAA1JSERSAAAAAgAAAAEIBgAAAPQif4oAAAARSURBVHicY2BgYPjP0PD/PwAJgQN+IHoBggAAAABJRU5ErkJgggAAiVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAAD0lEQVR4nGNg+A8EDAz/ARbyBPxmfR6ZAAAAAElFTkSuQmCCiVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNoaGj4DwAFhAKAjM1mJgAAAABJRU5ErkJgggAAAAAAAAAAAAAAAAAAAACAQAAAAAAAAAAAAACAQAAAgEAAAAAAAAAAAAAAgEAAAAAAAACAPgAAAD8AAIA+AAAAPwAAgD4AAAA/AACAPgAAAD8AAEA/AAAAPwAAQD8AAAA/AABAPwAAAD8AAEA/AAAAPwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAQACAAAAAgADAAAAwEAAAAAAAAAAAAAAIEEAAAAAAAAAAAAAIEEAAIBAAAAAAAAAwEAAAIBAAAAAAAAAgD4AAAA/AACAPgAAAD8AAIA+AAAAPwAAgD4AAAA/AABAPwAAAD8AAEA/AAAAPwAAQD8AAAA/AABAPwAAAD8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAEAAgAAAAIAAwAAAEBBAAAAAAAAAAAAAIBBAAAAAAAAAAAAAIBBAACAQAAAAAAAAEBBAACAQAAAAAAAAIA+AAAAPwAAgD4AAAA/AACAPgAAAD8AAIA+AAAAPwAAQD8AAAA/AABAPwAAAD8AAEA/AAAAPwAAQD8AAAA/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAABAAIAAAACAAMAAACQQQAAAAAAAAAAAACwQQAAAAAAAAAAAACwQQAAgEAAAAAAAACQQQAAgEAAAAAAAACAPgAAAD8AAIA+AAAAPwAAgD4AAAA/AACAPgAAAD8AAEA/AAAAPwAAQD8AAAA/AABAPwAAAD8AAEA/AAAAPwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAQACAAAAAgADAAAAwEEAAAAAAAAAAAAA4EEAAAAAAAAAAAAA4EEAAIBAAAAAAAAAwEEAAIBAAAAAAAAAgD4AAAA/AACAPgAAAD8AAIA+AAAAPwAAgD4AAAA/AABAPwAAAD8AAEA/AAAAPwAAQD8AAAA/AABAPwAAAD8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAEAAgAAAAIAAwAAAPBBAAAAAAAAAAAAAAhCAAAAAAAAAAAAAAhCAACAQAAAAAAAAPBBAACAQAAAAAAAAIA+AAAAPwAAgD4AAAA/AACAPgAAAD8AAIA+AAAAPwAAQD8AAAA/AABAPwAAAD8AAEA/AAAAPwAAQD8AAAA/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAABAAIAAAACAAMAAAAQQgAAAAAAAAAAAAAgQgAAAAAAAAAAAAAgQgAAgEAAAAAAAAAQQgAAgEAAAAAAAACAPgAAAD8AAIA+AAAAPwAAgD4AAAA/AACAPgAAAD8AAEA/AAAAPwAAQD8AAAA/AABAPwAAAD8AAEA/AAAAPwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAQACAAAAAgADAAAAKEIAAAAAAACAPgAAOEIAAAAAAACAPgAAOEIAAIBAAACAPgAAKEIAAIBAAACAPgAAgD4AAAA/AACAPgAAAD8AAIA+AAAAPwAAgD4AAAA/AABAPwAAAD8AAEA/AAAAPwAAQD8AAAA/AABAPwAAAD8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAEAAgAAAAIAAwAAAChCAAAAAAAAAAAAADhCAAAAAAAAAAAAADhCAACAQAAAAAAAAChCAACAQAAAAAAAAIA+AAAAPwAAgD4AAAA/AACAPgAAAD8AAIA+AAAAPwAAQD8AAAA/AABAPwAAAD8AAEA/AAAAPwAAQD8AAAA/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAABAAIAAAACAAMAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAACAvwAAAMAAAEDAAACAPw==",
+            "format": "glb",
+            "metadata": {
+              "name": "example.glb"
+            }
+          },
+          "size": 32
+        }
+      }
+    ]
+  },
+  "nodes": [
+    {
+      "id": "file",
+      "type": "input",
+      "position": {
+        "x": 1072,
+        "y": 432
+      },
+      "data": {
+        "label": "file",
+        "dataType": "object",
+        "value": null,
+        "toolField": {
+          "name": "file",
+          "kind": "file",
+          "label": "Model",
+          "help": "Textured GLB gives the best colours. Models up to 100 MB.",
+          "accept": [
+            "glb",
+            "obj"
+          ],
+          "max_kb": 102400,
+          "required": true,
+          "group": "Source",
+          "order": 0
+        },
+        "io": {
+          "inputs": {},
+          "outputs": {
+            "value": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "size_axis",
+      "type": "input",
+      "position": {
+        "x": 1072,
+        "y": 1072
+      },
+      "data": {
+        "label": "size_axis",
+        "dataType": "string",
+        "value": "longest",
+        "toolField": {
+          "name": "size_axis",
+          "kind": "enum",
+          "label": "Size controls",
+          "help": "The other two dimensions are calculated automatically, keeping the model’s proportions.",
+          "default": "longest",
+          "options": {
+            "longest": "Longest side",
+            "y": "Height (Y)",
+            "x": "Width (X)",
+            "z": "Depth (Z)"
+          },
+          "required": false,
+          "group": "Settings",
+          "order": 1
+        },
+        "io": {
+          "inputs": {},
+          "outputs": {
+            "value": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "size",
+      "type": "input",
+      "position": {
+        "x": 1072,
+        "y": 752
+      },
+      "data": {
+        "label": "size",
+        "dataType": "number",
+        "value": 64,
+        "toolField": {
+          "name": "size",
+          "kind": "int",
+          "label": "Target size in blocks",
+          "help": "For example: choose Height and enter 384. Very large calculated volumes may require a smaller size.",
+          "default": 64,
+          "min": 1,
+          "max": 2048,
+          "required": true,
+          "group": "Settings",
+          "order": 2
+        },
+        "io": {
+          "inputs": {},
+          "outputs": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "shell",
+      "type": "input",
+      "position": {
+        "x": 1072,
+        "y": 1392
+      },
+      "data": {
+        "label": "shell",
+        "dataType": "boolean",
+        "value": true,
+        "toolField": {
+          "name": "shell",
+          "kind": "bool",
+          "label": "Hollow",
+          "help": "Surface only. Off fills the inside.",
+          "default": true,
+          "required": true,
+          "group": "Settings",
+          "order": 3
+        },
+        "io": {
+          "inputs": {},
+          "outputs": {
+            "value": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "shading",
+      "type": "input",
+      "position": {
+        "x": 1072,
+        "y": 1712
+      },
+      "data": {
+        "label": "shading",
+        "dataType": "string",
+        "value": "none",
+        "toolField": {
+          "name": "shading",
+          "kind": "enum",
+          "label": "Lighting",
+          "help": "Shading changes the blocks in the download. Textured scans keep their colours; OBJ models use a light grey base.",
+          "default": "none",
+          "options": {
+            "none": "Original colours",
+            "directional": "Shade with a light source"
+          },
+          "required": false,
+          "group": "Settings",
+          "order": 4
+        },
+        "io": {
+          "inputs": {},
+          "outputs": {
+            "value": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "light_azimuth",
+      "type": "input",
+      "position": {
+        "x": 1072,
+        "y": 2032
+      },
+      "data": {
+        "label": "light_azimuth",
+        "dataType": "number",
+        "value": 315,
+        "toolField": {
+          "name": "light_azimuth",
+          "kind": "int",
+          "label": "Light direction (°)",
+          "help": "0 = north (−Z), 90 = east (+X), 180 = south (+Z), 270 = west (−X).",
+          "default": 315,
+          "min": 0,
+          "max": 360,
+          "when": {
+            "field": "shading",
+            "is": "directional"
+          },
+          "required": true,
+          "group": "Settings",
+          "advanced": true,
+          "order": 5
+        },
+        "io": {
+          "inputs": {},
+          "outputs": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "light_elevation",
+      "type": "input",
+      "position": {
+        "x": 1072,
+        "y": 2352
+      },
+      "data": {
+        "label": "light_elevation",
+        "dataType": "number",
+        "value": 45,
+        "toolField": {
+          "name": "light_elevation",
+          "kind": "int",
+          "label": "Light elevation (°)",
+          "help": "0 = horizon, 90 = directly above.",
+          "default": 45,
+          "min": -90,
+          "max": 90,
+          "when": {
+            "field": "shading",
+            "is": "directional"
+          },
+          "required": true,
+          "group": "Settings",
+          "advanced": true,
+          "order": 6
+        },
+        "io": {
+          "inputs": {},
+          "outputs": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "light_strength",
+      "type": "input",
+      "position": {
+        "x": 1072,
+        "y": 2672
+      },
+      "data": {
+        "label": "light_strength",
+        "dataType": "number",
+        "value": 65,
+        "toolField": {
+          "name": "light_strength",
+          "kind": "int",
+          "label": "Shading strength (%)",
+          "help": "Higher values darken faces turned away from the light. This does not cast shadows.",
+          "default": 65,
+          "min": 0,
+          "max": 100,
+          "when": {
+            "field": "shading",
+            "is": "directional"
+          },
+          "required": true,
+          "group": "Settings",
+          "advanced": true,
+          "order": 7
+        },
+        "io": {
+          "inputs": {},
+          "outputs": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "palette",
+      "type": "input",
+      "position": {
+        "x": 332,
+        "y": 62
+      },
+      "data": {
+        "label": "palette",
+        "dataType": "object",
+        "value": {
+          "preset": "materials",
+          "include": [],
+          "exclude": [],
+          "replace": {}
+        },
+        "toolField": {
+          "name": "palette",
+          "kind": "palette",
+          "label": "Palette",
+          "help": "Opaque surfaces use solid blocks. Glass uses glass blocks; transparent cutouts stay empty. Choose a palette with both for mixed materials.",
+          "default": {
+            "preset": "materials",
+            "include": [],
+            "exclude": [],
+            "replace": {}
+          },
+          "required": true,
+          "group": "Materials",
+          "order": 8
+        },
+        "io": {
+          "inputs": {},
+          "outputs": {
+            "value": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "format",
+      "type": "input",
+      "position": {
+        "x": 12,
+        "y": 12
+      },
+      "data": {
+        "label": "format",
+        "dataType": "string",
+        "value": "schem",
+        "toolField": {
+          "name": "format",
+          "kind": "format",
+          "label": "Format",
+          "default": "schem",
+          "options": {
+            "schem": ".schem (WorldEdit)",
+            "litematic": ".litematic (Litematica)"
+          },
+          "required": true,
+          "group": "Export",
+          "order": 9
+        },
+        "io": {
+          "inputs": {},
+          "outputs": {
+            "value": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "palette-build",
+      "type": "code",
+      "position": {
+        "x": 732,
+        "y": 12
+      },
+      "data": {
+        "label": "Choose blocks",
+        "code": "type Inputs = { palette: any };\ntype Outputs = { palette: any };\nasync function generate(inputs: Inputs): Promise<Outputs> {\nreturn { palette: Blocks.palette(inputs.palette) };\n}",
+        "contract": {
+          "inputs": {
+            "palette": {
+              "kind": "unknown"
+            }
+          },
+          "outputs": {
+            "palette": {
+              "kind": "unknown"
+            }
+          }
+        },
+        "io": {
+          "inputs": {
+            "palette": {
+              "type": "object"
+            }
+          },
+          "outputs": {
+            "palette": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "convert",
+      "type": "code",
+      "position": {
+        "x": 1472,
+        "y": 1342
+      },
+      "data": {
+        "label": "Voxelise model",
+        "code": "type Inputs = { file: any; palette: any; size: any; size_axis: any; shell: any; shading: any; light_azimuth: any; light_elevation: any; light_strength: any };\ntype Outputs = { schematic: Nucleation.Schematic; plan: any };\nasync function generate(inputs: Inputs): Promise<Outputs> {\nconst azimuth = inputs.light_azimuth * Math.PI / 180;\nconst elevation = inputs.light_elevation * Math.PI / 180;\nconst lighting = inputs.shading === 'directional' ? {\n  direction: [Math.sin(azimuth) * Math.cos(elevation), Math.sin(elevation), -Math.cos(azimuth) * Math.cos(elevation)],\n  strength: inputs.light_strength / 100,\n} : null;\nconst bytes = Bytes.read(inputs.file);\nconst glb = bytes[0] === 0x67 && bytes[1] === 0x6c && bytes[2] === 0x54 && bytes[3] === 0x46;\nconst text = glb ? '' : Bytes.text(bytes);\nif (!glb && !/^v\\s/m.test(text)) throw new Error('That file is neither a GLB nor an OBJ.');\nconst model = glb ? Nucleation.Voxelizer.loadGlb(bytes) : Nucleation.Voxelizer.loadObj(text);\nconst options = JSON.stringify({ target_size: inputs.size, axis: inputs.size_axis, hollow: inputs.shell, lighting, untextured_block: inputs.palette.ids[0] });\nconst plan = JSON.parse(model.planJson(options));\nif (plan.error) throw new Error(plan.error);\nProgress.report(20, 'Voxelising ' + plan.dimensions.join(' × '));\nconst schematic = model.toSchematic(options, inputs.palette.palette, 'model');\nif (Object.keys(inputs.palette.replace).length) schematic.replaceBlocksJson(JSON.stringify(inputs.palette.replace));\nreturn { schematic, plan: { planned_dimensions: plan.dimensions, size: inputs.size, size_axis: inputs.size_axis, shell: inputs.shell, shading: inputs.shading, lighting } };\n}",
+        "contract": {
+          "inputs": {
+            "file": {
+              "kind": "unknown"
+            },
+            "palette": {
+              "kind": "unknown"
+            },
+            "size": {
+              "kind": "unknown"
+            },
+            "size_axis": {
+              "kind": "unknown"
+            },
+            "shell": {
+              "kind": "unknown"
+            },
+            "shading": {
+              "kind": "unknown"
+            },
+            "light_azimuth": {
+              "kind": "unknown"
+            },
+            "light_elevation": {
+              "kind": "unknown"
+            },
+            "light_strength": {
+              "kind": "unknown"
+            }
+          },
+          "outputs": {
+            "schematic": {
+              "kind": "schematic"
+            },
+            "plan": {
+              "kind": "unknown"
+            }
+          }
+        },
+        "io": {
+          "inputs": {
+            "file": {
+              "type": "object"
+            },
+            "palette": {
+              "type": "object"
+            },
+            "size": {
+              "type": "object"
+            },
+            "size_axis": {
+              "type": "object"
+            },
+            "shell": {
+              "type": "object"
+            },
+            "shading": {
+              "type": "object"
+            },
+            "light_azimuth": {
+              "type": "object"
+            },
+            "light_elevation": {
+              "type": "object"
+            },
+            "light_strength": {
+              "type": "object"
+            }
+          },
+          "outputs": {
+            "schematic": {
+              "type": "schematic"
+            },
+            "plan": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "measure",
+      "type": "code",
+      "position": {
+        "x": 2212,
+        "y": 1627
+      },
+      "data": {
+        "label": "Describe result",
+        "code": "type Outputs = { metadata: any }; type Inputs = { schematic: Nucleation.Schematic; plan: any }; function generate(inputs: Inputs) { return { metadata: { ...inputs.plan, ...Blocks.measure(inputs.schematic) } }; }",
+        "contract": {
+          "inputs": {
+            "schematic": {
+              "kind": "schematic"
+            },
+            "plan": {
+              "kind": "unknown"
+            }
+          },
+          "outputs": {
+            "metadata": {
+              "kind": "unknown"
+            }
+          }
+        },
+        "io": {
+          "inputs": {
+            "schematic": {
+              "type": "schematic"
+            },
+            "plan": {
+              "type": "object"
+            }
+          },
+          "outputs": {
+            "metadata": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "output-schematic",
+      "type": "output",
+      "position": {
+        "x": 2212,
+        "y": 1307
+      },
+      "data": {
+        "label": "schematic",
+        "dataType": "schematic"
+      }
+    },
+    {
+      "id": "output-metadata",
+      "type": "output",
+      "position": {
+        "x": 2952,
+        "y": 1677
+      },
+      "data": {
+        "label": "metadata",
+        "dataType": "object"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "palette-palette-build-palette",
+      "source": "palette",
+      "target": "palette-build",
+      "sourceHandle": "output",
+      "targetHandle": "palette"
+    },
+    {
+      "id": "file-convert-file",
+      "source": "file",
+      "target": "convert",
+      "sourceHandle": "output",
+      "targetHandle": "file"
+    },
+    {
+      "id": "size-convert-size",
+      "source": "size",
+      "target": "convert",
+      "sourceHandle": "output",
+      "targetHandle": "size"
+    },
+    {
+      "id": "size_axis-convert-size_axis",
+      "source": "size_axis",
+      "target": "convert",
+      "sourceHandle": "output",
+      "targetHandle": "size_axis"
+    },
+    {
+      "id": "shell-convert-shell",
+      "source": "shell",
+      "target": "convert",
+      "sourceHandle": "output",
+      "targetHandle": "shell"
+    },
+    {
+      "id": "shading-convert-shading",
+      "source": "shading",
+      "target": "convert",
+      "sourceHandle": "output",
+      "targetHandle": "shading"
+    },
+    {
+      "id": "light_azimuth-convert-light_azimuth",
+      "source": "light_azimuth",
+      "target": "convert",
+      "sourceHandle": "output",
+      "targetHandle": "light_azimuth"
+    },
+    {
+      "id": "light_elevation-convert-light_elevation",
+      "source": "light_elevation",
+      "target": "convert",
+      "sourceHandle": "output",
+      "targetHandle": "light_elevation"
+    },
+    {
+      "id": "light_strength-convert-light_strength",
+      "source": "light_strength",
+      "target": "convert",
+      "sourceHandle": "output",
+      "targetHandle": "light_strength"
+    },
+    {
+      "id": "palette-build-convert-palette",
+      "source": "palette-build",
+      "target": "convert",
+      "sourceHandle": "palette",
+      "targetHandle": "palette"
+    },
+    {
+      "id": "convert-measure-schematic",
+      "source": "convert",
+      "target": "measure",
+      "sourceHandle": "schematic",
+      "targetHandle": "schematic"
+    },
+    {
+      "id": "convert-output-schematic-schematic",
+      "source": "convert",
+      "target": "output-schematic",
+      "sourceHandle": "schematic",
+      "targetHandle": "input"
+    },
+    {
+      "id": "measure-output-metadata-metadata",
+      "source": "measure",
+      "target": "output-metadata",
+      "sourceHandle": "metadata",
+      "targetHandle": "input"
+    },
+    {
+      "id": "convert-measure-plan",
+      "source": "convert",
+      "sourceHandle": "plan",
+      "target": "measure",
+      "targetHandle": "plan"
+    }
+  ]
+}

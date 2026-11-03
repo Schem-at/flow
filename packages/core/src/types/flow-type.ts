@@ -18,7 +18,15 @@ export type FlowType =
     }
   | { kind: 'string'; default?: string; multiline?: boolean; required?: boolean }
   | { kind: 'boolean'; default?: boolean }
-  | { kind: 'enum'; options: Array<string | number>; default?: string | number }
+  | { kind: 'enum'; options: Array<string | number>; labels?: Record<string, string>; default?: string | number }
+  | { kind: 'palette'; default?: import('../tools/fields.js').PaletteChoice }
+  | { kind: 'username'; default?: string }
+  | { kind: 'file'; accept?: string[]; maxBytes?: number }
+  | { kind: 'set'; options: string[]; labels?: Record<string, string>; default?: string[] }
+  | { kind: 'native'; className: string }
+  | { kind: 'animation' }
+  | { kind: 'simulation' }
+  | { kind: 'chart' }
   | { kind: 'block'; default?: string } // domain: a minecraft block id
   | { kind: 'schematic' } // domain: nucleation Schematic
   | { kind: 'image' } // domain
@@ -48,6 +56,10 @@ export function defaultValueForType(type: FlowType): unknown {
       return type.default ?? false;
     case 'enum':
       return type.default ?? type.options[0];
+    case 'palette': return type.default ?? { preset: 'solid', include: [], exclude: [], replace: {} };
+    case 'set': return type.default ?? [];
+    case 'username': return type.default ?? '';
+    case 'file': case 'native': case 'animation': case 'simulation': case 'chart': return null;
     case 'block':
       return type.default ?? 'minecraft:stone';
     case 'vec3':
@@ -85,7 +97,7 @@ export function defaultInputsForContract(contract: BlockContract): Record<string
 export function validateValue(type: FlowType, value: unknown): string | null {
   switch (type.kind) {
     case 'number': {
-      if (typeof value !== 'number' || Number.isNaN(value)) return 'expected a number';
+      if (typeof value !== 'number' || !Number.isFinite(value)) return 'expected a finite number';
       if (type.min !== undefined && value < type.min) return `must be ≥ ${type.min}`;
       if (type.max !== undefined && value > type.max) return `must be ≤ ${type.max}`;
       return null;
@@ -98,16 +110,21 @@ export function validateValue(type: FlowType, value: unknown): string | null {
       return type.options.includes(value as string | number)
         ? null
         : `expected one of: ${type.options.join(', ')}`;
+    case 'username': return typeof value === 'string' && /^[A-Za-z0-9_]{1,16}$/.test(value) ? null : 'Enter a Minecraft username';
+    case 'set': return Array.isArray(value) && value.every(v => type.options.includes(v)) ? null : 'Select valid options';
+    case 'palette': return value && typeof value === 'object' && !Array.isArray(value) ? null : 'Choose a palette';
+    case 'file': case 'native': case 'animation': case 'simulation': case 'chart': return value == null ? 'Missing value' : null;
     case 'block':
       return typeof value === 'string' && value.length > 0
         ? null
         : 'expected a block id string';
     case 'vec3':
-      return Array.isArray(value) && value.length === 3 && value.every((v) => typeof v === 'number')
+      return Array.isArray(value) && value.length === 3 && value.every((v) => typeof v === 'number' && Number.isFinite(v))
         ? null
         : 'expected [x, y, z] numbers';
     case 'list': {
       if (!Array.isArray(value)) return 'expected a list';
+      if (type.length !== undefined && value.length !== type.length) return `expected ${type.length} items`;
       for (let i = 0; i < value.length; i++) {
         const err = validateValue(type.of, value[i]);
         if (err) return `item ${i}: ${err}`;
@@ -115,7 +132,7 @@ export function validateValue(type: FlowType, value: unknown): string | null {
       return null;
     }
     case 'object': {
-      if (typeof value !== 'object' || value === null) return 'expected an object';
+      if (typeof value !== 'object' || value === null || Array.isArray(value)) return 'expected an object';
       for (const [key, field] of Object.entries(type.fields)) {
         const err = validateValue(field, (value as Record<string, unknown>)[key]);
         if (err) return `${key}: ${err}`;
@@ -140,6 +157,7 @@ export function isTypeCompatible(source: FlowType, target: FlowType): boolean {
   if (source.kind === 'string' && target.kind === 'block') return true;
   if (source.kind === 'block' && target.kind === 'string') return true;
   if (source.kind !== target.kind) return false;
+  if (source.kind === 'native' && target.kind === 'native') return source.className === target.className;
   if (source.kind === 'list' && target.kind === 'list') {
     return isTypeCompatible(source.of, target.of);
   }

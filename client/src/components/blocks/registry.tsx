@@ -1,3 +1,4 @@
+import { NativeViewer, ChartViewer, ToolOutput } from './NativeViewers';
 /**
  * The type registry — one place per FlowType kind. Each entry wires up the
  * input widget, the output viewer, validation, and a display label at once;
@@ -5,6 +6,7 @@
  * behaviour here. Adding a new domain type = one registerType() call.
  */
 
+import { PaletteWidget, UsernameWidget, SetWidget, FileWidget } from './ToolWidgets';
 import type { ComponentType } from 'react';
 import type { FlowType, FlowTypeKind } from '@flow/core';
 import { validateValue } from '@flow/core';
@@ -33,12 +35,14 @@ import {
 } from './viewers';
 
 export interface WidgetProps {
+  ariaLabel?: string;
   type: FlowType;
   value: unknown;
   onChange: (value: unknown) => void;
 }
 
 export interface ViewerProps {
+  active?: boolean;
   type: FlowType;
   value: unknown;
   /** Resolve worker data handles (e.g. resident schematics) to bytes. */
@@ -147,3 +151,6 @@ registerType('unknown', {
   outputViewer: JsonViewer,
   validate: () => null,
 });
+
+for (const [kind, label, inputWidget] of [['palette', 'Block palette', PaletteWidget], ['username', 'Minecraft username', UsernameWidget], ['set', 'Multiple choices', SetWidget], ['file', 'File', FileWidget]] as const) registerType(kind, { label, inputWidget, outputViewer: kind === 'file' ? ((props: ViewerProps) => <ToolOutput name="output" value={props.value} getData={props.getData}/>) : JsonViewer, validate: structural });
+for (const kind of ['native','animation','simulation','chart'] as const) registerType(kind, { label: kind, inputWidget: JsonWidget, outputViewer: kind === 'chart' ? ChartViewer : NativeViewer, validate: structural });
