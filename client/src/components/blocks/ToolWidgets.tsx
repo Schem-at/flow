@@ -4,7 +4,7 @@ import { DEFAULT_PALETTE, bytesToBase64, detectFormatFromExtension, type Palette
 import type { WidgetProps } from "./registry";
 
 const field =
-    "w-full rounded border border-white/15 bg-neutral-950 px-3 py-2 text-sm text-neutral-200";
+    "w-full rounded border border-white/15 bg-neutral-950 px-2 py-1.5 text-xs text-neutral-200";
 const button =
     "rounded border border-white/15 px-3 py-1.5 text-xs hover:bg-white/10 disabled:opacity-40";
 interface Block {

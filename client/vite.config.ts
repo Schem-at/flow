@@ -48,6 +48,11 @@ export default defineConfig(({ mode }) => {
           target: apiProxyTarget,
           changeOrigin: true,
         },
+        // Player-head avatars are Laravel routes on the same origin (see Caddyfile).
+        '/avatar': {
+          target: apiProxyTarget,
+          changeOrigin: true,
+        },
       },
     },
     resolve: {

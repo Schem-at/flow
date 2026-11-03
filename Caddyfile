@@ -19,7 +19,9 @@
 	# (flow.schemat.io/api), so there is no CORS preflight; the session cookie is
 	# delivered because SESSION_DOMAIN spans the parent domain (e.g. .schemat.io).
 	# API_PROXY_TARGET defaults to the in-network app service.
-	@laravel path /api/* /sanctum/*
+	# /avatar/*: Laravel builds player-head URLs from the request host, so they
+	# point here (tools.schemat.io/avatar/...) and must reach the app too.
+	@laravel path /api/* /sanctum/* /avatar/*
 	handle @laravel {
 		reverse_proxy {$API_PROXY_TARGET:http://app:80} {
 			header_up X-Forwarded-Proto https
