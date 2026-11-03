@@ -53,6 +53,7 @@ describe('SHOWCASE_FLOW (ASM → ROM Studio) folds and runs the meta-node pipeli
     layoutData: (d: string, o: Parameters<typeof romLayoutData>[1]) => romLayoutData(d, o),
   };
   class SchematicStub {
+    setBlock() {}
     set_block() {}
   }
 

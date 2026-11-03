@@ -1,6 +1,6 @@
 /**
  * Built-in example blocks in the v2 block format: a `type Inputs/Outputs`
- * contract plus a plain-JS `function generate(inputs)` entry. No imports or
+ * contract plus a typed `function generate(inputs: Inputs): Outputs` entry. No imports or
  * exports — the runtime context (Schematic, Noise, …) is ambient.
  */
 
@@ -37,7 +37,7 @@ const GRADIENT = [
 
 const MAX_HEIGHT = 8;
 
-function juliaTile(cRe, cIm, size, maxIterations) {
+function juliaTile(cRe: number, cIm: number, size: number, maxIterations: number): Schematic {
   const schem = new Schematic();
   let anyEscaped = false;
   for (let px = 0; px < size; px++) {
@@ -51,8 +51,8 @@ function juliaTile(cRe, cIm, size, maxIterations) {
         zx = xt;
         it++;
       }
-      let block;
-      let height;
+      let block: string;
+      let height: number;
       if (it >= maxIterations) {
         block = 'minecraft:black_concrete';
         height = MAX_HEIGHT;
@@ -63,14 +63,14 @@ function juliaTile(cRe, cIm, size, maxIterations) {
         height = Math.max(1, Math.round(t * MAX_HEIGHT));
       }
       for (let y = 0; y < height; y++) {
-        schem.set_block(px, y, pz, block);
+        schem.setBlock(px, y, pz, block);
       }
     }
   }
   // A tile fully inside the set would have a single-entry palette, which
   // trips a divide-by-zero in nucleation's region packing — vary one block.
   if (!anyEscaped) {
-    schem.set_block(0, MAX_HEIGHT - 1, 0, 'minecraft:gray_concrete');
+    schem.setBlock(0, MAX_HEIGHT - 1, 0, 'minecraft:gray_concrete');
   }
   return schem;
 }
@@ -84,14 +84,14 @@ type Inputs = {
 type Outputs = {
   tiles: Schematic[][];
 };
-function generate(inputs) {
+function generate(inputs: Inputs): Outputs {
   const { cols, rows, tile, iterations } = inputs;
   // The region of the complex plane that frames the Mandelbrot set.
   const RE_MIN = -2.0, RE_MAX = 0.6, IM_MIN = -1.2, IM_MAX = 1.2;
-  const tiles = [];
+  const tiles: Schematic[][] = [];
   for (let r = 0; r < rows; r++) {
     Progress.report((r / rows) * 100, 'julia row ' + (r + 1) + '/' + rows);
-    const row = [];
+    const row: Schematic[] = [];
     for (let c = 0; c < cols; c++) {
       const cRe = RE_MIN + (cols > 1 ? c / (cols - 1) : 0.5) * (RE_MAX - RE_MIN);
       const cIm = IM_MAX - (rows > 1 ? r / (rows - 1) : 0.5) * (IM_MAX - IM_MIN);
@@ -108,7 +108,7 @@ function generate(inputs) {
 
 const NOISE_FIELD = `// Field + Noise + Image ambients replace ~70 lines of hand-rolled value noise,
 // fBm stacking, normalization and RGBA byte loops. Inputs come in as one object
-// (\`generate(inputs)\`); the contract is the \`type Inputs\`/\`type Outputs\` pair.
+// (\`generate(inputs: Inputs)\`); the contract is the \`type Inputs\`/\`type Outputs\` pair.
 type Inputs = {
   size: Slider<{ min: 32; max: 256; default: 96 }>;
   scale: Slider<{ min: 0.005; max: 0.1; step: 0.005; default: 0.02 }>;
@@ -119,7 +119,7 @@ type Outputs = {
   field: number[][];
   preview: Image;
 };
-function generate(inputs) {
+function generate(inputs: Inputs): Outputs {
   const { size, scale, octaves, seed } = inputs;
   const n = size | 0;
   const seedShift = (seed | 0) * 1009;
@@ -144,7 +144,7 @@ type Outputs = {
   field: number[][];
   preview: Image;
 };
-function generate(inputs) {
+function generate(inputs: Inputs): Outputs {
   const { size, cells, seed } = inputs;
   const n = size | 0;
   const c = cells | 0;
@@ -171,7 +171,7 @@ type Outputs = {
   field: number[][];
   preview: Image;
 };
-function generate(inputs) {
+function generate(inputs: Inputs): Outputs {
   const { a, b, op, strength } = inputs;
   const fa = a || [];
   const fb = b || [];
@@ -204,7 +204,7 @@ type Outputs = {
   field: number[][];
   preview: Image;
 };
-function generate(inputs) {
+function generate(inputs: Inputs): Outputs {
   const { field, exponent, terraces } = inputs;
   const src = field || [];
   if (!src.length) return { field: [], preview: Image.blank() };
@@ -231,7 +231,9 @@ const FIELD_TO_TERRAIN = `const BIOMES = {
   snow:     { color: [240, 244, 248], top: 'minecraft:snow_block' },
 };
 
-function classify(e, m, waterLevel) {
+type Biome = keyof typeof BIOMES;
+
+function classify(e: number, m: number, waterLevel: number): Biome {
   if (e <= waterLevel) return 'water';
   if (e <= waterLevel + 0.04) return 'beach';
   if (e > 0.85) return 'snow';
@@ -239,14 +241,14 @@ function classify(e, m, waterLevel) {
   return m > 0.5 ? 'forest' : 'plains';
 }
 
-function plantTree(terrain, x, y, z) {
-  for (let i = 0; i < 4; i++) terrain.set_block(x, y + i, z, 'minecraft:oak_log');
+function plantTree(terrain: Schematic, x: number, y: number, z: number): void {
+  for (let i = 0; i < 4; i++) terrain.setBlock(x, y + i, z, 'minecraft:oak_log');
   for (let dx = -1; dx <= 1; dx++) {
     for (let dz = -1; dz <= 1; dz++) {
       for (let dy = 3; dy <= 5; dy++) {
         if (dy === 5 && (dx !== 0 || dz !== 0)) continue;
         if (dx === 0 && dz === 0 && dy < 5) continue;
-        terrain.set_block(x + dx, y + dy, z + dz, 'minecraft:oak_leaves');
+        terrain.setBlock(x + dx, y + dy, z + dz, 'minecraft:oak_leaves');
       }
     }
   }
@@ -263,7 +265,7 @@ type Outputs = {
   terrain: Schematic;
   biomes: Image;
 };
-function generate(inputs) {
+function generate(inputs: Inputs): Outputs {
   const { elevation, moisture, amplitude, waterLevel, seed } = inputs;
   const elev = elevation || [];
   const moist = moisture || [];
@@ -286,15 +288,15 @@ function generate(inputs) {
 
       const height = Math.max(1, Math.floor(e * amplitude));
       for (let y = 0; y < height - 1; y++) {
-        terrain.set_block(x, y, z, y < height - 4 ? 'minecraft:stone' : 'minecraft:dirt');
+        terrain.setBlock(x, y, z, y < height - 4 ? 'minecraft:stone' : 'minecraft:dirt');
       }
       if (biome === 'water') {
-        terrain.set_block(x, height - 1, z, 'minecraft:gravel');
+        terrain.setBlock(x, height - 1, z, 'minecraft:gravel');
         for (let y = height; y <= waterY; y++) {
-          terrain.set_block(x, y, z, spec.top);
+          terrain.setBlock(x, y, z, spec.top);
         }
       } else {
-        terrain.set_block(x, height - 1, z, spec.top);
+        terrain.setBlock(x, height - 1, z, spec.top);
         if (biome === 'forest' && x > 1 && z > 1 && x < size - 2 && z < size - 2 &&
             Random.hash2(x, z, (seed | 0) + 31) < 0.025) {
           plantTree(terrain, x, height, z);
@@ -319,7 +321,7 @@ type Outputs = {
   firstId: string;
   count: number;
 };
-async function generate(inputs) {
+async function generate(inputs: Inputs): Promise<Outputs> {
   const { tag, search, limit } = inputs;
   const found = await Schemati.searchSchematics({
     tag: tag || undefined,
@@ -353,7 +355,7 @@ type Outputs = {
   schematic: Schematic;
   name: string;
 };
-async function generate(inputs) {
+async function generate(inputs: Inputs): Promise<Outputs> {
   // One step: download + parse into a live Schematic.
   const loaded = await Schemati.loadSchematic(inputs.id);
   return { schematic: loaded.schematic, name: loaded.name };

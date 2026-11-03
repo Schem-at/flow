@@ -13,7 +13,8 @@
         "educative"
       ],
       "timeout": 60,
-      "output": "generic"
+      "output": "generic",
+      "runtime": "any"
     },
     "examples": [
       {
@@ -40,8 +41,16 @@
         "default": true,
         "toolField": {
           "group": "Settings",
-          "order": 0
-        }
+          "order": 0,
+          "label": "Flip the lever",
+          "help": "Use the lever before the simulation starts, powering the wire.",
+          "kind": "bool",
+          "default": true,
+          "required": true,
+          "name": "powered",
+          "description": "Use the lever before the simulation starts, powering the wire."
+        },
+        "inputName": "powered"
       }
     },
     {
@@ -62,8 +71,18 @@
         "widgetType": "slider",
         "toolField": {
           "group": "Settings",
-          "order": 1
-        }
+          "order": 1,
+          "label": "Ticks to simulate",
+          "help": "Redstone ticks to run after the lever is used.",
+          "kind": "int",
+          "min": 1,
+          "max": 40,
+          "default": 8,
+          "required": true,
+          "name": "ticks",
+          "description": "Redstone ticks to run after the lever is used."
+        },
+        "inputName": "ticks"
       }
     },
     {
@@ -75,7 +94,7 @@
       },
       "data": {
         "label": "Build test circuit",
-        "code": "type Inputs = {}; type Outputs = { world: Nucleation.TickSimulation; schematic: Nucleation.Schematic }; function generate() { const schematic=Nucleation.Schematic.create('Lever and lamp'); schematic.fillCuboid(0,0,0,4,0,0,'minecraft:stone'); schematic.setBlock(0,1,0,'minecraft:lever[face=floor,facing=east,powered=false]'); for(let x=1;x<4;x++) schematic.setBlock(x,1,0,'minecraft:redstone_wire[east=side,west=side,north=none,south=none,power=0]'); schematic.setBlock(4,1,0,'minecraft:redstone_lamp[lit=false]'); const world=Nucleation.TickSimulation.fromSchematic(schematic,Nucleation.TickSettleMode.Placement,0,0,0,''); return { world, schematic };  }",
+        "code": "type Inputs = {}; type Outputs = { world: Nucleation.TickSimulation; schematic: Nucleation.Schematic };\nfunction generate(): Outputs {\n  progress(0.2, 'Building the circuit');\n  const schematic = Nucleation.Schematic.create('Lever and lamp');\n  schematic.fillCuboid(0, 0, 0, 4, 0, 0, 'minecraft:stone');\n  schematic.setBlock(0, 1, 0, 'minecraft:lever[face=floor,facing=east,powered=false]');\n  for (let x = 1; x < 4; x++) schematic.setBlock(x, 1, 0, 'minecraft:redstone_wire[east=side,west=side,north=none,south=none,power=0]');\n  schematic.setBlock(4, 1, 0, 'minecraft:redstone_lamp[lit=false]');\n  const world = Nucleation.TickSimulation.fromSchematic(schematic, Nucleation.TickSettleMode.Placement, 0, 0, 0, '');\n  return { world, schematic };\n}",
         "contract": {
           "inputs": {},
           "outputs": {
@@ -110,7 +129,7 @@
       },
       "data": {
         "label": "Analyze and simulate",
-        "code": "type Outputs = { schematic: Nucleation.Schematic; analysis: {} }; type Inputs = { world: Nucleation.TickSimulation; schematic: Nucleation.Schematic; powered: boolean; ticks: number }; function generate(inputs: Inputs) { inputs.world.recordTimeline(); if(inputs.powered) inputs.world.useBlock(0,1,0); inputs.world.run(inputs.ticks); inputs.world.stopTimeline(); inputs.world.bakeTo(inputs.schematic); return { schematic: inputs.schematic, analysis: { ticks:inputs.world.tickCount(),machineGraph:JSON.parse(inputs.world.machineGraphJson()),activity:JSON.parse(inputs.world.timelineActivityJson()),lampLit:inputs.world.getBlock(4,1,0).includes('lit=true') } }; }",
+        "code": "type Outputs = { schematic: Nucleation.Schematic; analysis: {} }; type Inputs = { world: Nucleation.TickSimulation; schematic: Nucleation.Schematic; powered: boolean; ticks: number };\nfunction generate(inputs: Inputs): Outputs {\n  progress(0.5, 'Simulating');\n  inputs.world.recordTimeline();\n  if (inputs.powered) inputs.world.useBlock(0, 1, 0);\n  inputs.world.run(inputs.ticks);\n  inputs.world.stopTimeline();\n  inputs.world.bakeTo(inputs.schematic);\n  return { schematic: inputs.schematic, analysis: {\n    ticks: inputs.world.tickCount(),\n    machineGraph: JSON.parse(inputs.world.machineGraphJson()),\n    activity: JSON.parse(inputs.world.timelineActivityJson()),\n    lampLit: inputs.world.getBlock(4, 1, 0).includes('lit=true'),\n  } };\n}",
         "contract": {
           "inputs": {
             "world": {

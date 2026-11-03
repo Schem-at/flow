@@ -166,7 +166,7 @@ export class MessageHandler {
     this.currentExecution = { cancelled: false };
     const executionId = this.currentExecution;
 
-    this.postProgress('Starting script execution...');
+    this.postProgress('Starting script execution...', undefined, { level: 'info' });
 
     try {
       const executionOptions = {
@@ -204,7 +204,7 @@ export class MessageHandler {
       }
 
       if (executionResult.success) {
-        this.postProgress('Script executed successfully');
+        this.postProgress('Script executed successfully', undefined, { level: 'success' });
 
         let processedSchematics = null;
         let schematicHandles: Record<string, string> | undefined = undefined;
@@ -265,7 +265,7 @@ export class MessageHandler {
     } catch (error) {
       this.currentExecution = null;
       const err = error as Error;
-      this.postProgress('Execution failed: ' + err.message);
+      this.postProgress('Execution failed: ' + err.message, undefined, { level: 'error' });
       throw error;
     }
   }
@@ -477,7 +477,7 @@ export class MessageHandler {
     this.currentExecution = { cancelled: false };
     const executionId = this.currentExecution;
 
-    this.postProgress('Starting subflow execution...');
+    this.postProgress('Starting subflow execution...', undefined, { level: 'info' });
 
     try {
       // Store outputs for each node (including WASM objects)
@@ -508,7 +508,7 @@ export class MessageHandler {
         }
 
         if (node.type === 'code' && node.data.code) {
-          this.postProgress(`Executing node: ${node.data.label || node.id}`);
+          this.postProgress(`Executing node: ${node.data.label || node.id}`, undefined, { level: 'info' });
 
           // Start from the block's contract defaults — unconnected inputs get
           // their declared default instead of undefined.
@@ -656,7 +656,7 @@ export class MessageHandler {
 
       const executionTime = Math.round(performance.now() - startTime);
       this.currentExecution = null;
-      this.postProgress(`Subflow completed in ${executionTime}ms`);
+      this.postProgress(`Subflow completed in ${executionTime}ms`, undefined, { level: 'success' });
 
       return {
         success: true,
@@ -669,7 +669,7 @@ export class MessageHandler {
     } catch (error) {
       this.currentExecution = null;
       const err = error as Error & { nodeId?: string };
-      this.postProgress('Subflow execution failed: ' + err.message);
+      this.postProgress('Subflow execution failed: ' + err.message, undefined, { level: 'error' });
       return {
         success: false,
         outputs: {},
@@ -766,7 +766,7 @@ export class MessageHandler {
   private handleCancelExecution(): { cancelled: boolean; message?: string } {
     if (this.currentExecution) {
       this.currentExecution.cancelled = true;
-      this.postProgress('Execution cancelled by user');
+      this.postProgress('Execution cancelled by user', undefined, { level: 'warn' });
       return { cancelled: true };
     }
     return { cancelled: false, message: 'No execution in progress' };
@@ -859,7 +859,7 @@ export class MessageHandler {
             }
           };
 
-          this.postProgress(`Serialized schematic: ${key} (${binaryData.byteLength} bytes)`);
+          this.postProgress(`Serialized schematic: ${key} (${binaryData.byteLength} bytes)`, undefined, { level: 'info' });
         }
       } catch (error) {
         console.error(`Failed to serialize schematic ${key}:`, error);

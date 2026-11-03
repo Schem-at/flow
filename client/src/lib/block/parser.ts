@@ -16,6 +16,29 @@ export interface ParsedBlock {
   bodyText: string;
   /** Non-fatal problems (e.g. unmappable types fell back to 'unknown'). */
   warnings: string[];
+  /** Every top-level declaration named `generate` (the block entry point), in source order. */
+  generateEntries: GenerateEntry[];
+  /**
+   * Display labels for each top-level input/output, spelled as the author
+   * declared them (`Schematic`, `Schematic[][]`, `Tile`, `Grid (Schematic[][])`).
+   * Display only; the contract carries the semantic kind.
+   */
+  typeLabels: { inputs: Record<string, string>; outputs: Record<string, string> };
+}
+
+export interface GenerateParam {
+  /** Identifier name, or null for a destructuring pattern. */
+  name: string | null;
+  typed: boolean;
+  rest: boolean;
+}
+
+export interface GenerateEntry {
+  /** `function generate…`, `const generate = (…) =>`, `const generate = function…`, or a non-function value. */
+  form: 'function' | 'arrow' | 'function-expression' | 'value';
+  params: GenerateParam[];
+  /** 1-based source line of the declaration. */
+  line: number;
 }
 
 type TSModule = typeof TS;
@@ -37,6 +60,8 @@ interface ParseContext {
   sourceFile: TS.SourceFile;
   /** Top-level type alias / interface declarations by name. */
   declarations: Map<string, TS.TypeAliasDeclaration | TS.InterfaceDeclaration>;
+  /** Top-level enum declarations by name (mapped to `enum` FlowTypes). */
+  enums: Map<string, TS.EnumDeclaration>;
   warnings: string[];
   /** Cycle guard for alias resolution. */
   resolving: Set<string>;
@@ -62,6 +87,7 @@ export async function parseBlockSource(source: string): Promise<ParsedBlock> {
 
   const warnings: string[] = [];
   const declarations = new Map<string, TS.TypeAliasDeclaration | TS.InterfaceDeclaration>();
+  const enums = new Map<string, TS.EnumDeclaration>();
 
   // Contiguous runs of same-group statements are sliced as a whole so the text
   // between statements (blank lines, comments) is preserved verbatim.
@@ -72,6 +98,20 @@ export async function parseBlockSource(source: string): Promise<ParsedBlock> {
   }
   const runs: Run[] = [];
   const signature: { params?: readonly TS.ParameterDeclaration[]; returnType?: TS.TypeNode } = {};
+  const generateEntries: GenerateEntry[] = [];
+  const entryOf = (
+    form: GenerateEntry['form'],
+    node: TS.Node,
+    params: readonly TS.ParameterDeclaration[] = []
+  ): GenerateEntry => ({
+    form,
+    line: sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1,
+    params: params.map((p) => ({
+      name: ts.isIdentifier(p.name) ? p.name.text : null,
+      typed: !!p.type,
+      rest: !!p.dotDotDotToken,
+    })),
+  });
 
   for (const statement of sourceFile.statements) {
     const isContract =
@@ -81,21 +121,25 @@ export async function parseBlockSource(source: string): Promise<ParsedBlock> {
     if (ts.isTypeAliasDeclaration(statement) || ts.isInterfaceDeclaration(statement)) {
       declarations.set(statement.name.text, statement);
     }
+    if (ts.isEnumDeclaration(statement)) enums.set(statement.name.text, statement);
 
     // Capture the `generate` signature (parameters + return type).
     if (ts.isFunctionDeclaration(statement) && statement.name?.text === 'generate') {
       signature.params = statement.parameters;
       signature.returnType = statement.type;
+      // Overload signatures (no body) are not separate entry points.
+      if (statement.body) generateEntries.push(entryOf('function', statement, statement.parameters));
     } else if (ts.isVariableStatement(statement)) {
       for (const d of statement.declarationList.declarations) {
-        if (
-          ts.isIdentifier(d.name) &&
-          d.name.text === 'generate' &&
-          d.initializer &&
-          (ts.isArrowFunction(d.initializer) || ts.isFunctionExpression(d.initializer))
-        ) {
+        if (!ts.isIdentifier(d.name) || d.name.text !== 'generate') continue;
+        if (d.initializer && (ts.isArrowFunction(d.initializer) || ts.isFunctionExpression(d.initializer))) {
           signature.params = d.initializer.parameters;
           signature.returnType = d.initializer.type;
+          generateEntries.push(
+            entryOf(ts.isArrowFunction(d.initializer) ? 'arrow' : 'function-expression', d, d.initializer.parameters)
+          );
+        } else {
+          generateEntries.push(entryOf('value', d));
         }
       }
     }
@@ -116,16 +160,19 @@ export async function parseBlockSource(source: string): Promise<ParsedBlock> {
   const contractText = textOf(true);
   const bodyText = textOf(false);
 
-  const ctx: ParseContext = { ts, sourceFile, declarations, warnings, resolving: new Set(), signature };
+  const ctx: ParseContext = { ts, sourceFile, declarations, enums, warnings, resolving: new Set(), signature };
 
   const inputs = resolveInputs(ctx);
   const outputs = resolveOutputs(ctx);
+  const typeLabels = { inputs: labelInputs(ctx), outputs: labelOutputs(ctx) };
 
   return {
     contract: { inputs, outputs },
     contractText,
     bodyText,
     warnings,
+    generateEntries,
+    typeLabels,
   };
 }
 
@@ -419,6 +466,10 @@ function mapTypeReference(
     }
   }
 
+  // Local enum → its member values.
+  const enumDecl = ctx.enums.get(name);
+  if (enumDecl) return mapEnum(enumDecl, path, ctx);
+
   // Local alias / interface reference → resolve recursively (with cycle guard).
   const decl = ctx.declarations.get(name);
   if (decl) {
@@ -439,6 +490,131 @@ function mapTypeReference(
 
   ctx.warnings.push(`${path}: unknown type \`${name}\` — treated as unknown`);
   return { kind: 'unknown' };
+}
+
+/** `enum Mode { A = 'a', B = 'b' }` → enum FlowType of the member values. */
+function mapEnum(decl: TS.EnumDeclaration, path: string, ctx: ParseContext): FlowType {
+  const { ts } = ctx;
+  const options: Array<string | number> = [];
+  let next: number | null = 0;
+  for (const member of decl.members) {
+    const init = member.initializer;
+    if (!init) {
+      if (next === null) break;
+      options.push(next++);
+      continue;
+    }
+    if (ts.isStringLiteral(init)) {
+      options.push(init.text);
+      next = null;
+      continue;
+    }
+    const num = numericLiteralValue(init, ctx);
+    if (num !== null) {
+      options.push(num);
+      next = num + 1;
+      continue;
+    }
+    ctx.warnings.push(
+      `${path}: enum \`${decl.name.text}\` has a computed member — treated as unknown`
+    );
+    return { kind: 'unknown' };
+  }
+  return { kind: 'enum', options };
+}
+
+// ── Display labels ─────────────────────────────────────────────────────────
+
+function labelInputs(ctx: ParseContext): Record<string, string> {
+  const { ts } = ctx;
+  const decl = ctx.declarations.get('Inputs');
+  if (decl) return labelDecl(decl, ctx);
+  const params = ctx.signature.params;
+  if (!params || params.length === 0) return {};
+  if (params.length === 1) {
+    const p = params[0];
+    const literal = p.type ? unwrapToTypeLiteral(p.type, ctx) : null;
+    if (literal) return labelMembers(literal.members, ctx);
+    if (ts.isObjectBindingPattern(p.name) || !p.type || !ts.isIdentifier(p.name)) return {};
+    return { [p.name.text]: typeLabel(p.type, ctx) };
+  }
+  const labels: Record<string, string> = {};
+  for (const p of params) {
+    if (ts.isIdentifier(p.name) && p.type) labels[p.name.text] = typeLabel(p.type, ctx);
+  }
+  return labels;
+}
+
+function labelOutputs(ctx: ParseContext): Record<string, string> {
+  const decl = ctx.declarations.get('Outputs');
+  if (decl) return labelDecl(decl, ctx);
+  const rt = ctx.signature.returnType;
+  const literal = rt ? unwrapToTypeLiteral(rt, ctx) : null;
+  return literal ? labelMembers(literal.members, ctx) : {};
+}
+
+function labelDecl(
+  decl: TS.TypeAliasDeclaration | TS.InterfaceDeclaration,
+  ctx: ParseContext
+): Record<string, string> {
+  if (ctx.ts.isInterfaceDeclaration(decl)) return labelMembers(decl.members, ctx);
+  const literal = unwrapToTypeLiteral(decl.type, ctx);
+  return literal ? labelMembers(literal.members, ctx) : {};
+}
+
+function labelMembers(members: ReadonlyArray<TS.TypeElement>, ctx: ParseContext): Record<string, string> {
+  const labels: Record<string, string> = {};
+  for (const member of members) {
+    if (!ctx.ts.isPropertySignature(member) || !member.name) continue;
+    const key = propertyName(member.name, ctx);
+    if (key === null) continue;
+    labels[key] = member.type ? typeLabel(member.type, ctx) : 'unknown';
+  }
+  return labels;
+}
+
+/**
+ * The declared type as the author wrote it, normalised for display: alias and
+ * interface names kept (object shapes show by name), non-object aliases show
+ * their target (`Grid (Schematic[][])`), arrays keep their element type, and
+ * widget helpers drop their config generic (`Slider<{…}>` → `Slider`).
+ */
+function typeLabel(node: TS.TypeNode, ctx: ParseContext, seen: Set<string> = new Set()): string {
+  const { ts } = ctx;
+  if (ts.isParenthesizedTypeNode(node)) return `(${typeLabel(node.type, ctx, seen)})`;
+  if (ts.isArrayTypeNode(node)) return `${typeLabel(node.elementType, ctx, seen)}[]`;
+  if (ts.isUnionTypeNode(node)) return node.types.map((t) => typeLabel(t, ctx, seen)).join(' | ');
+  if (ts.isTypeLiteralNode(node)) {
+    const fields = node.members
+      .filter(ts.isPropertySignature)
+      .map((m) => {
+        const key = propertyName(m.name, ctx) ?? m.name.getText(ctx.sourceFile);
+        return `${key}${m.questionToken ? '?' : ''}: ${m.type ? typeLabel(m.type, ctx, seen) : 'unknown'}`;
+      });
+    return fields.length ? `{ ${fields.join('; ')} }` : '{}';
+  }
+  if (ts.isTypeReferenceNode(node)) {
+    if (!ts.isIdentifier(node.typeName)) return node.typeName.getText(ctx.sourceFile);
+    const name = node.typeName.text;
+    const arg = node.typeArguments?.[0];
+    if (name === 'Array' && arg) {
+      const inner = typeLabel(arg, ctx, seen);
+      return ts.isUnionTypeNode(arg) ? `(${inner})[]` : `${inner}[]`;
+    }
+    const decl = ctx.declarations.get(name);
+    if (decl && ts.isTypeAliasDeclaration(decl) && !seen.has(name)) {
+      // Object shapes read best by name; other aliases show what they stand for.
+      if (unwrapToTypeLiteral(decl.type, ctx)) return name;
+      seen.add(name);
+      try {
+        return `${name} (${typeLabel(decl.type, ctx, seen)})`;
+      } finally {
+        seen.delete(name);
+      }
+    }
+    return name;
+  }
+  return node.getText(ctx.sourceFile).replace(/\s+/g, ' ');
 }
 
 type WidgetConfig = Record<string, string | number | boolean>;

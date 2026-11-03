@@ -1,13 +1,19 @@
 /**
  * GroupSubgraphPreview — a READ-ONLY render of a group/subflow's nested subgraph
  * using the SAME React Flow + node types as the main canvas, so the hover peek
- * looks like the group physically contains the graph. Interaction is disabled
- * (no drag/zoom/pan/select/connect) and it's mounted only while hovering, so the
- * cost is bounded. Wrapped in its own ReactFlowProvider to isolate it from the
- * parent canvas's store/viewport.
+ * looks like the group physically contains the graph. Nodes can't be dragged,
+ * selected or connected, but the view itself pans (drag) and zooms (wheel/pinch).
+ * It's mounted only while hovering, so the cost is bounded. Wrapped in its own
+ * ReactFlowProvider to isolate it from the parent canvas's store/viewport.
+ *
+ * Wheel isolation: the wrapper must NOT carry React Flow's `nowheel` class,
+ * because the inner flow's own zoom filter rejects any wheel event whose target
+ * sits inside `.nowheel` (that made "scroll to zoom" dead). Instead, a native
+ * wheel listener on the wrapper stops propagation after the inner flow has
+ * handled the event, so the outer canvas never zooms/pans with it.
  */
 
-import { memo, useMemo } from 'react';
+import { memo, useEffect, useMemo, useRef } from 'react';
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -69,12 +75,24 @@ export const GroupSubgraphPreview = memo(function GroupSubgraphPreview({
     [edges]
   );
 
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = wrapperRef.current;
+    if (!el) return;
+    // Native (not React) listener: the outer canvas's d3-zoom listens natively,
+    // and React's synthetic stopPropagation runs too late to stop it.
+    const stop = (event: WheelEvent) => event.stopPropagation();
+    el.addEventListener('wheel', stop);
+    return () => el.removeEventListener('wheel', stop);
+  }, [rfNodes.length]);
+
   if (!rfNodes.length) return null;
 
   return (
     <div
+      ref={wrapperRef}
       style={{ width, height }}
-      className="nowheel nodrag overflow-hidden rounded-md border border-neutral-800 bg-neutral-950"
+      className="nodrag overflow-hidden rounded-md border border-neutral-800 bg-neutral-950"
     >
       <ReactFlowProvider>
         <ReactFlow

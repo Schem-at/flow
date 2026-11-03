@@ -108,6 +108,8 @@ declare const Noise: {
 
 declare const Easing: { [name: string]: (t: number) => number };
 declare const Logger: { log(...args: any[]): void; warn(...args: any[]): void; error(...args: any[]): void; debug(...args: any[]): void };
+/** Report how far the whole tool run is (fraction 0..1) with a short status line, e.g. progress(0.4, 'Placing blocks'). */
+declare const progress: (fraction: number, message?: string) => void;
 declare const Progress: {
   report(percent: number, message?: string, data?: unknown): void;
   step(current: number, total: number, message?: string): void;
@@ -270,7 +272,7 @@ export const PROVIDER_ENDOWMENT_KEYS: Record<string, string[]> = {
   nucleation: ['Nucleation', 'Schematic', 'SchematicUtils'],
   flowlib: [
     'Bytes',
-    'Calculator', 'Easing', 'Logger', 'Noise', 'Progress', 'Vec', 'Vec2', 'Vec3', 'Math',
+    'Calculator', 'Easing', 'Logger', 'Noise', 'Progress', 'progress', 'Vec', 'Vec2', 'Vec3', 'Math',
     'Field', 'Image', 'Random', 'Table', 'Mcfunction', 'McfunctionBuilder', 'Grid', 'Combinatorics',
     // Internal infra endowment: host-backed read-only clock for SES-safe trace
     // timing (see standard.ts / runtime-types STANDARD `declare const __hostNow`).

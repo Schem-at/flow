@@ -4,6 +4,7 @@
  */
 
 import { useCallback, useState, useMemo, useEffect, useRef } from 'react';
+import { formatProgressLog, logTone } from '../../lib/progressLog';
 import { Play, Trash2, Loader2, CheckCircle, XCircle, AlertTriangle, Terminal, Download, Hash, Type, List } from 'lucide-react';
 import { useFlowStore, type FlowNode } from '../../store/flowStore';
 import type { IODefinition, IOPort } from '@flow/core';
@@ -60,27 +61,8 @@ export function ExecutionPanel({ workerClient }: ExecutionPanelProps) {
 
     // Set up event listeners for local worker
     client.on('progress', (payload: any) => {
-      if (payload.message) {
-        // Clean up log prefix if present
-        const message = payload.message.startsWith('Log: ') 
-          ? payload.message.substring(5) 
-          : payload.message;
-        
-        // Determine log level/style based on message content or data
-        let formattedMessage = message;
-        if (payload.data && payload.data.level) {
-           // If we have structured log data
-           const level = payload.data.level.toUpperCase();
-           if (level === 'ERROR') formattedMessage = `[ERROR] ${message}`;
-           else if (level === 'WARN') formattedMessage = `[WARN] ${message}`;
-           else formattedMessage = `[OK] ${message}`;
-        } else if (!message.startsWith('[')) {
-           // Add default prefix if none exists
-           formattedMessage = `[OK] ${message}`;
-        }
-        
-        addExecutionLog(formattedMessage);
-      }
+      const line = formatProgressLog(payload);
+      if (line) addExecutionLog(line);
     });
 
     client.on('error', (error: any) => {
@@ -298,9 +280,10 @@ export function ExecutionPanel({ workerClient }: ExecutionPanelProps) {
   }, [addExecutionLog]);
 
   const getLogStyle = (log: string) => {
-    if (log.includes('[ERROR]')) return { bg: 'bg-red-500/10', text: 'text-red-400', border: 'border-red-500/20', Icon: XCircle };
-    if (log.includes('[OK]')) return { bg: 'bg-green-500/10', text: 'text-green-400', border: 'border-green-500/20', Icon: CheckCircle };
-    if (log.includes('[WARN]')) return { bg: 'bg-amber-500/10', text: 'text-amber-400', border: 'border-amber-500/20', Icon: AlertTriangle };
+    const tone = logTone(log);
+    if (tone === 'error') return { bg: 'bg-red-500/10', text: 'text-red-400', border: 'border-red-500/20', Icon: XCircle };
+    if (tone === 'ok') return { bg: 'bg-green-500/10', text: 'text-green-400', border: 'border-green-500/20', Icon: CheckCircle };
+    if (tone === 'warn') return { bg: 'bg-amber-500/10', text: 'text-amber-400', border: 'border-amber-500/20', Icon: AlertTriangle };
     return { bg: '', text: 'text-neutral-400', border: 'border-transparent', Icon: null };
   };
 

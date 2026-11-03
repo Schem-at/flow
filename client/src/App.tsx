@@ -19,6 +19,8 @@ const Workbench = lazy(() => loadRoute(() => import('./components/Workbench')));
 const DocsModal = lazy(() => loadRoute(() => import('./components/editor/DocsModal')).then(m => ({ default: m.DocsModal })));
 import { Toaster } from './components/Toaster';
 import { toast } from './lib/toast';
+import { authFailureNotice } from './lib/authToast';
+import { SELF_HANDLED_AUTH } from './lib/saveFlow';
 import { features } from './config/features';
 
 const queryClient = new QueryClient();
@@ -26,22 +28,28 @@ const queryClient = new QueryClient();
 function App() {
  const [docsLoaded, setDocsLoaded] = useState(false);
  useEffect(() => { const open = () => setDocsLoaded(true); const key = (e: KeyboardEvent) => { if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "d") { e.preventDefault(); open(); } }; window.addEventListener("flow:open-docs", open); window.addEventListener("keydown", key); return () => { window.removeEventListener("flow:open-docs", open); window.removeEventListener("keydown", key); }; }, []);
-	// Surface auth failures: any request that comes back 401/403 raises a toast,
-	// so a signed-out run/load isn't a silent failure. The auth PROBE itself
-	// (`/api/user`) legitimately 401s when signed out — exclude it.
+	// Surface auth failures: 401 (signed out) asks to sign in, 403 (signed in but
+	// not allowed, e.g. someone else's flow) says so, so neither is a silent
+	// failure. The auth probe (`/api/user`) is excluded inside authFailureNotice.
 	useEffect(() => {
 		const orig = window.fetch.bind(window);
 		let last = 0;
 		window.fetch = (async (...args: Parameters<typeof orig>) => {
 			const res = await orig(...args);
 			const url = typeof args[0] === 'string' ? args[0] : (args[0] as Request)?.url ?? '';
-			if ((res.status === 401 || res.status === 403) && !url.includes('/api/user') && Date.now() - last > 4000) {
+			// Callers that handle their own 401/403 (e.g. Save, which falls back to a copy) opt out.
+			const selfHandled = !!args[1] && SELF_HANDLED_AUTH.has(args[1]);
+			const notice = selfHandled ? null : authFailureNotice(res.status, url);
+			if (notice && Date.now() - last > 4000) {
 				last = Date.now();
 				const schemati = import.meta.env.VITE_SCHEMATI_URL || 'https://schemati.test';
-				toast('Authentication required — sign in to use this.', 'error', {
-					href: `${schemati}/login?redirect=${encodeURIComponent(window.location.href)}`,
-					hrefLabel: 'Sign in',
-				});
+				toast(
+					notice.message,
+					'error',
+					notice.signIn
+						? { href: `${schemati}/login?redirect=${encodeURIComponent(window.location.href)}`, hrefLabel: 'Sign in' }
+						: undefined
+				);
 			}
 			return res;
 		}) as typeof window.fetch;

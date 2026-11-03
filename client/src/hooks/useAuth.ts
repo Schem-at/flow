@@ -5,8 +5,11 @@ const SCHEMATI_URL = import.meta.env.VITE_SCHEMATI_URL || 'https://schemati.test
 
 interface User {
   uuid: string;
-  username: string;
+  /** Minecraft name (Player.last_seen_name); null only if the account has no player. */
+  username: string | null;
   avatar: string | null;
+  /** Absolute link to the user's profile on the platform. */
+  profileUrl?: string | null;
   isAdmin: boolean;
 }
 

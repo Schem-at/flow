@@ -20,3 +20,10 @@ it('enforces form field contracts and defaults in the execution service', () => 
   expect(validateToolInputs(graph, {}).layers).toEqual(['hat']);
   expect(() => validateToolInputs(graph, {layers:['invalid']})).toThrow('Select valid options');
 });
+
+it('reads a per-input description (toolField.description, then the legacy help)', async () => {
+  const { toolFieldPresentation } = await import('./fields');
+  expect(toolFieldPresentation({ data: { toolField: { label: 'Width', description: 'Blocks across.' } } }).help).toBe('Blocks across.');
+  expect(toolFieldPresentation({ data: { toolField: { help: 'Legacy.', description: 'New.' } } }).help).toBe('Legacy.');
+  expect(toolFieldPresentation({ data: { description: 'Node text.' } }).help).toBe('Node text.');
+});

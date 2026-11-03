@@ -221,6 +221,8 @@ export {
 // Version
 export { validateToolInputs } from './tools/validate.js';
 export { FlowToolClient } from './tools/ToolClient.js';
+export { lintTool, hasLintErrors, toolRuntime, TOOL_RUNTIMES, REMOTE_INPUT_KINDS, IMPLICIT_ANY_CODES, MAX_TOOL_TIMEOUT_SECONDS, type ToolLintIssue, type CodeDiagnostic, type LintToolOptions, type ToolRuntime } from './tools/lint.js';
+export { toolOutputPorts, type ToolOutputPort, type ToolOutputKind } from './tools/outputs.js';
 export const VERSION = '0.1.0';
 
 export { inputFieldType, DEFAULT_PALETTE, isToolFieldVisible, toolFieldPresentation, type ToolFieldPresentation, type PaletteChoice } from './tools/fields.js';

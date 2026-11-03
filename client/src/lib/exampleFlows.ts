@@ -37,7 +37,7 @@ type Outputs = {
   stitched: Schematic;
 };
 
-function generate(inputs) {
+function generate(inputs: Inputs): Outputs {
   const tiles = inputs.tiles || [];
   const spacing = inputs.spacing ?? 2;
 
@@ -417,7 +417,7 @@ const GRADIENT = [
   'minecraft:white_concrete',
 ];
 
-function generate(inputs) {
+function generate(inputs: Inputs): Outputs {
   const maxIter = (inputs.iterations | 0) || 80;
   const W = Math.max(1, inputs.width | 0);
   const H = Math.max(1, inputs.height | 0);
@@ -445,8 +445,8 @@ function generate(inputs) {
         zx = xt;
         it++;
       }
-      let block;
-      let t;
+      let block: string;
+      let t: number;
       if (it >= maxIter) {
         block = 'minecraft:black_concrete';
         t = 0; // interior -> dark in the preview
@@ -455,7 +455,7 @@ function generate(inputs) {
         t = it / maxIter;
         block = GRADIENT[Math.min(GRADIENT.length - 1, Math.floor(t * GRADIENT.length))];
       }
-      schem.set_block(px, 0, pz, block); // flat: single y = 0 plane
+      schem.setBlock(px, 0, pz, block); // flat: single y = 0 plane
       rowField.push(t);
     }
     field.push(rowField);
@@ -464,7 +464,7 @@ function generate(inputs) {
   // A single-palette schematic trips a divide-by-zero in nucleation's region
   // packing (same guard as the Julia tile) — vary one block when all interior.
   if (!anyEscaped) {
-    schem.set_block(0, 0, 0, 'minecraft:gray_concrete');
+    schem.setBlock(0, 0, 0, 'minecraft:gray_concrete');
   }
 
   return { schematic: schem, preview: Image.fromField(field, 'magma') };
@@ -578,7 +578,7 @@ export const ROM_BUILD_SOURCE = `type Inputs = {
 };
 type Outputs = { rom: Schematic };
 
-function generate(inputs) {
+function generate(inputs: Inputs): Outputs {
   // Convert the data from sourceBase (compact input, up to 64) to targetBase
   // (<= 16, so every digit fits one comparator barrel: signal 0..15). The data
   // is treated as one number, so leading zeros aren't preserved. Digits use
@@ -637,7 +637,7 @@ function generate(inputs) {
       p.role === 'zero'    ? inputs.solidBlock :
       p.role === 'fifteen' ? 'minecraft:redstone_block' :
       'minecraft:barrel[facing=up]{signal=' + p.value + '}';
-    rom.set_block(p.x, p.y, p.z, block);
+    rom.setBlock(p.x, p.y, p.z, block);
   }
   return { rom };
 }

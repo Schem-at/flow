@@ -108,12 +108,12 @@ export function Navbar() {
               {user.avatar && (
                 <img
                   src={user.avatar}
-                  alt={user.username}
+                  alt={user.username ?? ''}
                   className="w-6 h-6 rounded ring-1 ring-white/10 group-hover:ring-brand-500/30 transition-all"
                 />
               )}
               <span className="text-xs text-neutral-400 group-hover:text-white transition-colors hidden sm:block">
-                {user.username}
+                {user.username ?? user.uuid}
               </span>
               <ChevronDown className={`w-3 h-3 text-neutral-600 transition-transform ${userMenu ? 'rotate-180' : ''}`} />
             </button>
@@ -127,7 +127,7 @@ export function Navbar() {
                     <div className="text-[10px] text-neutral-600 font-mono truncate">{user.uuid}</div>
                   </div>
                   <a
-                    href={`${SCHEMATI_URL}/users/${user.uuid}`}
+                    href={user.profileUrl || `${SCHEMATI_URL}/users/${user.uuid}`}
                     className="flex items-center gap-2.5 w-full px-3 py-2 text-[11px] text-neutral-300 hover:bg-white/5 transition-colors"
                   >
                     <User className="w-3 h-3 text-neutral-500" />

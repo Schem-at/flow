@@ -12,7 +12,8 @@
         "minecraft"
       ],
       "timeout": 60,
-      "output": "schematic"
+      "output": "schematic",
+      "runtime": "any"
     },
     "examples": [
       {
@@ -50,7 +51,8 @@
           "help": "Any Java Edition account.",
           "required": true,
           "group": "Source",
-          "order": 0
+          "order": 0,
+          "description": "Any Java Edition account."
         },
         "inputName": "username"
       }
@@ -76,7 +78,8 @@
           "max": 4,
           "required": true,
           "group": "Settings",
-          "order": 1
+          "order": 1,
+          "description": "Blocks per texel. 1x is 32 blocks tall."
         },
         "inputName": "scale"
       }
@@ -105,7 +108,8 @@
           },
           "required": true,
           "group": "Settings",
-          "order": 2
+          "order": 2,
+          "description": "The hat and jacket layer of the skin."
         },
         "inputName": "overlay"
       }
@@ -157,7 +161,8 @@
           "widget": "skin-overlay",
           "group": "Settings",
           "advanced": true,
-          "order": 3
+          "order": 3,
+          "description": "Choose which outer layers to include."
         },
         "inputName": "overlay_parts"
       }
@@ -190,7 +195,9 @@
           },
           "required": true,
           "group": "Materials",
-          "order": 4
+          "order": 4,
+          "help": "Which blocks the statue may use.",
+          "description": "Which blocks the statue may use."
         },
         "inputName": "palette"
       }
@@ -217,7 +224,9 @@
           },
           "required": true,
           "group": "Export",
-          "order": 5
+          "order": 5,
+          "help": "File format of the result: .schem for WorldEdit, .litematic for Litematica.",
+          "description": "File format of the result: .schem for WorldEdit, .litematic for Litematica."
         },
         "inputName": "format"
       }
@@ -232,7 +241,7 @@
       "data": {
         "label": "Load player skin",
         "description": "Fetch and decode the selected player skin. Geometry stays in the following nodes.",
-        "code": "type Inputs = { username: MinecraftUsername };\ntype Outputs = { skin: { name: string; slim: boolean; image: Image } };\n// Shared loader handles the profile request, PNG decoding and legacy skin expansion.\nasync function generate(inputs: Inputs): Promise<Outputs> {\n  return { skin: await Blocks.skin(inputs.username) };\n}",
+        "code": "type Inputs = { username: MinecraftUsername };\ntype Outputs = { skin: SkinProfile };\n// Shared loader handles the profile request, PNG decoding and legacy skin expansion.\nasync function generate(inputs: Inputs): Promise<Outputs> {\n  progress(0.05, 'Loading the skin');\n  return { skin: await Blocks.skin(inputs.username) };\n}",
         "width": 640,
         "contract": {
           "inputs": {
@@ -242,18 +251,7 @@
           },
           "outputs": {
             "skin": {
-              "kind": "object",
-              "fields": {
-                "name": {
-                  "kind": "string"
-                },
-                "slim": {
-                  "kind": "boolean"
-                },
-                "image": {
-                  "kind": "image"
-                }
-              }
+              "kind": "unknown"
             }
           }
         }
@@ -269,7 +267,7 @@
       "data": {
         "label": "Resolve block palette",
         "description": "Apply the preset, additions and exclusions using Nucleation.Palette and PaletteBuilder.",
-        "code": "type Inputs = { choice: BlockPalette };\ntype Outputs = { palette: Nucleation.Palette; replacements: Record<string, string> };\nfunction generate(inputs: Inputs): Outputs {\n  const ids = resolveBlockIds(Nucleation, inputs.choice);\n  if (!ids.length) throw new Error('The palette has no blocks in it.');\n  const palette = Nucleation.Palette.fromBlockIds(JSON.stringify(ids)).forMaterial(false);\n  if (!palette.len()) throw new Error('Add an opaque block to the palette.');\n  return { palette, replacements: inputs.choice.replace };\n}\n\nconst PRESET_STATICS = {\n    solid: 'solid',\n    materials: 'materials',\n    concrete: 'concrete',\n    wool: 'wool',\n    terracotta: 'terracotta',\n    wood: 'wood',\n    grayscale: 'grayscale',\n};\n\nfunction decode(json) {\n    const list = JSON.parse(json || '[]');\n\n    return Array.isArray(list) ? list.map(String) : [];\n}\n\nfunction survivalIds(nucleation) {\n    const builder = nucleation.PaletteBuilder.create();\n    builder.survivalOnly();\n    builder.fullBlocksOnly();\n    builder.excludeFalling();\n    builder.excludeTileEntities();\n\n    return decode(builder.build().blockIdsJson());\n}\n\n/** @returns {string[]} the ids the choice asks for, before Palette.fromBlockIds */\nfunction resolveBlockIds(nucleation, choice = {}) {\n    const preset = choice.preset || 'solid';\n    const include = (choice.include || []).map(String);\n    const exclude = new Set((choice.exclude || []).map(String));\n\n    let base = [];\n    if (preset === 'custom') {\n        base = [];\n    } else if (preset === 'survival') {\n        base = survivalIds(nucleation);\n    } else {\n        const staticName = Object.hasOwn(PRESET_STATICS, preset) ? PRESET_STATICS[preset] : 'solid';\n        base = decode(nucleation.Palette[staticName]().blockIdsJson());\n    }\n\n    const ids = [...new Set([...base, ...include])];\n\n    return ids.filter((id) => !exclude.has(id));\n}\n\n",
+        "code": "type Inputs = { choice: BlockPalette };\ntype Outputs = { palette: Nucleation.Palette; replacements: Record<string, string> };\nfunction generate(inputs: Inputs): Outputs {\n  progress(0.1, 'Resolving the palette');\n  const ids = resolveBlockIds(Nucleation, inputs.choice);\n  if (!ids.length) throw new Error('The palette has no blocks in it.');\n  const palette = Nucleation.Palette.fromBlockIds(JSON.stringify(ids)).forMaterial(false);\n  if (!palette.len()) throw new Error('Add an opaque block to the palette.');\n  return { palette, replacements: inputs.choice.replace };\n}\n\ntype StaticPreset = 'solid' | 'materials' | 'concrete' | 'wool' | 'terracotta' | 'wood' | 'grayscale';\n\nconst PRESET_STATICS: Record<string, StaticPreset> = {\n    solid: 'solid',\n    materials: 'materials',\n    concrete: 'concrete',\n    wool: 'wool',\n    terracotta: 'terracotta',\n    wood: 'wood',\n    grayscale: 'grayscale',\n};\n\nfunction decode(json: string): string[] {\n    const list = JSON.parse(json || '[]');\n\n    return Array.isArray(list) ? list.map(String) : [];\n}\n\nfunction survivalIds(nucleation: typeof Nucleation): string[] {\n    const builder = nucleation.PaletteBuilder.create();\n    builder.survivalOnly();\n    builder.fullBlocksOnly();\n    builder.excludeFalling();\n    builder.excludeTileEntities();\n\n    return decode(builder.build().blockIdsJson());\n}\n\n/** The ids the choice asks for, before Palette.fromBlockIds. */\nfunction resolveBlockIds(nucleation: typeof Nucleation, choice: Partial<BlockPalette> = {}): string[] {\n    const preset = choice.preset || 'solid';\n    const include = (choice.include || []).map(String);\n    const exclude = new Set((choice.exclude || []).map(String));\n\n    let base: string[] = [];\n    if (preset === 'custom') {\n        base = [];\n    } else if (preset === 'survival') {\n        base = survivalIds(nucleation);\n    } else {\n        const staticName: StaticPreset = Object.prototype.hasOwnProperty.call(PRESET_STATICS, preset) ? PRESET_STATICS[preset] : 'solid';\n        base = decode(nucleation.Palette[staticName]().blockIdsJson());\n    }\n\n    const ids = [...new Set([...base, ...include])];\n\n    return ids.filter((id) => !exclude.has(id));\n}",
         "width": 640,
         "contract": {
           "inputs": {
@@ -299,23 +297,12 @@
       "data": {
         "label": "Unwrap skin onto statue",
         "description": "Map each opaque skin texel to a surface voxel. Edit the UV layout, limbs, scale and outer-layer rules here.",
-        "code": "type Inputs = { skin: { name: string; slim: boolean; image: Image }; scale: number; overlay: 'none' | 'flat' | 'shell'; overlay_parts: string[] };\ntype Outputs = { voxels: { color: number; positions: number[][] }[] };\nfunction generate(inputs: Inputs): Outputs {\n  // Geometry is independent of material matching: group positions by their RGB colour.\n  const colors = { closest(r, g, b) { return String((r << 16) | (g << 8) | b); } };\n  const builder = new StatueBuilder(inputs.skin.image, {\n    scale: inputs.scale, slim: inputs.skin.slim, overlay: inputs.overlay,\n    overlayParts: StatueBuilder.partsFromList(inputs.overlay_parts),\n  }, colors);\n  return { voxels: Object.entries(builder.blocks()).map(([color, positions]) => ({ color: Number(color), positions })) };\n}\n\n// Editable skin UVs, body-part positions, face priority and overlay geometry.\nconst FACE_PRIORITY = ['front', 'back', 'right', 'left', 'top', 'bottom'];\n\n/** Sheet origin of each part's base and overlay box. */\nconst ORIGIN = {\n    head: { base: [0, 0], overlay: [32, 0] },\n    body: { base: [16, 16], overlay: [16, 32] },\n    right_arm: { base: [40, 16], overlay: [40, 32] },\n    left_arm: { base: [32, 48], overlay: [48, 48] },\n    right_leg: { base: [0, 16], overlay: [0, 32] },\n    left_leg: { base: [16, 48], overlay: [0, 48] },\n};\n\n/**\n * The standard 64x64 skin layout, as one table. Each part is a box; each of its\n * six faces is a rectangle on the sheet. Coordinates are the top-left texel of\n * the face; a face is sampled with u to the right and v down.\n *\n * Box unwrap convention (Minecraft's): for a box of w x h x d at sheet origin\n * (ox, oy):\n *   top    (ox + d,       oy)        w x d\n *   bottom (ox + d + w,   oy)        w x d\n *   right  (ox,           oy + d)    d x h     (the model's right, viewer's left)\n *   front  (ox + d,       oy + d)    w x h\n *   left   (ox + d + w,   oy + d)    d x h\n *   back   (ox + 2d + w,  oy + d)    w x h\n */\nconst SkinLayout = {\n    PARTS: ['head', 'body', 'right_arm', 'left_arm', 'right_leg', 'left_leg'],\n\n    FACES: ['front', 'back', 'right', 'left', 'top', 'bottom'],\n\n    size(part, slim) {\n        switch (part) {\n            case 'head': return { w: 8, h: 8, d: 8 };\n            case 'body': return { w: 8, h: 12, d: 4 };\n            case 'right_arm':\n            case 'left_arm': return { w: slim ? 3 : 4, h: 12, d: 4 };\n            case 'right_leg':\n            case 'left_leg': return { w: 4, h: 12, d: 4 };\n            default: throw new Error(`Unknown skin part ${part}`);\n        }\n    },\n\n    /**\n     * Block offset of the part's min corner. The statue faces south (+z is its\n     * front), stands on y=0, and is centred on x. The model's right arm is on\n     * the viewer's left, so it gets the lower x.\n     */\n    position(part, slim) {\n        const arm = slim ? 3 : 4;\n        switch (part) {\n            case 'head': return { x: arm, y: 24, z: 0 };\n            case 'body': return { x: arm, y: 12, z: 2 };\n            case 'right_arm': return { x: 0, y: 12, z: 2 };\n            case 'left_arm': return { x: arm + 8, y: 12, z: 2 };\n            case 'right_leg': return { x: arm, y: 0, z: 2 };\n            case 'left_leg': return { x: arm + 4, y: 0, z: 2 };\n            default: throw new Error(`Unknown skin part ${part}`);\n        }\n    },\n\n    /** Sheet pixel for local face coordinate (u, v). */\n    texel(part, face, u, v, layer, slim) {\n        const [ox, oy] = ORIGIN[part][layer];\n        const { w, d } = SkinLayout.size(part, slim);\n\n        let fx;\n        let fy;\n        switch (face) {\n            case 'top': [fx, fy] = [ox + d, oy]; break;\n            case 'bottom': [fx, fy] = [ox + d + w, oy]; break;\n            case 'right': [fx, fy] = [ox, oy + d]; break;\n            case 'front': [fx, fy] = [ox + d, oy + d]; break;\n            case 'left': [fx, fy] = [ox + d + w, oy + d]; break;\n            case 'back': [fx, fy] = [ox + 2 * d + w, oy + d]; break;\n            default: throw new Error(`Unknown face ${face}`);\n        }\n\n        return [fx + u, fy + v];\n    },\n\n    /** Face dimensions in texels: [across, down]. */\n    faceSize(part, face, slim) {\n        const { w, h, d } = SkinLayout.size(part, slim);\n        switch (face) {\n            case 'front':\n            case 'back': return [w, h];\n            case 'right':\n            case 'left': return [d, h];\n            case 'top':\n            case 'bottom': return [w, d];\n            default: throw new Error(`Unknown face ${face}`);\n        }\n    },\n};\n\nfunction texelAt(texels, x, y) {\n    const i = (y * texels.width + x) * 4;\n    const d = texels.data;\n\n    return { r: d[i], g: d[i + 1], b: d[i + 2], a: d[i + 3] };\n}\n\nclass StatueBuilder {\n    /** Overlay name as the option shows it => the SkinLayout part it covers. */\n    static OVERLAY_PARTS = {\n        hat: 'head',\n        jacket: 'body',\n        right_sleeve: 'right_arm',\n        left_sleeve: 'left_arm',\n        right_pants: 'right_leg',\n        left_pants: 'left_leg',\n    };\n\n    /** @param {string[]} on the overlay names that are switched on */\n    static partsFromList(on) {\n        const map = {};\n        for (const option of Object.keys(StatueBuilder.OVERLAY_PARTS)) map[option] = on.includes(option);\n\n        return map;\n    }\n\n    constructor(texels, { scale = 1, overlay = 'none', overlayParts = null, slim = false } = {}, colorSource) {\n        this.texels = texels;\n        this.scale = scale;\n        this.overlay = overlay;\n        this.slim = slim;\n        this.colors = colorSource;\n\n        const parts = overlayParts || StatueBuilder.partsFromList(Object.keys(StatueBuilder.OVERLAY_PARTS));\n        this.partOverlay = {};\n        for (const [option, part] of Object.entries(StatueBuilder.OVERLAY_PARTS)) {\n            // PHP reads `(bool) ($overlayParts[$option] ?? true)`: a missing key\n            // is on, a present one is whatever it coerces to. `!== false` would\n            // have kept 0, '' and null on where PHP turns them off.\n            this.partOverlay[part] = option in parts ? Boolean(parts[option]) : true;\n        }\n    }\n\n    /**\n     * A shell only widens the statue when at least one part is grown. With every\n     * part switched off the outer layer costs nothing, so the frame stays the\n     * size of the base model.\n     */\n    grows() {\n        return this.overlay === 'shell' && Object.values(this.partOverlay).some(Boolean);\n    }\n\n    /** @returns {[number, number, number]} width, height, depth in blocks */\n    dimensions() {\n        const grow = this.grows() ? 1 : 0;\n        const arm = this.slim ? 3 : 4;\n        const w = arm * 2 + 8 + 2 * grow;\n        const h = 32 + grow;        // hat on top; feet stay on the ground\n        const d = 8 + 2 * grow;     // shell grows both the front and the back\n\n        return [w * this.scale, h * this.scale, d * this.scale];\n    }\n\n    /** @returns {Object<string, [number, number, number][]>} block id => positions */\n    blocks() {\n        const out = {};\n        const seen = new Set();\n        const shellShift = this.grows() ? 1 : 0;\n\n        for (const part of SkinLayout.PARTS) {\n            this.#placePart(part, 'base', 0, out, seen, shellShift);\n            if (this.overlay === 'shell' && this.partOverlay[part]) {\n                this.#placePart(part, 'overlay', 1, out, seen, shellShift);\n            }\n        }\n\n        return out;\n    }\n\n    #placePart(part, layer, grow, out, seen, shellShift) {\n        const size = SkinLayout.size(part, this.slim);\n        const pos = SkinLayout.position(part, this.slim);\n        const w = size.w + 2 * grow;\n        let h = size.h + 2 * grow;\n        const d = size.d + 2 * grow;\n        const x0 = pos.x - grow + shellShift;\n        let y0 = pos.y - grow;\n        const z0 = pos.z - grow + shellShift;\n        // Feet never sink: a grown leg keeps its sole on y=0.\n        if (grow && (part === 'right_leg' || part === 'left_leg')) {\n            y0 = 0;\n            h -= 1;\n        }\n        const flat = layer === 'base' && this.overlay === 'flat' && this.partOverlay[part];\n\n        for (let x = 0; x < w; x++) {\n            for (let y = 0; y < h; y++) {\n                for (let z = 0; z < d; z++) {\n                    const onSurface = x === 0 || x === w - 1 || y === 0 || y === h - 1 || z === 0 || z === d - 1;\n                    if (!onSurface) continue;\n\n                    const face = this.#faceFor(x, y, z, w, h, d);\n                    let [u, v] = this.#faceCoord(face, x, y, z, w, h, d);\n                    if (grow) {\n                        // A shell is a one-block layer outside the part: sample the overlay\n                        // 1:1 against the base face, extending the edge texel across the\n                        // ring, instead of stretching the whole face proportionally.\n                        const [fw, fh] = SkinLayout.faceSize(part, face, this.slim);\n                        u = Math.max(0, Math.min(fw - 1, u - 1));\n                        v = Math.max(0, Math.min(fh - 1, v - 1));\n                    }\n\n                    const base = this.#texelColour(part, face, u, v, layer);\n                    const over = flat ? this.#texelColour(part, face, u, v, 'overlay') : null;\n                    // Flat overlay: the overlay texel wins when opaque (it paints the jacket\n                    // or hat over the body, even where the body texel beneath is\n                    // transparent); otherwise the base texel wins when opaque; otherwise air.\n                    const colour = over !== null && over.a >= 128 ? over : (base.a >= 128 ? base : null);\n                    if (colour === null) continue;\n\n                    const block = this.colors.closest(colour.r, colour.g, colour.b, null);\n                    this.#emit(out, seen, block, x0 + x, y0 + y, z0 + z);\n                }\n            }\n        }\n    }\n\n    #texelColour(part, face, u, v, layer) {\n        const [px, py] = SkinLayout.texel(part, face, u, v, layer, this.slim);\n\n        return texelAt(this.texels, px, py);\n    }\n\n    #emit(out, seen, block, bx, by, bz) {\n        const s = this.scale;\n        for (let dx = 0; dx < s; dx++) {\n            for (let dy = 0; dy < s; dy++) {\n                for (let dz = 0; dz < s; dz++) {\n                    const x = bx * s + dx;\n                    const y = by * s + dy;\n                    const z = bz * s + dz;\n                    const key = `${x},${y},${z}`;\n                    if (seen.has(key)) continue;\n                    seen.add(key);\n                    (out[block] ||= []).push([x, y, z]);\n                }\n            }\n        }\n    }\n\n    /** Which face a surface block belongs to, by priority. z = d-1 is the front (+z). */\n    #faceFor(x, y, z, w, h, d) {\n        for (const face of FACE_PRIORITY) {\n            let on = false;\n            switch (face) {\n                case 'front': on = z === d - 1; break;\n                case 'back': on = z === 0; break;\n                case 'right': on = x === 0; break;   // model's right is the viewer's left\n                case 'left': on = x === w - 1; break;\n                case 'top': on = y === h - 1; break;\n                case 'bottom': on = y === 0; break;\n                default: on = false;\n            }\n            if (on) return face;\n        }\n\n        // Unreachable: onSurface already guarantees one of the six conditions above holds.\n        throw new Error('Surface block matched no face; onSurface and faceFor are out of sync.');\n    }\n\n    /** Local face coordinate: u to the right on the sheet, v down. */\n    #faceCoord(face, x, y, z, w, h, d) {\n        const vDown = h - 1 - y;\n        switch (face) {\n            case 'front': return [x, vDown];\n            case 'back': return [w - 1 - x, vDown];\n            case 'right': return [z, vDown];          // sheet \"right\" face reads from back (z=0) to front\n            case 'left': return [d - 1 - z, vDown];\n            case 'top': return [x, z];                 // sheet top face: v grows towards the front\n            case 'bottom': return [x, d - 1 - z];\n            default: throw new Error(`Unknown face ${face}`);\n        }\n    }\n}\n\n",
+        "code": "type Inputs = { skin: SkinProfile; scale: number; overlay: 'none' | 'flat' | 'shell'; overlay_parts: string[] };\ntype Outputs = { voxels: { color: number; positions: number[][] }[] };\nfunction generate(inputs: Inputs): Outputs {\n  progress(0.2, 'Unwrapping the skin');\n  // Geometry is independent of material matching: group positions by their RGB colour.\n  const colors: ColorSource = { closest(r: number, g: number, b: number): string { return String((r << 16) | (g << 8) | b); } };\n  const builder = new StatueBuilder(inputs.skin.image, {\n    scale: inputs.scale, slim: inputs.skin.slim, overlay: inputs.overlay,\n    overlayParts: StatueBuilder.partsFromList(inputs.overlay_parts),\n  }, colors);\n  return { voxels: Object.entries(builder.blocks()).map(([color, positions]) => ({ color: Number(color), positions })) };\n}\n\n// Editable skin UVs, body-part positions, face priority and overlay geometry.\ntype Part = 'head' | 'body' | 'right_arm' | 'left_arm' | 'right_leg' | 'left_leg';\ntype Face = 'front' | 'back' | 'right' | 'left' | 'top' | 'bottom';\ntype Layer = 'base' | 'overlay';\ntype Overlay = 'none' | 'flat' | 'shell';\ntype Rgba = { r: number; g: number; b: number; a: number };\ntype ColorSource = { closest(r: number, g: number, b: number): string };\ntype BlockPositions = Record<string, number[][]>;\ntype StatueOptions = { scale?: number; overlay?: Overlay; overlayParts?: Record<string, boolean> | null; slim?: boolean };\n\nconst FACE_PRIORITY: Face[] = ['front', 'back', 'right', 'left', 'top', 'bottom'];\n\n/** Sheet origin of each part's base and overlay box. */\nconst ORIGIN: Record<Part, Record<Layer, [number, number]>> = {\n    head: { base: [0, 0], overlay: [32, 0] },\n    body: { base: [16, 16], overlay: [16, 32] },\n    right_arm: { base: [40, 16], overlay: [40, 32] },\n    left_arm: { base: [32, 48], overlay: [48, 48] },\n    right_leg: { base: [0, 16], overlay: [0, 32] },\n    left_leg: { base: [16, 48], overlay: [0, 48] },\n};\n\n/**\n * The standard 64x64 skin layout, as one table. Each part is a box; each of its\n * six faces is a rectangle on the sheet. Coordinates are the top-left texel of\n * the face; a face is sampled with u to the right and v down.\n *\n * Box unwrap convention (Minecraft's): for a box of w x h x d at sheet origin\n * (ox, oy):\n *   top    (ox + d,       oy)        w x d\n *   bottom (ox + d + w,   oy)        w x d\n *   right  (ox,           oy + d)    d x h     (the model's right, viewer's left)\n *   front  (ox + d,       oy + d)    w x h\n *   left   (ox + d + w,   oy + d)    d x h\n *   back   (ox + 2d + w,  oy + d)    w x h\n */\nconst SkinLayout = {\n    PARTS: ['head', 'body', 'right_arm', 'left_arm', 'right_leg', 'left_leg'] as Part[],\n\n    FACES: ['front', 'back', 'right', 'left', 'top', 'bottom'] as Face[],\n\n    size(part: Part, slim: boolean): { w: number; h: number; d: number } {\n        switch (part) {\n            case 'head': return { w: 8, h: 8, d: 8 };\n            case 'body': return { w: 8, h: 12, d: 4 };\n            case 'right_arm':\n            case 'left_arm': return { w: slim ? 3 : 4, h: 12, d: 4 };\n            case 'right_leg':\n            case 'left_leg': return { w: 4, h: 12, d: 4 };\n            default: throw new Error(`Unknown skin part ${part}`);\n        }\n    },\n\n    /**\n     * Block offset of the part's min corner. The statue faces south (+z is its\n     * front), stands on y=0, and is centred on x. The model's right arm is on\n     * the viewer's left, so it gets the lower x.\n     */\n    position(part: Part, slim: boolean): { x: number; y: number; z: number } {\n        const arm = slim ? 3 : 4;\n        switch (part) {\n            case 'head': return { x: arm, y: 24, z: 0 };\n            case 'body': return { x: arm, y: 12, z: 2 };\n            case 'right_arm': return { x: 0, y: 12, z: 2 };\n            case 'left_arm': return { x: arm + 8, y: 12, z: 2 };\n            case 'right_leg': return { x: arm, y: 0, z: 2 };\n            case 'left_leg': return { x: arm + 4, y: 0, z: 2 };\n            default: throw new Error(`Unknown skin part ${part}`);\n        }\n    },\n\n    /** Sheet pixel for local face coordinate (u, v). */\n    texel(part: Part, face: Face, u: number, v: number, layer: Layer, slim: boolean): [number, number] {\n        const [ox, oy] = ORIGIN[part][layer];\n        const { w, d } = SkinLayout.size(part, slim);\n\n        let fx: number;\n        let fy: number;\n        switch (face) {\n            case 'top': [fx, fy] = [ox + d, oy]; break;\n            case 'bottom': [fx, fy] = [ox + d + w, oy]; break;\n            case 'right': [fx, fy] = [ox, oy + d]; break;\n            case 'front': [fx, fy] = [ox + d, oy + d]; break;\n            case 'left': [fx, fy] = [ox + d + w, oy + d]; break;\n            case 'back': [fx, fy] = [ox + 2 * d + w, oy + d]; break;\n            default: throw new Error(`Unknown face ${face}`);\n        }\n\n        return [fx + u, fy + v];\n    },\n\n    /** Face dimensions in texels: [across, down]. */\n    faceSize(part: Part, face: Face, slim: boolean): [number, number] {\n        const { w, h, d } = SkinLayout.size(part, slim);\n        switch (face) {\n            case 'front':\n            case 'back': return [w, h];\n            case 'right':\n            case 'left': return [d, h];\n            case 'top':\n            case 'bottom': return [w, d];\n            default: throw new Error(`Unknown face ${face}`);\n        }\n    },\n};\n\nfunction texelAt(texels: PixelImage, x: number, y: number): Rgba {\n    const i = (y * texels.width + x) * 4;\n    const d = texels.data;\n\n    return { r: d[i], g: d[i + 1], b: d[i + 2], a: d[i + 3] };\n}\n\nclass StatueBuilder {\n    /** Overlay name as the option shows it => the SkinLayout part it covers. */\n    static OVERLAY_PARTS: Record<string, Part> = {\n        hat: 'head',\n        jacket: 'body',\n        right_sleeve: 'right_arm',\n        left_sleeve: 'left_arm',\n        right_pants: 'right_leg',\n        left_pants: 'left_leg',\n    };\n\n    /** @param on the overlay names that are switched on */\n    static partsFromList(on: string[]): Record<string, boolean> {\n        const map: Record<string, boolean> = {};\n        for (const option of Object.keys(StatueBuilder.OVERLAY_PARTS)) map[option] = on.includes(option);\n\n        return map;\n    }\n\n    texels: PixelImage;\n    scale: number;\n    overlay: Overlay;\n    slim: boolean;\n    colors: ColorSource;\n    partOverlay: Partial<Record<Part, boolean>>;\n\n    constructor(texels: PixelImage, { scale = 1, overlay = 'none', overlayParts = null, slim = false }: StatueOptions = {}, colorSource: ColorSource) {\n        this.texels = texels;\n        this.scale = scale;\n        this.overlay = overlay;\n        this.slim = slim;\n        this.colors = colorSource;\n\n        const parts = overlayParts || StatueBuilder.partsFromList(Object.keys(StatueBuilder.OVERLAY_PARTS));\n        this.partOverlay = {};\n        for (const [option, part] of Object.entries(StatueBuilder.OVERLAY_PARTS)) {\n            // PHP reads `(bool) ($overlayParts[$option] ?? true)`: a missing key\n            // is on, a present one is whatever it coerces to. `!== false` would\n            // have kept 0, '' and null on where PHP turns them off.\n            this.partOverlay[part] = option in parts ? Boolean(parts[option]) : true;\n        }\n    }\n\n    /**\n     * A shell only widens the statue when at least one part is grown. With every\n     * part switched off the outer layer costs nothing, so the frame stays the\n     * size of the base model.\n     */\n    grows(): boolean {\n        return this.overlay === 'shell' && Object.values(this.partOverlay).some(Boolean);\n    }\n\n    /** Width, height, depth in blocks. */\n    dimensions(): [number, number, number] {\n        const grow = this.grows() ? 1 : 0;\n        const arm = this.slim ? 3 : 4;\n        const w = arm * 2 + 8 + 2 * grow;\n        const h = 32 + grow;        // hat on top; feet stay on the ground\n        const d = 8 + 2 * grow;     // shell grows both the front and the back\n\n        return [w * this.scale, h * this.scale, d * this.scale];\n    }\n\n    /** Block id => positions. */\n    blocks(): BlockPositions {\n        const out: BlockPositions = {};\n        const seen = new Set<string>();\n        const shellShift = this.grows() ? 1 : 0;\n\n        for (const part of SkinLayout.PARTS) {\n            this.#placePart(part, 'base', 0, out, seen, shellShift);\n            if (this.overlay === 'shell' && this.partOverlay[part]) {\n                this.#placePart(part, 'overlay', 1, out, seen, shellShift);\n            }\n        }\n\n        return out;\n    }\n\n    #placePart(part: Part, layer: Layer, grow: number, out: BlockPositions, seen: Set<string>, shellShift: number): void {\n        const size = SkinLayout.size(part, this.slim);\n        const pos = SkinLayout.position(part, this.slim);\n        const w = size.w + 2 * grow;\n        let h = size.h + 2 * grow;\n        const d = size.d + 2 * grow;\n        const x0 = pos.x - grow + shellShift;\n        let y0 = pos.y - grow;\n        const z0 = pos.z - grow + shellShift;\n        // Feet never sink: a grown leg keeps its sole on y=0.\n        if (grow && (part === 'right_leg' || part === 'left_leg')) {\n            y0 = 0;\n            h -= 1;\n        }\n        const flat = layer === 'base' && this.overlay === 'flat' && this.partOverlay[part];\n\n        for (let x = 0; x < w; x++) {\n            for (let y = 0; y < h; y++) {\n                for (let z = 0; z < d; z++) {\n                    const onSurface = x === 0 || x === w - 1 || y === 0 || y === h - 1 || z === 0 || z === d - 1;\n                    if (!onSurface) continue;\n\n                    const face = this.#faceFor(x, y, z, w, h, d);\n                    let [u, v] = this.#faceCoord(face, x, y, z, w, h, d);\n                    if (grow) {\n                        // A shell is a one-block layer outside the part: sample the overlay\n                        // 1:1 against the base face, extending the edge texel across the\n                        // ring, instead of stretching the whole face proportionally.\n                        const [fw, fh] = SkinLayout.faceSize(part, face, this.slim);\n                        u = Math.max(0, Math.min(fw - 1, u - 1));\n                        v = Math.max(0, Math.min(fh - 1, v - 1));\n                    }\n\n                    const base = this.#texelColour(part, face, u, v, layer);\n                    const over = flat ? this.#texelColour(part, face, u, v, 'overlay') : null;\n                    // Flat overlay: the overlay texel wins when opaque (it paints the jacket\n                    // or hat over the body, even where the body texel beneath is\n                    // transparent); otherwise the base texel wins when opaque; otherwise air.\n                    const colour = over !== null && over.a >= 128 ? over : (base.a >= 128 ? base : null);\n                    if (colour === null) continue;\n\n                    const block = this.colors.closest(colour.r, colour.g, colour.b);\n                    this.#emit(out, seen, block, x0 + x, y0 + y, z0 + z);\n                }\n            }\n        }\n    }\n\n    #texelColour(part: Part, face: Face, u: number, v: number, layer: Layer): Rgba {\n        const [px, py] = SkinLayout.texel(part, face, u, v, layer, this.slim);\n\n        return texelAt(this.texels, px, py);\n    }\n\n    #emit(out: BlockPositions, seen: Set<string>, block: string, bx: number, by: number, bz: number): void {\n        const s = this.scale;\n        for (let dx = 0; dx < s; dx++) {\n            for (let dy = 0; dy < s; dy++) {\n                for (let dz = 0; dz < s; dz++) {\n                    const x = bx * s + dx;\n                    const y = by * s + dy;\n                    const z = bz * s + dz;\n                    const key = `${x},${y},${z}`;\n                    if (seen.has(key)) continue;\n                    seen.add(key);\n                    (out[block] ||= []).push([x, y, z]);\n                }\n            }\n        }\n    }\n\n    /** Which face a surface block belongs to, by priority. z = d-1 is the front (+z). */\n    #faceFor(x: number, y: number, z: number, w: number, h: number, d: number): Face {\n        for (const face of FACE_PRIORITY) {\n            let on = false;\n            switch (face) {\n                case 'front': on = z === d - 1; break;\n                case 'back': on = z === 0; break;\n                case 'right': on = x === 0; break;   // model's right is the viewer's left\n                case 'left': on = x === w - 1; break;\n                case 'top': on = y === h - 1; break;\n                case 'bottom': on = y === 0; break;\n                default: on = false;\n            }\n            if (on) return face;\n        }\n\n        // Unreachable: onSurface already guarantees one of the six conditions above holds.\n        throw new Error('Surface block matched no face; onSurface and faceFor are out of sync.');\n    }\n\n    /** Local face coordinate: u to the right on the sheet, v down. */\n    #faceCoord(face: Face, x: number, y: number, z: number, w: number, h: number, d: number): [number, number] {\n        const vDown = h - 1 - y;\n        switch (face) {\n            case 'front': return [x, vDown];\n            case 'back': return [w - 1 - x, vDown];\n            case 'right': return [z, vDown];          // sheet \"right\" face reads from back (z=0) to front\n            case 'left': return [d - 1 - z, vDown];\n            case 'top': return [x, z];                 // sheet top face: v grows towards the front\n            case 'bottom': return [x, d - 1 - z];\n            default: throw new Error(`Unknown face ${face}`);\n        }\n    }\n}",
         "width": 640,
         "contract": {
           "inputs": {
             "skin": {
-              "kind": "object",
-              "fields": {
-                "name": {
-                  "kind": "string"
-                },
-                "slim": {
-                  "kind": "boolean"
-                },
-                "image": {
-                  "kind": "image"
-                }
-              }
+              "kind": "unknown"
             },
             "scale": {
               "kind": "number"
@@ -370,7 +357,7 @@
       "data": {
         "label": "Match colours to blocks",
         "description": "Use Nucleation’s colour matcher, then apply the selected block replacements.",
-        "code": "type Inputs = { voxels: { color: number; positions: number[][] }[]; palette: Nucleation.Palette; replacements: Record<string, string> };\ntype Outputs = { blocks: { block: string; positions: number[][] }[] };\nfunction generate(inputs: Inputs): Outputs {\n  const blocks = new Map<string, number[][]>();\n  for (const { color, positions } of inputs.voxels) {\n    const nearest = inputs.palette.closestBlock((color >> 16) & 255, (color >> 8) & 255, color & 255);\n    const block = inputs.replacements[nearest] || nearest;\n    if (!blocks.has(block)) blocks.set(block, []);\n    blocks.get(block).push(...positions);\n  }\n  return { blocks: Array.from(blocks, ([block, positions]) => ({ block, positions })) };\n}",
+        "code": "type Inputs = { voxels: { color: number; positions: number[][] }[]; palette: Nucleation.Palette; replacements: Record<string, string> };\ntype Outputs = { blocks: { block: string; positions: number[][] }[] };\nfunction generate(inputs: Inputs): Outputs {\n  progress(0.45, 'Matching colours to blocks');\n  const blocks = new Map<string, number[][]>();\n  for (const { color, positions } of inputs.voxels) {\n    const nearest = inputs.palette.closestBlock((color >> 16) & 255, (color >> 8) & 255, color & 255);\n    const block = inputs.replacements[nearest] || nearest;\n    const list = blocks.get(block) ?? [];\n    if (!blocks.has(block)) blocks.set(block, list);\n    for (const p of positions) list.push(p);\n  }\n  return { blocks: Array.from(blocks, ([block, positions]) => ({ block, positions })) };\n}",
         "width": 640,
         "contract": {
           "inputs": {
@@ -437,7 +424,7 @@
       "data": {
         "label": "Place schematic blocks",
         "description": "Create a native schematic and place each batch of blocks.",
-        "code": "type Inputs = { blocks: { block: string; positions: number[][] }[]; skin: { name: string; slim: boolean; image: Image } };\ntype Outputs = { schematic: Nucleation.Schematic };\nfunction generate(inputs: Inputs): Outputs {\n  const schematic = Nucleation.Schematic.create(`${inputs.skin.name} statue`);\n  for (const { block, positions } of inputs.blocks) {\n    schematic.setBlocks(positions.flat(), block);\n  }\n  return { schematic };\n}",
+        "code": "type Inputs = { blocks: { block: string; positions: number[][] }[]; skin: SkinProfile };\ntype Outputs = { schematic: Nucleation.Schematic };\nfunction generate(inputs: Inputs): Outputs {\n  progress(0.7, 'Placing blocks');\n  const schematic = Nucleation.Schematic.create(`${inputs.skin.name} statue`);\n  for (const { block, positions } of inputs.blocks) {\n    schematic.setBlocks(positions.flat(), block);\n  }\n  return { schematic };\n}",
         "width": 640,
         "contract": {
           "inputs": {
@@ -462,18 +449,7 @@
               }
             },
             "skin": {
-              "kind": "object",
-              "fields": {
-                "name": {
-                  "kind": "string"
-                },
-                "slim": {
-                  "kind": "boolean"
-                },
-                "image": {
-                  "kind": "image"
-                }
-              }
+              "kind": "unknown"
             }
           },
           "outputs": {
@@ -494,7 +470,7 @@
       "data": {
         "label": "Measure schematic",
         "description": "Read dimensions and block counts directly from the generated schematic.",
-        "code": "type Inputs = { schematic: Nucleation.Schematic; skin: { name: string; slim: boolean; image: Image } };\ntype Outputs = { metadata: { dimensions: number[]; block_count: number; blocks_used: Record<string, number>; palette_size: number; placed: number; username: string; slim: boolean } };\nfunction generate(inputs: Inputs): Outputs {\n  const s = inputs.schematic;\n  const bounds = s.tightDimensions();\n  const counts = JSON.parse(s.countBlocksJson());\n  return { metadata: { dimensions: [bounds.x, bounds.y, bounds.z], block_count: s.blockCount(),\n    blocks_used: counts, palette_size: Object.keys(counts).length, placed: s.blockCount(),\n    username: inputs.skin.name, slim: inputs.skin.slim } };\n}",
+        "code": "type Inputs = { schematic: Nucleation.Schematic; skin: SkinProfile; format: 'schem' | 'litematic' };\ntype Outputs = { metadata: { dimensions: number[]; block_count: number; blocks_used: Record<string, number>; palette_size: number; placed: number; username: string; slim: boolean; format: string } };\nfunction generate(inputs: Inputs): Outputs {\n  progress(0.9, 'Measuring the statue');\n  const s = inputs.schematic;\n  const bounds = s.tightDimensions();\n  const counts = JSON.parse(s.countBlocksJson());\n  return { metadata: { dimensions: [bounds.x, bounds.y, bounds.z], block_count: s.blockCount(),\n    blocks_used: counts, palette_size: Object.keys(counts).length, placed: s.blockCount(),\n    username: inputs.skin.name, slim: inputs.skin.slim, format: inputs.format } };\n}",
         "width": 640,
         "contract": {
           "inputs": {
@@ -502,18 +478,14 @@
               "kind": "schematic"
             },
             "skin": {
-              "kind": "object",
-              "fields": {
-                "name": {
-                  "kind": "string"
-                },
-                "slim": {
-                  "kind": "boolean"
-                },
-                "image": {
-                  "kind": "image"
-                }
-              }
+              "kind": "unknown"
+            },
+            "format": {
+              "kind": "enum",
+              "options": [
+                "schem",
+                "litematic"
+              ]
             }
           },
           "outputs": {
@@ -543,55 +515,9 @@
                 },
                 "slim": {
                   "kind": "boolean"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    {
-      "id": "export",
-      "type": "code",
-      "position": {
-        "x": 3592,
-        "y": 651.3333333333334
-      },
-      "data": {
-        "label": "Encode selected format",
-        "description": "The format input controls this native export operation and the downloadable file.",
-        "code": "type Inputs = { schematic: Nucleation.Schematic; format: 'schem' | 'litematic' };\ntype Outputs = { file: { base64: string; format: string; metadata: { name: string } } };\nfunction generate(inputs: Inputs): Outputs {\n  const base64 = inputs.format === 'litematic'\n    ? inputs.schematic.toLitematicB64()\n    : inputs.schematic.toSchematicB64();\n  return { file: { base64, format: inputs.format, metadata: { name: `statue.${inputs.format}` } } };\n}",
-        "width": 640,
-        "contract": {
-          "inputs": {
-            "schematic": {
-              "kind": "schematic"
-            },
-            "format": {
-              "kind": "enum",
-              "options": [
-                "schem",
-                "litematic"
-              ]
-            }
-          },
-          "outputs": {
-            "file": {
-              "kind": "object",
-              "fields": {
-                "base64": {
-                  "kind": "string"
                 },
                 "format": {
                   "kind": "string"
-                },
-                "metadata": {
-                  "kind": "object",
-                  "fields": {
-                    "name": {
-                      "kind": "string"
-                    }
-                  }
                 }
               }
             }
@@ -625,20 +551,6 @@
         "dataType": "object",
         "width": 300,
         "preview": true
-      }
-    },
-    {
-      "id": "output-file",
-      "type": "output",
-      "position": {
-        "x": 4372,
-        "y": 701.3333333333334
-      },
-      "data": {
-        "label": "file",
-        "dataType": "file",
-        "width": 300,
-        "preview": false
       }
     }
   ],
@@ -735,20 +647,6 @@
       "targetHandle": "skin"
     },
     {
-      "id": "convert-schematic-export-schematic",
-      "source": "convert",
-      "sourceHandle": "schematic",
-      "target": "export",
-      "targetHandle": "schematic"
-    },
-    {
-      "id": "format-output-export-format",
-      "source": "format",
-      "sourceHandle": "output",
-      "target": "export",
-      "targetHandle": "format"
-    },
-    {
       "id": "convert-schematic-output-schematic-input",
       "source": "convert",
       "sourceHandle": "schematic",
@@ -763,11 +661,11 @@
       "targetHandle": "input"
     },
     {
-      "id": "export-file-output-file-input",
-      "source": "export",
-      "sourceHandle": "file",
-      "target": "output-file",
-      "targetHandle": "input"
+      "id": "format-output-measure-format",
+      "source": "format",
+      "sourceHandle": "output",
+      "target": "measure",
+      "targetHandle": "format"
     }
   ]
 }
