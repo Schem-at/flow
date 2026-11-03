@@ -4,7 +4,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "test": "vitest run && bun test tests/tool-backend.test.ts tests/tool-runtime.test.ts",
+    "test": "vitest run && bun test tests/tool-backend.test.ts tests/tool-runtime.test.ts tests/tool-jobs.test.ts tests/tool-jobs-e2e.test.ts",
     "build": "tsc",
     "dev": "bun --watch run src/index.ts & tsc --watch",
     "start": "bun run dist/index.js",

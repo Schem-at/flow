@@ -72,8 +72,17 @@ export async function runInExecutionWorker<T>(
   request: ExecutionWorkerRequest,
   options: RunInWorkerOptions
 ): Promise<T> {
+  // Skin assets resolve here, on the trusted side, before user code runs —
+  // for both the isolated Worker and the docker sandbox (which has no network).
+  if (request.kind === 'tool' && !request.skinProfiles) {
+    const { prefetchSkinProfiles } = await import('./skinPrefetch.js');
+    const skinProfiles = await prefetchSkinProfiles(request.graph, request.inputs ?? {}, options.signal);
+    if (skinProfiles) request = { ...request, skinProfiles };
+  }
   if (process.env.TOOLS_ISOLATED_JOB !== '1' && process.env.TOOLS_BACKEND_ENABLED === 'true') return runInContainer<T>(request, options);
-  const worker = new Worker(resolveWorkerUrl(), { type: 'module' } as WorkerOptions);
+  // smol: a smaller heap per Worker. Bun has no per-Worker resourceLimits; the
+  // job store's RSS guard + the container mem_limit bound memory instead.
+  const worker = new Worker(resolveWorkerUrl(), { type: 'module', smol: true } as WorkerOptions);
 
   try {
     return await new Promise<T>((resolve, reject) => {
@@ -104,7 +113,9 @@ export async function runInExecutionWorker<T>(
         if (message.ok) {
           resolve(message.payload as T);
         } else {
-          reject(new Error(message.error.message));
+          const error = new Error(message.error.message) as Error & { code?: string };
+          if (message.error.code) error.code = message.error.code;
+          reject(error);
         }
       };
 

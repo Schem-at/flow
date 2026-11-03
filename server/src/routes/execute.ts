@@ -11,6 +11,7 @@ import { eq } from 'drizzle-orm';
 import { db, flows, executions, schematics, type NewExecution, type NewSchematic } from '../db/index.js';
 import type { FlowData } from '@flow/core';
 import { getFoldedFlow } from '../services/flowFolding.js';
+import { parseToolTimeoutMs, QueueFullError, toolJobStore } from '../services/toolJobs.js';
 import {
   runInExecutionWorker,
   EXECUTION_WORKER_GRACE_MS,
@@ -20,24 +21,37 @@ import {
 
 const executeRouter = new Hono();
 
-/** Internal Laravel-to-Flow adapter. Graphs stay in Laravel/the authored catalogue. */
+/**
+ * Internal Laravel-to-Flow adapter (synchronous). Runs through the same job
+ * store as /api/tool-jobs — same Worker isolation, limits, skin prefetch and
+ * outputs[] — and keeps the legacy single-file `output` for old callers.
+ */
 executeRouter.post('/tool', async (c) => {
   const body = await c.req.json();
   if (!body.graph || !Array.isArray(body.graph.nodes) || !Array.isArray(body.graph.edges)) {
-    return c.json({ success: false, error: 'A Flow graph is required.' }, 422);
+    return c.json({ success: false, error: 'A Flow graph is required.', code: 'validation' }, 422);
   }
-  const timeout = Math.min(300000, Math.max(1000, Number(body.timeout) || 60000));
-  let kill: (() => void) | undefined;
-  const cancel = () => kill?.();
+  const store = toolJobStore();
+  let id: string;
+  try {
+    id = store.submit('legacy-sync', {
+      graph: body.graph,
+      inputs: body.inputs ?? {},
+      timeoutMs: parseToolTimeoutMs(body.timeout ?? body.graph?.metadata?.tool?.timeout),
+    }).id;
+  } catch (error) {
+    if (error instanceof QueueFullError) {
+      c.header('Retry-After', '5');
+      return c.json({ success: false, error: error.message, code: 'backend_unavailable' }, 429);
+    }
+    throw error;
+  }
+  const cancel = () => store.cancel(id);
   c.req.raw.signal.addEventListener('abort', cancel, { once: true });
   try {
-    const result = await runInExecutionWorker({ kind: 'tool', graph: body.graph, inputs: body.inputs ?? {}, timeout }, {
-      timeoutMs: timeout + EXECUTION_WORKER_GRACE_MS,
-      registerKill: callback => { kill = callback; if (c.req.raw.signal.aborted) callback(); },
-    });
-    return c.json({ success: true, output: result });
-  } catch (error) {
-    return c.json({ success: false, error: (error as Error).message }, 422);
+    const job = await store.wait(id);
+    if (job.status === 'done') return c.json({ success: true, output: store.legacyOutput(id), outputs: job.outputs });
+    return c.json({ success: false, error: job.error?.message ?? 'Tool execution failed.', code: job.error?.code ?? 'execution_failed' }, 422);
   } finally { c.req.raw.signal.removeEventListener('abort', cancel); }
 });
 

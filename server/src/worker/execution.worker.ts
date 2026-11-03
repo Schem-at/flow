@@ -53,7 +53,7 @@ export interface ExecutionWorkerEvent {
 
 export type ExecutionWorkerResult =
   | { kind: 'result'; ok: true; payload: unknown }
-  | { kind: 'result'; ok: false; error: { message: string; stack?: string } };
+  | { kind: 'result'; ok: false; error: { message: string; stack?: string; code?: string } };
 
 export type ExecutionWorkerResponse = ExecutionWorkerEvent | ExecutionWorkerResult;
 
@@ -378,7 +378,11 @@ self.onmessage = async (event: MessageEvent<ExecutionWorkerRequest>) => {
     switch (req.kind) {
       case 'tool': {
         const { executeTool } = await import('../services/toolExecution.js');
-        payload = await executeTool(req.graph, req.inputs, req.timeout, req.general, req.skinProfiles);
+        payload = await executeTool(req.graph, req.inputs, req.timeout, {
+          general: req.general,
+          skinProfiles: req.skinProfiles,
+          onProgress: (fraction, message) => emit('progress', { fraction, message: message ?? null }),
+        });
         break;
       }
       case 'script':
@@ -396,6 +400,7 @@ self.onmessage = async (event: MessageEvent<ExecutionWorkerRequest>) => {
     post({ kind: 'result', ok: true, payload });
   } catch (error) {
     const err = error as Error;
-    post({ kind: 'result', ok: false, error: { message: err.message, stack: err.stack } });
+    const code = (error as { code?: unknown })?.code;
+    post({ kind: 'result', ok: false, error: { message: err.message, stack: err.stack, ...(typeof code === 'string' ? { code } : {}) } });
   }
 };

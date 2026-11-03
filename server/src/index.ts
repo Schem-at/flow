@@ -1,4 +1,4 @@
-import toolJobsRouter from './routes/tool-jobs.js';
+import toolJobsRouter, { TOOL_REQUEST_BODY_LIMIT } from './routes/tool-jobs.js';
 import { executionGate } from './services/executionGate.js';
 import { bodyLimit } from 'hono/body-limit';
 /**
@@ -56,7 +56,7 @@ export const app = new Hono()
 	// API Routes
 	.route('/api/flows', flowsRouter)
 	.route('/api/modules', modulesRouter)
-	.use('/api/execute/*', executionGate, bodyLimit({maxSize:16*1024*1024}))
+	.use('/api/execute/*', executionGate, bodyLimit({ maxSize: TOOL_REQUEST_BODY_LIMIT }))
 	.use('/api/execute', executionGate)
 	.route('/api/execute', executeRouter)
 	.route('/api/tool-jobs', toolJobsRouter)
