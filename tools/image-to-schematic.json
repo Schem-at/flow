@@ -13,7 +13,8 @@
         "display"
       ],
       "timeout": 60,
-      "output": "schematic"
+      "output": "schematic",
+      "runtime": "any"
     },
     "examples": [
       {
@@ -57,7 +58,9 @@
           "max_kb": 8192,
           "required": true,
           "group": "Source",
-          "order": 0
+          "order": 0,
+          "help": "A PNG, JPEG or WebP picture, up to 8 MB. Transparent pixels stay empty.",
+          "description": "A PNG, JPEG or WebP picture, up to 8 MB. Transparent pixels stay empty."
         },
         "io": {
           "inputs": {},
@@ -66,7 +69,8 @@
               "type": "object"
             }
           }
-        }
+        },
+        "inputName": "file"
       }
     },
     {
@@ -90,7 +94,8 @@
           "max": 512,
           "required": true,
           "group": "Settings",
-          "order": 1
+          "order": 1,
+          "description": "Height follows the image's aspect ratio."
         },
         "io": {
           "inputs": {},
@@ -99,7 +104,8 @@
               "type": "number"
             }
           }
-        }
+        },
+        "inputName": "width"
       }
     },
     {
@@ -124,7 +130,9 @@
           },
           "required": true,
           "group": "Settings",
-          "order": 2
+          "order": 2,
+          "help": "Wall stands the picture up facing south; floor lays it flat on the ground.",
+          "description": "Wall stands the picture up facing south; floor lays it flat on the ground."
         },
         "io": {
           "inputs": {},
@@ -133,7 +141,8 @@
               "type": "string"
             }
           }
-        }
+        },
+        "inputName": "orientation"
       }
     },
     {
@@ -155,7 +164,8 @@
           "default": false,
           "required": true,
           "group": "Settings",
-          "order": 3
+          "order": 3,
+          "description": "Mixes nearby blocks to fake colours the palette lacks. Looks better from far away."
         },
         "io": {
           "inputs": {},
@@ -164,7 +174,8 @@
               "type": "boolean"
             }
           }
-        }
+        },
+        "inputName": "dither"
       }
     },
     {
@@ -195,7 +206,9 @@
           },
           "required": true,
           "group": "Materials",
-          "order": 4
+          "order": 4,
+          "help": "Which blocks the picture may use.",
+          "description": "Which blocks the picture may use."
         },
         "io": {
           "inputs": {},
@@ -204,7 +217,8 @@
               "type": "object"
             }
           }
-        }
+        },
+        "inputName": "palette"
       }
     },
     {
@@ -229,7 +243,9 @@
           },
           "required": true,
           "group": "Export",
-          "order": 5
+          "order": 5,
+          "help": "File format of the result: .schem for WorldEdit, .litematic for Litematica.",
+          "description": "File format of the result: .schem for WorldEdit, .litematic for Litematica."
         },
         "io": {
           "inputs": {},
@@ -238,7 +254,8 @@
               "type": "string"
             }
           }
-        }
+        },
+        "inputName": "format"
       }
     },
     {
@@ -250,11 +267,11 @@
       },
       "data": {
         "label": "Choose blocks",
-        "code": "type Inputs = { palette: any };\ntype Outputs = { palette: any };\nasync function generate(inputs: Inputs): Promise<Outputs> {\nreturn { palette: Blocks.palette(inputs.palette) };\n}",
+        "code": "type Inputs = { palette: BlockPalette };\ntype Outputs = { palette: ResolvedPalette };\nfunction generate(inputs: Inputs): Outputs {\n  progress(0.05, 'Resolving the palette');\n  return { palette: Blocks.palette(inputs.palette) };\n}",
         "contract": {
           "inputs": {
             "palette": {
-              "kind": "unknown"
+              "kind": "palette"
             }
           },
           "outputs": {
@@ -286,14 +303,14 @@
       },
       "data": {
         "label": "Read image",
-        "code": "type Inputs = { file: any; width: any };\ntype Outputs = { image: any };\nasync function generate(inputs: Inputs): Promise<Outputs> {\nreturn { image: await Blocks.image(inputs.file, inputs.width) };\n}",
+        "code": "type Inputs = { file: ToolFile; width: number };\ntype Outputs = { image: PixelImage };\nasync function generate(inputs: Inputs): Promise<Outputs> {\n  progress(0.15, 'Reading the image');\n  return { image: await Blocks.image(inputs.file, inputs.width) };\n}",
         "contract": {
           "inputs": {
             "file": {
-              "kind": "unknown"
+              "kind": "file"
             },
             "width": {
-              "kind": "unknown"
+              "kind": "number"
             }
           },
           "outputs": {
@@ -308,7 +325,7 @@
               "type": "object"
             },
             "width": {
-              "type": "object"
+              "type": "number"
             }
           },
           "outputs": {
@@ -328,7 +345,7 @@
       },
       "data": {
         "label": "Map pixels to blocks",
-        "code": "type Inputs = { image: any; palette: any; orientation: any; dither: any };\ntype Outputs = { schematic: Schematic };\nasync function generate(inputs: Inputs): Promise<Outputs> {\nreturn { schematic: Blocks.pixelArt(inputs.image, inputs.palette, inputs.orientation, inputs.dither) };\n}",
+        "code": "type Inputs = { image: PixelImage; palette: ResolvedPalette; orientation: 'wall' | 'floor'; dither: boolean };\ntype Outputs = { schematic: Schematic };\nfunction generate(inputs: Inputs): Outputs {\n  progress(0.4, 'Matching colours to blocks');\n  return { schematic: Blocks.pixelArt(inputs.image, inputs.palette, inputs.orientation, inputs.dither) };\n}",
         "contract": {
           "inputs": {
             "image": {
@@ -338,10 +355,14 @@
               "kind": "unknown"
             },
             "orientation": {
-              "kind": "unknown"
+              "kind": "enum",
+              "options": [
+                "wall",
+                "floor"
+              ]
             },
             "dither": {
-              "kind": "unknown"
+              "kind": "boolean"
             }
           },
           "outputs": {
@@ -359,10 +380,15 @@
               "type": "object"
             },
             "orientation": {
-              "type": "object"
+              "type": "string",
+              "options": [
+                "wall",
+                "floor"
+              ],
+              "default": "wall"
             },
             "dither": {
-              "type": "object"
+              "type": "boolean"
             }
           },
           "outputs": {
@@ -382,23 +408,43 @@
       },
       "data": {
         "label": "Describe result",
-        "code": "type Inputs = { schematic: any };\ntype Outputs = { metadata: any };\nasync function generate(inputs: Inputs): Promise<Outputs> {\nreturn { metadata: Blocks.measure(inputs.schematic) };\n}",
+        "code": "type Inputs = { schematic: Schematic };\ntype Outputs = { metadata: { dimensions: number[]; block_count: number; blocks_used: Record<string, number>; palette_size: number; placed: number } };\nfunction generate(inputs: Inputs): Outputs {\n  progress(0.9, 'Measuring the result');\n  return { metadata: Blocks.measure(inputs.schematic) };\n}",
         "contract": {
           "inputs": {
             "schematic": {
-              "kind": "unknown"
+              "kind": "schematic"
             }
           },
           "outputs": {
             "metadata": {
-              "kind": "unknown"
+              "kind": "object",
+              "fields": {
+                "dimensions": {
+                  "kind": "list",
+                  "of": {
+                    "kind": "number"
+                  }
+                },
+                "block_count": {
+                  "kind": "number"
+                },
+                "blocks_used": {
+                  "kind": "unknown"
+                },
+                "palette_size": {
+                  "kind": "number"
+                },
+                "placed": {
+                  "kind": "number"
+                }
+              }
             }
           }
         },
         "io": {
           "inputs": {
             "schematic": {
-              "type": "object"
+              "type": "schematic"
             }
           },
           "outputs": {

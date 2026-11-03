@@ -1,4 +1,5 @@
 import { useEffect, useCallback } from 'react';
+import { formatProgressLog } from '../lib/progressLog';
 import { WorkerClient, type SubflowResult } from '@flow/core/worker';
 // @ts-ignore - Import worker directly from source
 import Worker from '../../../packages/core/src/worker/browser.worker.ts?worker';
@@ -55,25 +56,8 @@ export function useLocalExecutor() {
         }
         return; // progress ticks would flood the execution log
       }
-      // Clean up log prefix if present
-      const message = payload.message.startsWith('Log: ')
-        ? payload.message.substring(5)
-        : payload.message;
-
-      // Determine log level/style based on message content or data
-      let formattedMessage = message;
-      if (payload.data && payload.data.level) {
-        // If we have structured log data
-        const level = payload.data.level.toUpperCase();
-        if (level === 'ERROR') formattedMessage = `[ERROR] ${message}`;
-        else if (level === 'WARN') formattedMessage = `[WARN] ${message}`;
-        else formattedMessage = `[OK] ${message}`;
-      } else if (!message.startsWith('[')) {
-        // Add default prefix if none exists
-        formattedMessage = `[OK] ${message}`;
-      }
-
-      addExecutionLog(formattedMessage);
+      const line = formatProgressLog(payload);
+      if (line) addExecutionLog(line);
     };
 
     const onError = (error: any) => {

@@ -5,7 +5,10 @@
   "metadata": {
     "tool": {
       "timeout": 30,
-      "output": "schematic"
+      "output": "schematic",
+      "schemaVersion": 1,
+      "slug": "transform",
+      "runtime": "server"
     }
   },
   "nodes": [
@@ -19,7 +22,24 @@
       "data": {
         "label": "file",
         "dataType": "object",
-        "value": null
+        "value": null,
+        "toolField": {
+          "kind": "file",
+          "label": "Schematic",
+          "help": "The schematic to rotate (.schem, .litematic, .schematic or .nbt), up to 16 MB.",
+          "accept": [
+            "schem",
+            "litematic",
+            "schematic",
+            "nbt"
+          ],
+          "max_kb": 16384,
+          "required": true,
+          "order": 0,
+          "name": "file",
+          "description": "The schematic to rotate (.schem, .litematic, .schematic or .nbt), up to 16 MB."
+        },
+        "inputName": "file"
       }
     },
     {
@@ -36,7 +56,52 @@
           0,
           0,
           0
-        ]
+        ],
+        "fieldType": {
+          "kind": "vec3",
+          "default": [
+            0,
+            0,
+            0
+          ]
+        },
+        "toolField": {
+          "label": "Rotation (degrees)",
+          "help": "Quarter turns about X, Y and Z: each 0, 90, 180 or 270.",
+          "required": true,
+          "order": 1,
+          "name": "rotate",
+          "description": "Quarter turns about X, Y and Z: each 0, 90, 180 or 270."
+        },
+        "inputName": "rotate"
+      }
+    },
+    {
+      "id": "format",
+      "type": "input",
+      "position": {
+        "x": 0,
+        "y": 260
+      },
+      "data": {
+        "label": "format",
+        "dataType": "string",
+        "value": "schem",
+        "toolField": {
+          "name": "format",
+          "kind": "format",
+          "label": "Format",
+          "default": "schem",
+          "options": {
+            "schem": ".schem (WorldEdit)",
+            "litematic": ".litematic (Litematica)"
+          },
+          "required": true,
+          "help": "File format of the result: .schem for WorldEdit, .litematic for Litematica.",
+          "order": 2,
+          "description": "File format of the result: .schem for WorldEdit, .litematic for Litematica."
+        },
+        "inputName": "format"
       }
     },
     {
@@ -47,12 +112,11 @@
         "y": 0
       },
       "data": {
-        "code": "type Inputs = { file: any; rotate: number[] }; function generate(inputs: Inputs) { if (inputs.rotate.length !== 3 || inputs.rotate.some(v=>![0,90,180,270].includes(v))) throw new Error('Invalid rotation'); const schematic=Nucleation.Schematic.fromData(Bytes.read(inputs.file)); if(inputs.rotate[0]) schematic.rotateSchematicX(inputs.rotate[0]); if(inputs.rotate[1]) schematic.rotateSchematicY(inputs.rotate[1]); if(inputs.rotate[2]) schematic.rotateSchematicZ(inputs.rotate[2]); return { schematic }; }",
+        "code": "type Inputs = { file: ToolFile; rotate: number[] }; type Outputs = { schematic: Nucleation.Schematic };\nfunction generate(inputs: Inputs): Outputs {\n  if (inputs.rotate.length !== 3 || inputs.rotate.some((v: number) => ![0, 90, 180, 270].includes(v))) throw new Error('Rotation must be quarter turns: [x, y, z] in 0, 90, 180, 270.');\n  progress(0.3, 'Rotating');\n  const schematic = Nucleation.Schematic.fromData(Bytes.read(inputs.file));\n  if (inputs.rotate[0]) schematic.rotateSchematicX(inputs.rotate[0]);\n  if (inputs.rotate[1]) schematic.rotateSchematicY(inputs.rotate[1]);\n  if (inputs.rotate[2]) schematic.rotateSchematicZ(inputs.rotate[2]);\n  return { schematic };\n}",
         "contract": {
           "inputs": {
             "file": {
-              "kind": "object",
-              "fields": {}
+              "kind": "file"
             },
             "rotate": {
               "kind": "list",
@@ -73,7 +137,7 @@
               "type": "object"
             },
             "rotate": {
-              "type": "object"
+              "type": "array"
             }
           },
           "outputs": {

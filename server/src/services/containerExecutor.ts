@@ -1,4 +1,3 @@
-import { inputFieldType } from "@flow/core";
 import { spawn } from "node:child_process";
 import type {
     ExecutionWorkerRequest,
@@ -38,75 +37,7 @@ async function executeContainer<T>(
     request: ExecutionWorkerRequest,
     options: RunInWorkerOptions,
 ): Promise<T> {
-    if (request.kind === "tool") {
-        const names = new Set<string>();
-        for (const node of (request.graph as any)?.nodes ?? [])
-            if (inputFieldType(node).kind === "username") {
-                const name =
-                    request.inputs[node.data.label ?? node.id] ??
-                    node.data.value;
-                if (
-                    typeof name === "string" &&
-                    /^[A-Za-z0-9_]{1,16}$/.test(name)
-                )
-                    names.add(name.toLowerCase());
-            }
-        if (names.size > 8)
-            throw new Error(
-                "At most eight skin lookups are allowed per API job.",
-            );
-        if (names.size) {
-            const profiles: Record<
-                string,
-                { skin: string; name: string; slim: boolean }
-            > = {};
-            const base = process.env.SCHEMATI_URL;
-            if (!base)
-                throw new Error("Configure SCHEMATI_URL for API skin assets.");
-            for (const name of names) {
-                const response = await fetch(
-                    new URL(`/api/tools/assets/skins/${name}`, base),
-                    {
-                        redirect: "error",
-                        signal: AbortSignal.any([
-                            AbortSignal.timeout(10000),
-                            ...(options.signal ? [options.signal] : []),
-                        ]),
-                    },
-                );
-                if (!response.ok)
-                    throw new Error(
-                        "Could not resolve the requested Minecraft skin.",
-                    );
-                const reader = response.body!.getReader();
-                const chunks: Uint8Array[] = [];
-                let size = 0;
-                try {
-                    while (true) {
-                        const part = await reader.read();
-                        if (part.done) break;
-                        size += part.value.byteLength;
-                        if (size > 128 * 1024)
-                            throw new Error(
-                                "Skin asset exceeds its size limit.",
-                            );
-                        chunks.push(part.value);
-                    }
-                } finally {
-                    await reader.cancel();
-                }
-                const profile = JSON.parse(Buffer.concat(chunks).toString());
-                if (typeof profile.skin !== "string")
-                    throw new Error("Invalid skin asset.");
-                profiles[name] = {
-                    skin: profile.skin,
-                    name: String(profile.name ?? name),
-                    slim: !!profile.slim,
-                };
-            }
-            request = { ...request, skinProfiles: profiles };
-        }
-    }
+    // Skin assets are prefetched by runInExecutionWorker before dispatch (skinPrefetch.ts).
     options.signal?.throwIfAborted();
     const timeout = Math.min(315000, Math.max(1000, options.timeoutMs)),
         name = `schemati-tool-${crypto.randomUUID()}`;
@@ -152,16 +83,26 @@ async function executeContainer<T>(
             while ((newline = buffer.indexOf("\n")) >= 0) {
                 const line = buffer.slice(0, newline);
                 buffer = buffer.slice(newline + 1);
+                if (line.startsWith("TOOL_EVENT:")) {
+                    try {
+                        options.onEvent?.(JSON.parse(line.slice(11)));
+                    } catch {
+                        /* malformed progress lines are ignored */
+                    }
+                    continue;
+                }
                 if (!line.startsWith("TOOL_RESULT:")) continue;
                 try {
                     const result = JSON.parse(line.slice(12));
-                    result.ok
-                        ? finish(undefined, result.payload)
-                        : finish(
-                              new Error(
-                                  result.error?.message || "Execution failed",
-                              ),
-                          );
+                    if (result.ok) finish(undefined, result.payload);
+                    else {
+                        const error = new Error(
+                            result.error?.message || "Execution failed",
+                        ) as Error & { code?: string };
+                        if (typeof result.error?.code === "string")
+                            error.code = result.error.code;
+                        finish(error);
+                    }
                 } catch {
                     finish(new Error("Invalid executor result"));
                 }

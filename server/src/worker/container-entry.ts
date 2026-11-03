@@ -12,6 +12,7 @@ try {
     process.env.TOOLS_ISOLATED_JOB = "1";
     const result = await runInExecutionWorker(request, {
         timeoutMs: Math.min(300000, Number(request.timeout) || 60000) + 1000,
+        onEvent: (event) => console.log("TOOL_EVENT:" + JSON.stringify(event)),
     });
     console.log("TOOL_RESULT:" + JSON.stringify({ ok: true, payload: result }));
 } catch (error) {
@@ -19,7 +20,10 @@ try {
         "TOOL_RESULT:" +
             JSON.stringify({
                 ok: false,
-                error: { message: (error as Error).message },
+                error: {
+                    message: (error as Error).message,
+                    code: (error as { code?: string }).code,
+                },
             }),
     );
     process.exitCode = 1;

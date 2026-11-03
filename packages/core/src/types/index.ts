@@ -84,7 +84,7 @@ export interface FlowData {
 }
 
 export interface FlowMetadata {
-  tool?: { schemaVersion: number; slug?: string; icon?: string; tags?: string[]; timeout?: number; output?: string };
+  tool?: { schemaVersion: number; slug?: string; icon?: string; tags?: string[]; timeout?: number; output?: string; /** Where the tool may run; 'browser' tools are not remotely runnable. Default 'any'. */ runtime?: 'any' | 'server' | 'browser'; format?: 'schem' | 'litematic' };
   description?: string;
   author?: string;
   tags?: string[];

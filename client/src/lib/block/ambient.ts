@@ -40,7 +40,11 @@ function nativeDeclarations(raw: string): string {
     .replace(/^export \{[^}]*\};?\s*$/gm, '')
     .replace(/^export declare /gm, 'declare ')
     .replace(/^export (class|function|const|enum)/gm, 'declare $1')
-    .replace(/^export (interface|type)/gm, '$1');
+    .replace(/^export (interface|type)/gm, '$1')
+    // Diplomat copies slice parameters with TypedArray#set, so any array-like
+    // works at runtime (Uint8Array from Bytes.read, Float32Array …). The
+    // generated `Array<number>` is only accurate for return values.
+    .replace(/(\b\w+\??: )Array<number>(?=\s*[,)])/g, '$1ArrayLike<number>');
 
   return body;
 }
@@ -372,6 +376,9 @@ declare const Easing: {
   inElastic(t: number): number; outElastic(t: number): number; inOutElastic(t: number): number;
   inBounce(t: number): number; outBounce(t: number): number; inOutBounce(t: number): number;
 };
+
+/** Report how far the whole tool run is (fraction 0..1) with a short status line, e.g. progress(0.4, 'Placing blocks'). Shown to people running the tool, in the browser and remotely. */
+declare const progress: (fraction: number, message?: string) => void;
 
 /** Report progress to the editor (drives per-node progress bars). */
 declare const Progress: {

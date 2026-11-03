@@ -13,7 +13,8 @@
         "shape"
       ],
       "timeout": 60,
-      "output": "generic"
+      "output": "generic",
+      "runtime": "any"
     },
     "examples": [
       {
@@ -39,8 +40,15 @@
         "default": "[{\"polygon\": [[0, 0], [8, 0], [8, 10], [0, 10]], \"height\": 16, \"block\": \"minecraft:bricks\"}, {\"polygon\": [[12, 2], [22, 2], [22, 14], [12, 14]], \"height\": 28, \"block\": \"minecraft:quartz_block\"}]",
         "toolField": {
           "group": "Settings",
-          "order": 0
-        }
+          "order": 0,
+          "label": "Footprints (JSON)",
+          "help": "A JSON array of buildings: { \"polygon\": [[x, z], …], \"height\": blocks, \"block\": \"minecraft:bricks\" }, in projected block coordinates.",
+          "required": true,
+          "name": "footprints",
+          "description": "A JSON array of buildings: { \"polygon\": [[x, z], …], \"height\": blocks, \"block\": \"minecraft:bricks\" }, in projected block coordinates."
+        },
+        "widgetType": "textarea",
+        "inputName": "footprints"
       }
     },
     {
@@ -52,7 +60,7 @@
       },
       "data": {
         "label": "Extrude projected footprints",
-        "code": "type Outputs = { schematic: Nucleation.Schematic; buildings: number }; type Inputs = { footprints: string }; function generate(inputs: Inputs) { const buildings=JSON.parse(inputs.footprints); return { schematic: Nucleation.Geo.extrudeFootprints(JSON.stringify(buildings),'minecraft:grass_block','Building footprints'), buildings: buildings.length }; }",
+        "code": "type Outputs = { schematic: Nucleation.Schematic; buildings: number }; type Inputs = { footprints: string };\ntype Footprint = { polygon: number[][]; height: number; block?: string };\nfunction generate(inputs: Inputs): Outputs {\n  progress(0.3, 'Extruding buildings');\n  const buildings: Footprint[] = JSON.parse(inputs.footprints);\n  if (!Array.isArray(buildings)) throw new Error('Footprints must be a JSON array of { polygon, height, block }.');\n  return { schematic: Nucleation.Geo.extrudeFootprints(JSON.stringify(buildings), 'minecraft:grass_block', 'Building footprints'), buildings: buildings.length };\n}",
         "contract": {
           "inputs": {
             "footprints": {

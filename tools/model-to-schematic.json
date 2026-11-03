@@ -13,7 +13,8 @@
         "shape"
       ],
       "timeout": 300,
-      "output": "schematic"
+      "output": "schematic",
+      "runtime": "any"
     },
     "examples": [
       {
@@ -55,7 +56,8 @@
           "max_kb": 102400,
           "required": true,
           "group": "Source",
-          "order": 0
+          "order": 0,
+          "description": "Textured GLB gives the best colours. Models up to 100 MB."
         },
         "io": {
           "inputs": {},
@@ -64,7 +66,8 @@
               "type": "object"
             }
           }
-        }
+        },
+        "inputName": "file"
       }
     },
     {
@@ -92,7 +95,8 @@
           },
           "required": false,
           "group": "Settings",
-          "order": 1
+          "order": 1,
+          "description": "The other two dimensions are calculated automatically, keeping the model’s proportions."
         },
         "io": {
           "inputs": {},
@@ -101,7 +105,8 @@
               "type": "string"
             }
           }
-        }
+        },
+        "inputName": "size_axis"
       }
     },
     {
@@ -125,7 +130,8 @@
           "max": 2048,
           "required": true,
           "group": "Settings",
-          "order": 2
+          "order": 2,
+          "description": "For example: choose Height and enter 384. Very large calculated volumes may require a smaller size."
         },
         "io": {
           "inputs": {},
@@ -134,7 +140,8 @@
               "type": "number"
             }
           }
-        }
+        },
+        "inputName": "size"
       }
     },
     {
@@ -156,7 +163,8 @@
           "default": true,
           "required": true,
           "group": "Settings",
-          "order": 3
+          "order": 3,
+          "description": "Surface only. Off fills the inside."
         },
         "io": {
           "inputs": {},
@@ -165,7 +173,8 @@
               "type": "boolean"
             }
           }
-        }
+        },
+        "inputName": "shell"
       }
     },
     {
@@ -191,7 +200,8 @@
           },
           "required": false,
           "group": "Settings",
-          "order": 4
+          "order": 4,
+          "description": "Shading changes the blocks in the download. Textured scans keep their colours; OBJ models use a light grey base."
         },
         "io": {
           "inputs": {},
@@ -200,7 +210,8 @@
               "type": "string"
             }
           }
-        }
+        },
+        "inputName": "shading"
       }
     },
     {
@@ -229,7 +240,8 @@
           "required": true,
           "group": "Settings",
           "advanced": true,
-          "order": 5
+          "order": 5,
+          "description": "0 = north (−Z), 90 = east (+X), 180 = south (+Z), 270 = west (−X)."
         },
         "io": {
           "inputs": {},
@@ -238,7 +250,8 @@
               "type": "number"
             }
           }
-        }
+        },
+        "inputName": "light_azimuth"
       }
     },
     {
@@ -267,7 +280,8 @@
           "required": true,
           "group": "Settings",
           "advanced": true,
-          "order": 6
+          "order": 6,
+          "description": "0 = horizon, 90 = directly above."
         },
         "io": {
           "inputs": {},
@@ -276,7 +290,8 @@
               "type": "number"
             }
           }
-        }
+        },
+        "inputName": "light_elevation"
       }
     },
     {
@@ -305,7 +320,8 @@
           "required": true,
           "group": "Settings",
           "advanced": true,
-          "order": 7
+          "order": 7,
+          "description": "Higher values darken faces turned away from the light. This does not cast shadows."
         },
         "io": {
           "inputs": {},
@@ -314,7 +330,8 @@
               "type": "number"
             }
           }
-        }
+        },
+        "inputName": "light_strength"
       }
     },
     {
@@ -346,7 +363,8 @@
           },
           "required": true,
           "group": "Materials",
-          "order": 8
+          "order": 8,
+          "description": "Opaque surfaces use solid blocks. Glass uses glass blocks; transparent cutouts stay empty. Choose a palette with both for mixed materials."
         },
         "io": {
           "inputs": {},
@@ -355,7 +373,8 @@
               "type": "object"
             }
           }
-        }
+        },
+        "inputName": "palette"
       }
     },
     {
@@ -380,7 +399,9 @@
           },
           "required": true,
           "group": "Export",
-          "order": 9
+          "order": 9,
+          "help": "File format of the result: .schem for WorldEdit, .litematic for Litematica.",
+          "description": "File format of the result: .schem for WorldEdit, .litematic for Litematica."
         },
         "io": {
           "inputs": {},
@@ -389,7 +410,8 @@
               "type": "string"
             }
           }
-        }
+        },
+        "inputName": "format"
       }
     },
     {
@@ -401,11 +423,11 @@
       },
       "data": {
         "label": "Choose blocks",
-        "code": "type Inputs = { palette: any };\ntype Outputs = { palette: any };\nasync function generate(inputs: Inputs): Promise<Outputs> {\nreturn { palette: Blocks.palette(inputs.palette) };\n}",
+        "code": "type Inputs = { palette: BlockPalette };\ntype Outputs = { palette: ResolvedPalette };\nfunction generate(inputs: Inputs): Outputs {\n  progress(0.05, 'Resolving the palette');\n  return { palette: Blocks.palette(inputs.palette) };\n}",
         "contract": {
           "inputs": {
             "palette": {
-              "kind": "unknown"
+              "kind": "palette"
             }
           },
           "outputs": {
@@ -437,35 +459,45 @@
       },
       "data": {
         "label": "Voxelise model",
-        "code": "type Inputs = { file: any; palette: any; size: any; size_axis: any; shell: any; shading: any; light_azimuth: any; light_elevation: any; light_strength: any };\ntype Outputs = { schematic: Nucleation.Schematic; plan: any };\nasync function generate(inputs: Inputs): Promise<Outputs> {\nconst azimuth = inputs.light_azimuth * Math.PI / 180;\nconst elevation = inputs.light_elevation * Math.PI / 180;\nconst lighting = inputs.shading === 'directional' ? {\n  direction: [Math.sin(azimuth) * Math.cos(elevation), Math.sin(elevation), -Math.cos(azimuth) * Math.cos(elevation)],\n  strength: inputs.light_strength / 100,\n} : null;\nconst bytes = Bytes.read(inputs.file);\nconst glb = bytes[0] === 0x67 && bytes[1] === 0x6c && bytes[2] === 0x54 && bytes[3] === 0x46;\nconst text = glb ? '' : Bytes.text(bytes);\nif (!glb && !/^v\\s/m.test(text)) throw new Error('That file is neither a GLB nor an OBJ.');\nconst model = glb ? Nucleation.Voxelizer.loadGlb(bytes) : Nucleation.Voxelizer.loadObj(text);\nconst options = JSON.stringify({ target_size: inputs.size, axis: inputs.size_axis, hollow: inputs.shell, lighting, untextured_block: inputs.palette.ids[0] });\nconst plan = JSON.parse(model.planJson(options));\nif (plan.error) throw new Error(plan.error);\nProgress.report(20, 'Voxelising ' + plan.dimensions.join(' × '));\nconst schematic = model.toSchematic(options, inputs.palette.palette, 'model');\nif (Object.keys(inputs.palette.replace).length) schematic.replaceBlocksJson(JSON.stringify(inputs.palette.replace));\nreturn { schematic, plan: { planned_dimensions: plan.dimensions, size: inputs.size, size_axis: inputs.size_axis, shell: inputs.shell, shading: inputs.shading, lighting } };\n}",
+        "code": "type Inputs = { file: ToolFile; palette: ResolvedPalette; size: number; size_axis: 'longest' | 'x' | 'y' | 'z'; shell: boolean; shading: 'none' | 'directional'; light_azimuth: number; light_elevation: number; light_strength: number };\ntype Lighting = { direction: number[]; strength: number } | null;\ntype Plan = { planned_dimensions: number[]; size: number; size_axis: string; shell: boolean; shading: string; lighting: Lighting };\ntype Outputs = { schematic: Nucleation.Schematic; plan: Plan };\nfunction generate(inputs: Inputs): Outputs {\nprogress(0.1, 'Reading the model');\nconst azimuth = inputs.light_azimuth * Math.PI / 180;\nconst elevation = inputs.light_elevation * Math.PI / 180;\nconst lighting: Lighting = inputs.shading === 'directional' ? {\n  direction: [Math.sin(azimuth) * Math.cos(elevation), Math.sin(elevation), -Math.cos(azimuth) * Math.cos(elevation)],\n  strength: inputs.light_strength / 100,\n} : null;\nconst bytes = Bytes.read(inputs.file);\nconst glb = bytes[0] === 0x67 && bytes[1] === 0x6c && bytes[2] === 0x54 && bytes[3] === 0x46;\nconst text = glb ? '' : Bytes.text(bytes);\nif (!glb && !/^v\\s/m.test(text)) throw new Error('That file is neither a GLB nor an OBJ.');\nconst model = glb ? Nucleation.Voxelizer.loadGlb(bytes) : Nucleation.Voxelizer.loadObj(text);\nconst options = JSON.stringify({ target_size: inputs.size, axis: inputs.size_axis, hollow: inputs.shell, lighting, untextured_block: inputs.palette.ids[0] });\nconst plan: { dimensions: number[]; error?: string } = JSON.parse(model.planJson(options));\nif (plan.error) throw new Error(plan.error);\nprogress(0.3, 'Voxelising model');\nconst schematic = model.toSchematic(options, inputs.palette.palette, 'model');\nprogress(0.8, 'Applying block replacements');\nif (Object.keys(inputs.palette.replace).length) schematic.replaceBlocksJson(JSON.stringify(inputs.palette.replace));\nreturn { schematic, plan: { planned_dimensions: plan.dimensions, size: inputs.size, size_axis: inputs.size_axis, shell: inputs.shell, shading: inputs.shading, lighting } };\n}",
         "contract": {
           "inputs": {
             "file": {
-              "kind": "unknown"
+              "kind": "file"
             },
             "palette": {
               "kind": "unknown"
             },
             "size": {
-              "kind": "unknown"
+              "kind": "number"
             },
             "size_axis": {
-              "kind": "unknown"
+              "kind": "enum",
+              "options": [
+                "longest",
+                "x",
+                "y",
+                "z"
+              ]
             },
             "shell": {
-              "kind": "unknown"
+              "kind": "boolean"
             },
             "shading": {
-              "kind": "unknown"
+              "kind": "enum",
+              "options": [
+                "none",
+                "directional"
+              ]
             },
             "light_azimuth": {
-              "kind": "unknown"
+              "kind": "number"
             },
             "light_elevation": {
-              "kind": "unknown"
+              "kind": "number"
             },
             "light_strength": {
-              "kind": "unknown"
+              "kind": "number"
             }
           },
           "outputs": {
@@ -473,7 +505,30 @@
               "kind": "schematic"
             },
             "plan": {
-              "kind": "unknown"
+              "kind": "object",
+              "fields": {
+                "planned_dimensions": {
+                  "kind": "list",
+                  "of": {
+                    "kind": "number"
+                  }
+                },
+                "size": {
+                  "kind": "number"
+                },
+                "size_axis": {
+                  "kind": "string"
+                },
+                "shell": {
+                  "kind": "boolean"
+                },
+                "shading": {
+                  "kind": "string"
+                },
+                "lighting": {
+                  "kind": "unknown"
+                }
+              }
             }
           }
         },
@@ -486,25 +541,37 @@
               "type": "object"
             },
             "size": {
-              "type": "object"
+              "type": "number"
             },
             "size_axis": {
-              "type": "object"
+              "type": "string",
+              "options": [
+                "longest",
+                "x",
+                "y",
+                "z"
+              ],
+              "default": "longest"
             },
             "shell": {
-              "type": "object"
+              "type": "boolean"
             },
             "shading": {
-              "type": "object"
+              "type": "string",
+              "options": [
+                "none",
+                "directional"
+              ],
+              "default": "none"
             },
             "light_azimuth": {
-              "type": "object"
+              "type": "number"
             },
             "light_elevation": {
-              "type": "object"
+              "type": "number"
             },
             "light_strength": {
-              "type": "object"
+              "type": "number"
             }
           },
           "outputs": {
@@ -527,14 +594,37 @@
       },
       "data": {
         "label": "Describe result",
-        "code": "type Outputs = { metadata: any }; type Inputs = { schematic: Nucleation.Schematic; plan: any }; function generate(inputs: Inputs) { return { metadata: { ...inputs.plan, ...Blocks.measure(inputs.schematic) } }; }",
+        "code": "type Plan = { planned_dimensions: number[]; size: number; size_axis: string; shell: boolean; shading: string; lighting: { direction: number[]; strength: number } | null };\ntype Outputs = { metadata: Plan & { dimensions: number[]; block_count: number; blocks_used: Record<string, number>; palette_size: number; placed: number } };\ntype Inputs = { schematic: Nucleation.Schematic; plan: Plan };\nfunction generate(inputs: Inputs): Outputs {\n  progress(0.9, 'Measuring the result');\n  return { metadata: { ...inputs.plan, ...Blocks.measure(inputs.schematic) } };\n}",
         "contract": {
           "inputs": {
             "schematic": {
               "kind": "schematic"
             },
             "plan": {
-              "kind": "unknown"
+              "kind": "object",
+              "fields": {
+                "planned_dimensions": {
+                  "kind": "list",
+                  "of": {
+                    "kind": "number"
+                  }
+                },
+                "size": {
+                  "kind": "number"
+                },
+                "size_axis": {
+                  "kind": "string"
+                },
+                "shell": {
+                  "kind": "boolean"
+                },
+                "shading": {
+                  "kind": "string"
+                },
+                "lighting": {
+                  "kind": "unknown"
+                }
+              }
             }
           },
           "outputs": {

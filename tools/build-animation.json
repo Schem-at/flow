@@ -13,7 +13,8 @@
         "educative"
       ],
       "timeout": 60,
-      "output": "generic"
+      "output": "generic",
+      "runtime": "any"
     },
     "examples": [
       {
@@ -44,8 +45,18 @@
         "widgetType": "slider",
         "toolField": {
           "group": "Settings",
-          "order": 0
-        }
+          "order": 0,
+          "label": "Blocks",
+          "help": "How many blocks the animation places, three per row.",
+          "kind": "int",
+          "min": 1,
+          "max": 32,
+          "default": 12,
+          "required": true,
+          "name": "count",
+          "description": "How many blocks the animation places, three per row."
+        },
+        "inputName": "count"
       }
     },
     {
@@ -66,8 +77,18 @@
         "widgetType": "slider",
         "toolField": {
           "group": "Settings",
-          "order": 1
-        }
+          "order": 1,
+          "label": "Sample at (ms)",
+          "help": "The moment of the timeline to inspect, in milliseconds from the start.",
+          "kind": "int",
+          "min": 0,
+          "max": 2000,
+          "default": 400,
+          "required": true,
+          "name": "timeMs",
+          "description": "The moment of the timeline to inspect, in milliseconds from the start."
+        },
+        "inputName": "timeMs"
       }
     },
     {
@@ -79,7 +100,7 @@
       },
       "data": {
         "label": "Record construction",
-        "code": "type Outputs = { animation: Nucleation.BuildAnimation }; type Inputs = { count: number }; function generate(inputs: Inputs) { const animation=Nucleation.BuildAnimation.create('Animated steps'); animation.setDefaultEffect(Nucleation.AnimationEffect.dropAndPop(600,8)); animation.setStepMs(80); for(let i=0;i<inputs.count;i++) animation.setBlock(i,Math.floor(i/3),0,'minecraft:gold_block'); return { animation }; }",
+        "code": "type Outputs = { animation: Nucleation.BuildAnimation }; type Inputs = { count: number };\nfunction generate(inputs: Inputs): Outputs {\n  progress(0.2, 'Recording construction');\n  const animation = Nucleation.BuildAnimation.create('Animated steps');\n  animation.setDefaultEffect(Nucleation.AnimationEffect.dropAndPop(600, 8));\n  animation.setStepMs(80);\n  for (let i = 0; i < inputs.count; i++) animation.setBlock(i, Math.floor(i / 3), 0, 'minecraft:gold_block');\n  return { animation };\n}",
         "contract": {
           "inputs": {
             "count": {
@@ -116,7 +137,7 @@
       },
       "data": {
         "label": "Sample timeline",
-        "code": "type Outputs = { schematic: Nucleation.Schematic; frame: {}; durationMs: number }; type Inputs = { animation: Nucleation.BuildAnimation; timeMs: number }; function generate(inputs: Inputs) { return { schematic: Nucleation.Schematic.fromData(Bytes.fromBase64(inputs.animation.toSchemB64())), frame: JSON.parse(inputs.animation.frameJson(inputs.timeMs)), durationMs: inputs.animation.durationMs() }; }",
+        "code": "type Outputs = { schematic: Nucleation.Schematic; frame: {}; durationMs: number }; type Inputs = { animation: Nucleation.BuildAnimation; timeMs: number };\nfunction generate(inputs: Inputs): Outputs {\n  progress(0.6, 'Sampling the timeline');\n  return {\n    schematic: Nucleation.Schematic.fromData(Bytes.fromBase64(inputs.animation.toSchemB64())),\n    frame: JSON.parse(inputs.animation.frameJson(inputs.timeMs)),\n    durationMs: inputs.animation.durationMs(),\n  };\n}",
         "contract": {
           "inputs": {
             "animation": {

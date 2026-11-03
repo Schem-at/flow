@@ -7,17 +7,10 @@ import { Database } from 'bun:sqlite';
 import { migrate } from 'drizzle-orm/bun-sqlite/migrator';
 import * as schema from './schema.js';
 
-// Database file path
-const DB_PATH = process.env.DATABASE_PATH || './data/polymerase.db';
+import { resolveDatabasePath } from './path.js';
 
-// Ensure data directory exists
-import { mkdirSync, existsSync } from 'fs';
-import { dirname } from 'path';
-
-const dbDir = dirname(DB_PATH);
-if (!existsSync(dbDir)) {
-  mkdirSync(dbDir, { recursive: true });
-}
+// Database file path (falls back to the tmp dir on a read-only root).
+const DB_PATH = resolveDatabasePath(process.env.DATABASE_PATH || './data/polymerase.db');
 
 // Create SQLite connection
 const sqlite = new Database(DB_PATH);

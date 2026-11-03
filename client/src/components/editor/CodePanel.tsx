@@ -8,8 +8,9 @@ import { Zap, Info, ArrowRight, CheckCircle, XCircle, Loader2, Plus, Save, Alert
 import { useFlowStore, type ExecutionError } from '../../store/flowStore';
 import type { IODefinition, BlockContract, ExecutionResult } from '@flow/core';
 import { defaultInputsForContract } from '@flow/core';
-import { parseBlockSource, type ParsedBlock } from '../../lib/block/parser';
-import { contractToIO } from '../../lib/block/io-compat';
+import { type ParsedBlock } from '../../lib/block/parser';
+import { validateBlockSource } from '../../lib/block/validateBlock';
+import { describeFlowType } from '../../lib/block/io-compat';
 import InlineWidgetEditor from '../blocks/InlineWidgetEditor';
 import OutputView from '../blocks/OutputView';
 import { useLocalExecutor } from '../../hooks/useLocalExecutor';
@@ -29,7 +30,17 @@ interface ValidationState {
   status: 'idle' | 'validating' | 'valid' | 'invalid';
   io?: IODefinition;
   contract?: BlockContract;
+  /** Declared type spellings per port (display only), from the parser. */
+  labels?: ParsedBlock['typeLabels'];
   error?: string;
+}
+
+/** Declared type for the IO schema: the author's spelling, else a readable name for the kind. */
+function portTypeLabel(validation: ValidationState, side: 'inputs' | 'outputs', key: string, legacyType: string): string {
+  const declared = validation.labels?.[side]?.[key];
+  if (declared) return declared;
+  const type = validation.contract?.[side]?.[key];
+  return type ? describeFlowType(type) : legacyType;
 }
 
 /**
@@ -188,27 +199,15 @@ export function CodePanel({ nodeId, onClose, isFullscreen, onToggleFullscreen }:
     lastValidatedCode.current = code;
 
     try {
-      if (code.includes('export default')) {
-        setValidation({
-          status: 'invalid',
-          error:
-            'Legacy script format. Blocks now declare `type Inputs/Outputs` and a `function generate(inputs)` entry — no exports.',
-        });
+      const result = await validateBlockSource(code);
+      if (result.parsed) setParsed(result.parsed);
+      if (result.status === 'invalid') {
+        setValidation({ status: 'invalid', error: result.error });
         return;
       }
 
-      // Types ARE the contract: parse Inputs/Outputs into the descriptor tree.
-      const parsedBlock = await parseBlockSource(code);
-      setParsed(parsedBlock);
-
-      if (!/\bgenerate\b/.test(parsedBlock.bodyText)) {
-        setValidation({ status: 'invalid', error: 'Block must define a function named generate(inputs)' });
-        return;
-      }
-
-      const contract = parsedBlock.contract;
-      const io = contractToIO(contract);
-      setValidation({ status: 'valid', io, contract });
+      const { contract, io } = result;
+      setValidation({ status: 'valid', io, contract, labels: result.parsed.typeLabels });
 
       // Legacy module sources have no type declarations, so the parse yields
       // an empty contract — don't let that wipe the ports the node already has.
@@ -1084,7 +1083,7 @@ export function CodePanel({ nodeId, onClose, isFullscreen, onToggleFullscreen }:
                         <div key={key} className="text-xs text-neutral-400 flex items-center gap-2 p-2 bg-neutral-800/50 rounded border border-neutral-700/50 overflow-hidden">
                           <span className="font-mono text-blue-300 shrink-0">{key}</span>
                           <span className="text-neutral-600">:</span>
-                          <span className="text-neutral-500 truncate">{config.type}</span>
+                          <span className="text-neutral-500 truncate font-mono" title={`port kind: ${config.type}`}>{portTypeLabel(validation, 'inputs', key, config.type)}</span>
                           {'default' in config && (
                             <span className="text-neutral-600 ml-auto shrink-0">= {String(config.default)}</span>
                           )}
@@ -1105,7 +1104,7 @@ export function CodePanel({ nodeId, onClose, isFullscreen, onToggleFullscreen }:
                         <div key={key} className="text-xs text-neutral-400 flex items-center gap-2 p-2 bg-neutral-800/50 rounded border border-neutral-700/50 overflow-hidden">
                           <span className="font-mono text-amber-300 shrink-0">{key}</span>
                           <span className="text-neutral-600">:</span>
-                          <span className="text-neutral-500 truncate">{config.type}</span>
+                          <span className="text-neutral-500 truncate font-mono" title={`port kind: ${config.type}`}>{portTypeLabel(validation, 'outputs', key, config.type)}</span>
                         </div>
                       ))}
                     </div>
@@ -1146,7 +1145,7 @@ export function CodePanel({ nodeId, onClose, isFullscreen, onToggleFullscreen }:
                 </div>
                 <div className="flex items-start gap-2">
                   <ArrowRight className="w-3 h-3 mt-0.5 text-green-400 flex-shrink-0" />
-                  <span>Entry point: <code className="px-1 rounded bg-green-500/20 text-green-300">function generate(inputs) {'{ return outputs }'}</code> — no exports, no imports</span>
+                  <span>Entry point: <code className="px-1 rounded bg-green-500/20 text-green-300">function generate(inputs: Inputs): Outputs {'{ … }'}</code> — no exports, no imports</span>
                 </div>
                 <div className="flex items-start gap-2">
                   <ArrowRight className="w-3 h-3 mt-0.5 text-green-400 flex-shrink-0" />

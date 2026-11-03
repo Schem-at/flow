@@ -43,6 +43,59 @@ export function flowTypeToLegacyPort(type: FlowType): IOPort {
   }
 }
 
+/**
+ * Human-readable TypeScript-ish name for a FlowType, for display only (the
+ * legacy port `type` above is a coarse wiring kind: `schematic`/`array`/
+ * `object`). Prefer the parser's `typeLabels`, which keep the author's own
+ * spelling (alias names etc.); this is the fallback when no source is parsed.
+ */
+export function describeFlowType(type: FlowType): string {
+  switch (type.kind) {
+    case 'number':
+      return type.widget === 'slider' ? 'Slider' : 'number';
+    case 'string':
+      return type.multiline ? 'Textarea' : 'string';
+    case 'boolean':
+      return 'boolean';
+    case 'enum':
+      return type.options.map((o) => (typeof o === 'string' ? `'${o}'` : String(o))).join(' | ');
+    case 'set':
+      return `MultiSelect<${type.options.map((o) => `'${o}'`).join(' | ')}>`;
+    case 'block':
+      return 'Block';
+    case 'schematic':
+      return 'Schematic';
+    case 'image':
+      return 'Image';
+    case 'vec3':
+      return 'Vec3';
+    case 'list': {
+      const inner = describeFlowType(type.of);
+      return `${type.of.kind === 'enum' ? `(${inner})` : inner}[]`;
+    }
+    case 'object':
+      return `{ ${Object.entries(type.fields)
+        .map(([k, v]) => `${k}: ${describeFlowType(v)}`)
+        .join('; ')} }`;
+    case 'native':
+      return `Nucleation.${type.className}`;
+    case 'palette':
+      return 'BlockPalette';
+    case 'username':
+      return 'MinecraftUsername';
+    case 'file':
+      return 'ToolFile';
+    case 'animation':
+      return 'BuildTimeline';
+    case 'simulation':
+      return 'SimulationView';
+    case 'chart':
+      return 'ChartData';
+    case 'unknown':
+      return 'unknown';
+  }
+}
+
 export function contractToIO(contract: BlockContract): IODefinition {
   const map = (record: Record<string, FlowType>) =>
     Object.fromEntries(Object.entries(record).map(([k, t]) => [k, flowTypeToLegacyPort(t)]));
@@ -114,7 +167,7 @@ type Outputs = {
   result: Schematic;
 };
 
-function generate(inputs) {
+function generate(inputs: Inputs): Outputs {
   const result = new Schematic();
   for (let x = 0; x < inputs.size; x++) {
     result.setBlock(x, 0, 0, inputs.material);

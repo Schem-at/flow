@@ -88,6 +88,11 @@ export const standardProvider: RuntimeProvider = {
       Logger: createLogger(env.logCallback),
       Noise: createNoiseProvider(env.seed),
       Progress: createProgressReporter(env.progressCallback),
+      // Tool-facing sugar: a 0..1 fraction of the whole run plus a status line.
+      progress: (fraction: number, message = '') => {
+        const f = Number.isFinite(fraction) ? Math.max(0, Math.min(1, fraction)) : 0;
+        env.progressCallback?.(message || `Progress: ${Math.round(f * 100)}%`, f * 100, null);
+      },
 
       Vec: VectorUtils,
       Vec2: VectorUtils.Vec2,

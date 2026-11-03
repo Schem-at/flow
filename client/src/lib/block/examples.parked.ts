@@ -21,7 +21,7 @@ type Outputs = {
   words: number;
   hex: string;
 };
-function generate(inputs) {
+function generate(inputs: Inputs): Outputs {
   const program = inputs.program;
   const MNEMONICS = ['ADD','SUB','RSH','INC','DEC','BIT','CAL','RET','PST','PLD','IMM','STR','LOD','SOP','BRA','MOV'];
   const A = '%';
@@ -73,7 +73,7 @@ type Outputs = {
   bytes: number[];
   words: number;
 };
-function generate(inputs) {
+function generate(inputs: Inputs): Outputs {
   const program = inputs.program;
   const { assemble } = Asm.define({
     wordBits: 8, comment: '//', labelPrefix: '.', parseNumber: Asm.parseNumber,
@@ -104,7 +104,7 @@ type Outputs = {
   data: string;
   words: number;
 };
-function generate(inputs) {
+function generate(inputs: Inputs): Outputs {
   const b = inputs.bytes || [];
   const data = Rom.data(b, {
     base: inputs.base || 16,
@@ -134,7 +134,7 @@ type Outputs = {
   rom: Schematic;
   words: number;
 };
-function generate(inputs) {
+function generate(inputs: Inputs): Outputs {
   const data = inputs.bytes || [];
   const words = data.length;
   // Auto-derive a compact word grid (16 words per row) from the byte count.
@@ -159,7 +159,7 @@ function generate(inputs) {
       p.role === 'zero' ? 'minecraft:red_concrete' :
       p.role === 'fifteen' ? 'minecraft:redstone_block' :
       inputs.dataBlock + '{signal=' + p.value + '}';
-    rom.set_block(p.x, p.y, p.z, block);
+    rom.setBlock(p.x, p.y, p.z, block);
   }
   return { rom, words: words };
 }
@@ -178,7 +178,7 @@ type Inputs = {
 type Outputs = {
   rom: Schematic;
 };
-function generate(inputs) {
+function generate(inputs: Inputs): Outputs {
   const digits = inputs.data || '';
   const width = inputs.bitWidth || 8;
   const words = Math.floor(digits.length / width);
@@ -201,7 +201,7 @@ function generate(inputs) {
       p.role === 'zero' ? 'minecraft:red_concrete' :
       p.role === 'fifteen' ? 'minecraft:redstone_block' :
       'minecraft:barrel';
-    rom.set_block(p.x, p.y, p.z, block);
+    rom.setBlock(p.x, p.y, p.z, block);
   }
   return { rom };
 }
@@ -221,7 +221,7 @@ type Outputs = {
   count: number;
   bits: string;
 };
-function generate(inputs) {
+function generate(inputs: Inputs): Outputs {
   const program = inputs.program;
   const OPCODES = ['nop','hlt','add','sub','nor','and','xor','rsh','ldi','adi','jmp','brh','cal','ret','lod','str'];
   const PORTS = ['pixel_x','pixel_y','draw_pixel','clear_pixel','load_pixel','buffer_screen','clear_screen_buffer','write_char','buffer_chars','clear_chars_buffer','show_number','clear_number','signed_mode','unsigned_mode','rng','controller_input'];
@@ -304,7 +304,7 @@ type Outputs = {
   ir: string;
   count: number;
 };
-function generate(inputs) {
+function generate(inputs: Inputs): Outputs {
   const program = inputs.program;
   const MNEM = ['ADD','RSH','LOD','STR','BGE','NOR','IMM','SUB','JMP','MOV','NOP','LSH','INC','DEC','NEG','AND','OR','NOT','XNOR','XOR','NAND','BRL','BRG','BRE','BNE','BOD','BEV','BLE','BRZ','BNZ','BRN','BRP','PSH','POP','CAL','RET','HLT','CPY','BRC','BNC','IN','OUT'];
   const PORTS = { TEXT: 1, NUMB: 2, SUPPORTED: 3, SPECIAL: 4, PROFILE: 5, RNG: 10, COLOR: 11, NOTE: 12, ADDR: 13, BUS: 14, GAMEPAD: 20, AXIS: 21, KEY: 22, MOUSE: 23 };
@@ -358,7 +358,7 @@ type Outputs = {
   words: number[];
   count: number;
 };
-function generate(inputs) {
+function generate(inputs: Inputs): Outputs {
   const program = inputs.program;
   const OPC = { NOP:0, UMLT:1, XOR:2, LOD:3, OR:5, SETX2:6, MLT:7, LINE:8, BSS:9, AND:10, CALR:11, SETX:12, ADD:13, XNOR:14, CALI:15, SETX1:16, BSL:17, INC:18, STR:19, TIMER:20, NOR:21, SETY1:22, MOD:23, TILE:24, BSR:25, NAND:26, RET:27, SETY:28, SUB:29, SETY2:30, DIV:31 };
   const parseReg = (tok) => {
@@ -442,7 +442,7 @@ type Outputs = {
   words: number;
   hex: string;
 };
-function generate(inputs) {
+function generate(inputs: Inputs): Outputs {
   const OPC = { NOP:0,INC:1,DEC:2,ADD:3,ADR:4,NEG:5,SUB:6,BSB:7,CMP:8,BOR:9,AND:10,XOR:11,BSL:12,BSR:13,LIM:15,RST:16,RLD:17,MST:18,MLD:19,CAL:20,RET:21,BRC:22,JID:23,PSH:24,POP:25,PST:26,PSI:27,PLD:28,PRD:29,HLT:30,FLS:31 };
   const COND = { JMP:0,EVEN:1,EQ:2,NEQ:3,GT:4,LT:5,GTEQ:6,LTEQ:7 };
   const FORMS = {
@@ -550,7 +550,7 @@ type Outputs = {
   nibbles: number;
   bytes: number;
 };
-function generate(inputs) {
+function generate(inputs: Inputs): Outputs {
   const data = inputs.bytes || [];
   const COLS = 16; // nibbles per row (8 bytes)
   const nibbles = [];
@@ -562,7 +562,7 @@ function generate(inputs) {
   const rows = Math.max(1, Math.ceil(nibbles.length / COLS));
   const rom = new Schematic();
   // Origin/orientation marker at the top-left corner (next to the first nibble).
-  rom.set_block(0, 2 + 2 * (rows - 1), 0, 'minecraft:redstone_lamp');
+  rom.setBlock(0, 2 + 2 * (rows - 1), 0, 'minecraft:redstone_lamp');
   for (let i = 0; i < nibbles.length; i++) {
     const col = i % COLS;
     const row = (i / COLS) | 0;
@@ -573,7 +573,7 @@ function generate(inputs) {
     const block = n === 0
       ? 'minecraft:black_concrete'
       : 'minecraft:barrel[facing=north,open=false]{signal=' + n + '}';
-    rom.set_block(x, y, 0, block);
+    rom.setBlock(x, y, 0, block);
   }
   return { rom: rom, nibbles: nibbles.length, bytes: data.length };
 }

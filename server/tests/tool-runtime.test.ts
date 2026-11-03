@@ -72,7 +72,8 @@ for (const [id, fixture, input, dimensions] of [
     const { runInExecutionWorker } = await import('../src/services/workerExecutor');
     const graph = JSON.parse(await readFile(new URL(`../../tools/${id}.json`, import.meta.url), 'utf8'));
     const file = await readFile(new URL(`../../../tests/fixtures/tools/${fixture}`, import.meta.url));
-    const result: any = await runInExecutionWorker({ kind: 'tool', graph, inputs: { ...input, file: { base64: file.toString('base64') } }, timeout: 10000 }, { timeoutMs: 15000 });
+    const run: any = await runInExecutionWorker({ kind: 'tool', graph, inputs: { ...input, file: { base64: file.toString('base64') } }, timeout: 10000 }, { timeoutMs: 15000 });
+    const result = run.legacy;
     expect(result.metadata.dimensions).toEqual([...dimensions]);
     expect(result.metadata.block_count).toBeGreaterThan(0);
     if (id === 'model-to-schematic') expect(result.metadata).toMatchObject({ shading: 'none', lighting: null });
@@ -87,7 +88,7 @@ test('skin graph resolves an asset and exports a statue', async () => {
   process.env.SCHEMATI_URL = `http://127.0.0.1:${server.port}`;
   try {
     const graph = JSON.parse(await readFile(new URL('../../tools/skin-statue.json', import.meta.url), 'utf8'));
-    const output = await executeTool(graph, { username: 'Fixture' }, 10000);
+    const output: any = (await executeTool(graph, { username: 'Fixture' }, 10000)).legacy;
     expect(output.metadata.dimensions).toEqual([16, 32, 8]);
     expect(output.metadata.block_count).toBeGreaterThan(0);
     expect(output.metadata).toMatchObject({ username: 'Fixture', slim: false });
@@ -102,7 +103,7 @@ test('native transform graph rotates a saved schematic', async () => {
   const N = context.Nucleation as any;
   const schematic = N.Schematic.create('bar'); schematic.setBlocks([0,0,0,1,0,0], 'minecraft:stone');
   const graph = JSON.parse(await readFile(new URL('../../tools/internal/transform.json', import.meta.url), 'utf8'));
-  const output = await executeTool(graph, { file: { base64: schematic.toSchematicB64() }, rotate: [0,90,0] }, 10000);
+  const output: any = (await executeTool(graph, { file: { base64: schematic.toSchematicB64() }, rotate: [0,90,0] }, 10000)).legacy;
   expect(output.metadata.dimensions).toEqual([1,1,2]);
 });
 

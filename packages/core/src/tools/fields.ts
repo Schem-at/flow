@@ -47,7 +47,9 @@ export interface ToolFieldPresentation {
 }
 
 export function toolFieldPresentation(node: { data?: Record<string, any> }): ToolFieldPresentation {
-  return { help: node.data?.description, ...node.data?.toolField };
+  // `description` is the remote-catalogue name for the help text; `help` predates it.
+  const field = node.data?.toolField ?? {};
+  return { ...field, help: field.help ?? field.description ?? node.data?.description };
 }
 
 /** Shared by form rendering and validation. `equals` accepts older authored graphs. */

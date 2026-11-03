@@ -13,7 +13,8 @@
         "educative"
       ],
       "timeout": 60,
-      "output": "generic"
+      "output": "generic",
+      "runtime": "any"
     },
     "examples": [
       {
@@ -44,8 +45,18 @@
         "widgetType": "slider",
         "toolField": {
           "group": "Settings",
-          "order": 0
-        }
+          "order": 0,
+          "label": "Sphere radius",
+          "help": "Radius of the sphere in blocks; the box is sized from it.",
+          "kind": "int",
+          "min": 2,
+          "max": 24,
+          "default": 12,
+          "required": true,
+          "name": "radius",
+          "description": "Radius of the sphere in blocks; the box is sized from it."
+        },
+        "inputName": "radius"
       }
     },
     {
@@ -66,8 +77,18 @@
         "widgetType": "slider",
         "toolField": {
           "group": "Settings",
-          "order": 1
-        }
+          "order": 1,
+          "label": "Blend distance",
+          "help": "How far the sphere and the box melt into each other, in blocks. 0 is a hard join.",
+          "kind": "int",
+          "min": 0,
+          "max": 12,
+          "default": 4,
+          "required": true,
+          "name": "blend",
+          "description": "How far the sphere and the box melt into each other, in blocks. 0 is a hard join."
+        },
+        "inputName": "blend"
       }
     },
     {
@@ -79,7 +100,7 @@
       },
       "data": {
         "label": "Compose fields",
-        "code": "type Outputs = { field: Nucleation.Sdf }; type Inputs = { radius: number; blend: number }; function generate(inputs: Inputs) { const sphere = Nucleation.Sdf.sphere(inputs.radius); const box = Nucleation.Sdf.boxShape(inputs.radius*.8,inputs.radius*.8,inputs.radius*.8,1).translate(inputs.radius,0,0); return { field: sphere.smoothUnion(box,inputs.blend) }; }",
+        "code": "type Outputs = { field: Nucleation.Sdf }; type Inputs = { radius: number; blend: number };\nfunction generate(inputs: Inputs): Outputs {\n  progress(0.2, 'Composing fields');\n  const sphere = Nucleation.Sdf.sphere(inputs.radius);\n  const box = Nucleation.Sdf.boxShape(inputs.radius * .8, inputs.radius * .8, inputs.radius * .8, 1).translate(inputs.radius, 0, 0);\n  return { field: sphere.smoothUnion(box, inputs.blend) };\n}",
         "contract": {
           "inputs": {
             "radius": {
@@ -122,7 +143,7 @@
       },
       "data": {
         "label": "Fill native shape",
-        "code": "type Outputs = { schematic: Nucleation.Schematic; definition: {} }; type Inputs = { field: Nucleation.Sdf }; function generate(inputs: Inputs) { const schematic=Nucleation.Schematic.create('SDF blend'); Nucleation.BuildingTool.fill(schematic,inputs.field.toShape(),Nucleation.Brush.shaded(70,170,220,-1,2,1)); return { schematic, definition: JSON.parse(inputs.field.toJson()) }; }",
+        "code": "type Outputs = { schematic: Nucleation.Schematic; definition: {} }; type Inputs = { field: Nucleation.Sdf };\nfunction generate(inputs: Inputs): Outputs {\n  progress(0.5, 'Filling the shape');\n  const schematic = Nucleation.Schematic.create('SDF blend');\n  Nucleation.BuildingTool.fill(schematic, inputs.field.toShape(), Nucleation.Brush.shaded(70, 170, 220, -1, 2, 1));\n  return { schematic, definition: JSON.parse(inputs.field.toJson()) };\n}",
         "contract": {
           "inputs": {
             "field": {

@@ -30,6 +30,7 @@ import { useFlowStore } from '../../store/flowStore';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { features } from '../../config/features';
 import { toast } from '../../lib/toast';
+import { saveFlow, SaveFlowError, type FlowPayload } from '../../lib/saveFlow';
 import { uuid } from '../../lib/uuid';
 import { MenuItem } from './MenuItem';
 
@@ -144,38 +145,42 @@ export function TopBar({
     [flowsData],
   );
 
-  // Save mutation with safety check
+  // Save: update your own flow in place; a flow you don't own (opened from
+  // someone else's link) is saved as YOUR copy and the editor switches to it.
   const saveMutation = useMutation({
     mutationFn: async () => {
       const flowData = exportFlow();
-      
-      // Safety check: Don't overwrite existing flow with empty nodes
-      if (flowId && flowData.nodes.length === 0) {
-         console.warn("Attempting to save empty flow over existing flow. Aborting to prevent data loss.");
-         throw new Error("Safety Lock: Cannot save empty flow over existing flow. Please refresh and try again.");
-      }
-
-      const method = flowId ? 'PUT' : 'POST';
-      const url = flowId 
-        ? `${SERVER_URL}/api/flows/${flowId}`
-        : `${SERVER_URL}/api/flows`;
-      
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify(flowData),
+      // `canEdit` comes from GET /api/flows/:id (cached by the Editor's loader).
+      const loaded = flowId ? queryClient.getQueryData<{ canEdit?: boolean }>(['flow', flowId]) : undefined;
+      return saveFlow(flowData as unknown as FlowPayload, {
+        flowId,
+        canEdit: loaded?.canEdit,
+        serverUrl: SERVER_URL,
       });
-      const json = await res.json();
-      if (!json.success) throw new Error(json.error);
-      return json.flow;
     },
-    onSuccess: (flow) => {
+    onSuccess: ({ flow, mode }) => {
       setFlowId(flow.id);
       queryClient.invalidateQueries({ queryKey: ['flows'] });
+      if (mode === 'copied') {
+        setFlowName(flow.name);
+        navigate(`/flow/${flow.id}`);
+        toast("This flow belongs to someone else, so it was saved as your own copy. You're now editing the copy.", 'success');
+        return;
+      }
       toast(flow.status === 'draft' ? 'Tool saved as a draft' : 'Tool saved', 'success');
     },
-    onError: (e) => toast((e as Error).message || 'Save failed', 'error'),
+    onError: (e) => {
+      const err = e as Error & { status?: number };
+      if (err instanceof SaveFlowError && err.status === 401) {
+        const schemati = import.meta.env.VITE_SCHEMATI_URL || 'https://schemati.test';
+        toast(err.message, 'error', {
+          href: `${schemati}/login?redirect=${encodeURIComponent(window.location.href)}`,
+          hrefLabel: 'Sign in',
+        });
+        return;
+      }
+      toast(err.message || 'Save failed', 'error');
+    },
   });
 
   // Save a Copy — fork the current canvas into a brand-new saved flow.

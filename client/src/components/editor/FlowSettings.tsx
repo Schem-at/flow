@@ -7,6 +7,8 @@ import {
 import { useFlowStore } from '../../store/flowStore';
 import { MarkdownEditor } from '../ui/MarkdownEditor';
 import { TagTreeSelector } from '../ui/TagTreeSelector';
+import { lintToolForPublish, hasLintErrors, type ToolLintIssue } from '../../lib/toolLint';
+import { TOOL_RUNTIMES, type ToolRuntime } from '@flow/core';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL ?? '';
 
@@ -74,6 +76,10 @@ export function FlowSettings({ onClose }: FlowSettingsProps) {
   const [version, setVersion] = useState('1.0.0');
   const [saved, setSaved] = useState(false);
   const [selectedTags, setSelectedTags] = useState<TagItem[]>([]);
+  const [timeout, setToolTimeout] = useState<string>('60');
+  const [runtime, setRuntime] = useState<ToolRuntime>('any');
+  const [lintIssues, setLintIssues] = useState<ToolLintIssue[] | null>(null);
+  const [linting, setLinting] = useState(false);
 
   const { data, isLoading } = useQuery<FlowMeta>({
     queryKey: ['flow-meta', flowId],
@@ -103,8 +109,14 @@ export function FlowSettings({ onClose }: FlowSettingsProps) {
       setVisibility(data.visibility);
       setVersion(data.version);
       setSelectedTags(data.tags || []);
+      const tool = toolMeta(data.metadata);
+      setToolTimeout(tool.timeout != null ? String(tool.timeout) : '');
+      setRuntime((TOOL_RUNTIMES as readonly string[]).includes(tool.runtime as string) ? tool.runtime as ToolRuntime : 'any');
     }
   }, [data]);
+
+  /** metadata.tool as the form currently describes it. */
+  const toolSettings = () => ({ schemaVersion: 1, ...toolMeta(data?.metadata), timeout: timeout === '' ? undefined : Number(timeout), runtime });
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -112,7 +124,7 @@ export function FlowSettings({ onClose }: FlowSettingsProps) {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ name, version, visibility, tags: selectedTags.map(t => t.id), metadata: { ...(data?.metadata || {}), description } }),
+        body: JSON.stringify({ name, version, visibility, tags: selectedTags.map(t => t.id), metadata: { ...(data?.metadata || {}), description, tool: toolSettings() } }),
       });
       const json = await res.json();
       if (!json.success) throw new Error(json.error);
@@ -120,6 +132,8 @@ export function FlowSettings({ onClose }: FlowSettingsProps) {
     },
     onSuccess: () => {
       setFlowName(name);
+      // Keep the graph's own metadata in step, so the next graph save carries the same tool settings.
+      useFlowStore.setState((state) => ({ flowMetadata: { ...(state.flowMetadata ?? {}), tool: toolSettings() } as typeof state.flowMetadata }));
       queryClient.invalidateQueries({ queryKey: ['flows'] });
       queryClient.invalidateQueries({ queryKey: ['flow-meta', flowId] });
       setSaved(true);
@@ -180,10 +194,26 @@ export function FlowSettings({ onClose }: FlowSettingsProps) {
   const hasChanges = data ? (
     name !== data.name || description !== (data.metadata?.description || '') ||
     visibility !== data.visibility || version !== data.version ||
-    origTagIds !== currTagIds
+    origTagIds !== currTagIds ||
+    timeout !== String(toolMeta(data.metadata).timeout ?? '') || runtime !== (toolMeta(data.metadata).runtime ?? 'any')
   ) : false;
 
   const status = statusLabels[data?.status || 'draft'] || statusLabels.draft;
+
+  /** Publishing (submit / approve) is refused while the tool graph has lint errors. */
+  const guardPublish = async (publish: () => void | Promise<void>) => {
+    setLinting(true);
+    try {
+      const { nodes, edges, flowMetadata } = useFlowStore.getState();
+      const issues = await lintToolForPublish({ nodes, edges, metadata: { ...(flowMetadata ?? {}), ...(data?.metadata ?? {}), tool: toolSettings() } });
+      setLintIssues(issues);
+      if (hasLintErrors(issues)) return;
+      if (hasChanges && canEdit) await saveMutation.mutateAsync();
+      await publish();
+    } finally {
+      setLinting(false);
+    }
+  };
 
   return (
     <div>
@@ -250,6 +280,37 @@ export function FlowSettings({ onClose }: FlowSettingsProps) {
             <MarkdownEditor value={description} onChange={setDescription} placeholder="What does this tool do?" disabled={!canEdit} />
           </div>
 
+          {/* Tool run settings: checked by the publish gate */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label htmlFor="tool-timeout" className="block text-[10px] font-mono uppercase tracking-wider text-neutral-500 mb-1.5">Timeout (seconds)</label>
+              <input
+                id="tool-timeout"
+                type="number"
+                min={1}
+                max={300}
+                value={timeout}
+                onChange={(e) => setToolTimeout(e.target.value)}
+                disabled={!canEdit}
+                className="w-full bg-[#0c0c10] border border-neutral-800/60 rounded-lg px-3 py-2 text-sm font-mono text-white focus:outline-none focus:border-green-500/30 disabled:opacity-50 transition-all"
+              />
+            </div>
+            <div>
+              <label htmlFor="tool-runtime" className="block text-[10px] font-mono uppercase tracking-wider text-neutral-500 mb-1.5">Runs</label>
+              <select
+                id="tool-runtime"
+                value={runtime}
+                onChange={(e) => setRuntime(e.target.value as ToolRuntime)}
+                disabled={!canEdit}
+                className="w-full bg-[#0c0c10] border border-neutral-800/60 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500/30 disabled:opacity-50 transition-all"
+              >
+                <option value="any">Anywhere (browser or server)</option>
+                <option value="server">Server only</option>
+                <option value="browser">Browser only (not remotely runnable)</option>
+              </select>
+            </div>
+          </div>
+
           {/* Version */}
           <div>
             <label className="block text-[10px] font-mono uppercase tracking-wider text-neutral-500 mb-1.5">Version</label>
@@ -303,7 +364,8 @@ export function FlowSettings({ onClose }: FlowSettingsProps) {
               <div className="flex items-center gap-2">
                 {data.status !== 'published' && (
                   <button
-                    onClick={() => moderateMutation.mutate({ action: 'approve' })}
+                    onClick={() => guardPublish(() => moderateMutation.mutateAsync({ action: 'approve' }))}
+                    disabled={linting}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium bg-green-500/10 text-green-400 border border-green-500/20 rounded-lg hover:bg-green-500/20 transition-colors"
                   >
                     <ShieldCheck className="w-3 h-3" /> Approve
@@ -338,18 +400,20 @@ export function FlowSettings({ onClose }: FlowSettingsProps) {
           {/* Submit for review (owner, draft) */}
           {canEdit && data?.status === 'draft' && !data?.canModerate && (
             <button
-              onClick={() => {
+              disabled={linting}
+              onClick={() => guardPublish(() =>
                 fetch(`${SERVER_URL}/api/flows/${flowId}/submit-for-review`, { method: 'POST', credentials: 'include' })
                   .then(() => {
                     queryClient.invalidateQueries({ queryKey: ['flow-meta', flowId] });
                     queryClient.invalidateQueries({ queryKey: ['flows'] });
-                  });
-              }}
+                  }))}
               className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-medium bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 rounded-lg hover:bg-cyan-500/20 transition-colors"
             >
-              <Send className="w-3.5 h-3.5" /> Submit for Review
+              {linting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />} Submit for Review
             </button>
           )}
+
+          {lintIssues && lintIssues.length > 0 && <ToolLintReport issues={lintIssues} />}
 
           {/* Save */}
           {canEdit && (
@@ -425,6 +489,31 @@ export function FlowSettings({ onClose }: FlowSettingsProps) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function toolMeta(metadata: unknown): { timeout?: number; runtime?: string; [key: string]: unknown } {
+  const tool = (metadata as { tool?: unknown } | undefined)?.tool;
+  return tool && typeof tool === 'object' ? (tool as { timeout?: number; runtime?: string }) : {};
+}
+
+/** Lint findings shown under the publish buttons; errors block publishing. */
+export function ToolLintReport({ issues }: { issues: ToolLintIssue[] }) {
+  const errors = issues.filter((i) => i.severity === 'error');
+  const warnings = issues.filter((i) => i.severity === 'warning');
+  return (
+    <div role="alert" className="rounded-lg border border-red-500/20 bg-red-500/5 p-3 text-xs space-y-2">
+      <p className={errors.length ? 'text-red-400 font-medium' : 'text-amber-400 font-medium'}>
+        {errors.length ? `Fix ${errors.length} problem${errors.length === 1 ? '' : 's'} before publishing this tool:` : 'Warnings (these do not block publishing):'}
+      </p>
+      <ul className="space-y-1">
+        {[...errors, ...warnings].map((issue, i) => (
+          <li key={i} className={issue.severity === 'error' ? 'text-red-300' : 'text-amber-300/80'}>
+            <span className="font-mono text-[10px] opacity-60 mr-1.5">{issue.code}</span>{issue.message}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
