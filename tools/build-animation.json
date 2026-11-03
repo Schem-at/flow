@@ -1,0 +1,269 @@
+{
+  "id": "build-animation",
+  "name": "Construction animation",
+  "version": "1.0.0",
+  "metadata": {
+    "description": "Record construction, apply effects, and inspect a moment in the timeline. Preview the build, play its animation, and export an animated GLB.",
+    "tool": {
+      "schemaVersion": 1,
+      "slug": "build-animation",
+      "icon": "cube",
+      "tags": [
+        "minecraft",
+        "educative"
+      ],
+      "timeout": 60,
+      "output": "generic"
+    },
+    "examples": [
+      {
+        "name": "Default example",
+        "inputs": {
+          "count": 12,
+          "timeMs": 400
+        }
+      }
+    ]
+  },
+  "nodes": [
+    {
+      "id": "count",
+      "type": "input",
+      "position": {
+        "x": 12,
+        "y": 410.33333333333337
+      },
+      "data": {
+        "label": "count",
+        "dataType": "number",
+        "value": 12,
+        "default": 12,
+        "min": 1,
+        "max": 32,
+        "step": 1,
+        "widgetType": "slider",
+        "toolField": {
+          "group": "Settings",
+          "order": 0
+        }
+      }
+    },
+    {
+      "id": "timeMs",
+      "type": "input",
+      "position": {
+        "x": 752,
+        "y": 40.33333333333333
+      },
+      "data": {
+        "label": "timeMs",
+        "dataType": "number",
+        "value": 400,
+        "default": 400,
+        "min": 0,
+        "max": 2000,
+        "step": 1,
+        "widgetType": "slider",
+        "toolField": {
+          "group": "Settings",
+          "order": 1
+        }
+      }
+    },
+    {
+      "id": "build",
+      "type": "code",
+      "position": {
+        "x": 412,
+        "y": 360.33333333333337
+      },
+      "data": {
+        "label": "Record construction",
+        "code": "type Outputs = { animation: Nucleation.BuildAnimation }; type Inputs = { count: number }; function generate(inputs: Inputs) { const animation=Nucleation.BuildAnimation.create('Animated steps'); animation.setDefaultEffect(Nucleation.AnimationEffect.dropAndPop(600,8)); animation.setStepMs(80); for(let i=0;i<inputs.count;i++) animation.setBlock(i,Math.floor(i/3),0,'minecraft:gold_block'); return { animation }; }",
+        "contract": {
+          "inputs": {
+            "count": {
+              "kind": "number"
+            }
+          },
+          "outputs": {
+            "animation": {
+              "kind": "native",
+              "className": "BuildAnimation"
+            }
+          }
+        },
+        "io": {
+          "inputs": {
+            "count": {
+              "type": "number"
+            }
+          },
+          "outputs": {
+            "animation": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sample",
+      "type": "code",
+      "position": {
+        "x": 1152,
+        "y": 47
+      },
+      "data": {
+        "label": "Sample timeline",
+        "code": "type Outputs = { schematic: Nucleation.Schematic; frame: {}; durationMs: number }; type Inputs = { animation: Nucleation.BuildAnimation; timeMs: number }; function generate(inputs: Inputs) { return { schematic: Nucleation.Schematic.fromData(Bytes.fromBase64(inputs.animation.toSchemB64())), frame: JSON.parse(inputs.animation.frameJson(inputs.timeMs)), durationMs: inputs.animation.durationMs() }; }",
+        "contract": {
+          "inputs": {
+            "animation": {
+              "kind": "native",
+              "className": "BuildAnimation"
+            },
+            "timeMs": {
+              "kind": "number"
+            }
+          },
+          "outputs": {
+            "schematic": {
+              "kind": "schematic"
+            },
+            "frame": {
+              "kind": "object",
+              "fields": {}
+            },
+            "durationMs": {
+              "kind": "number"
+            }
+          }
+        },
+        "io": {
+          "inputs": {
+            "animation": {
+              "type": "object"
+            },
+            "timeMs": {
+              "type": "number"
+            }
+          },
+          "outputs": {
+            "schematic": {
+              "type": "schematic"
+            },
+            "frame": {
+              "type": "object"
+            },
+            "durationMs": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "out-schematic",
+      "type": "output",
+      "position": {
+        "x": 1892,
+        "y": 332
+      },
+      "data": {
+        "label": "schematic",
+        "dataType": "schematic"
+      }
+    },
+    {
+      "id": "out-frame",
+      "type": "output",
+      "position": {
+        "x": 1892,
+        "y": 652
+      },
+      "data": {
+        "label": "frame",
+        "dataType": "object"
+      }
+    },
+    {
+      "id": "out-durationMs",
+      "type": "output",
+      "position": {
+        "x": 1892,
+        "y": 12
+      },
+      "data": {
+        "label": "durationMs",
+        "dataType": "number"
+      }
+    },
+    {
+      "id": "out-animation",
+      "type": "output",
+      "position": {
+        "x": 1152,
+        "y": 467
+      },
+      "data": {
+        "label": "animation",
+        "fieldType": {
+          "kind": "native",
+          "className": "BuildAnimation"
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "count-build-count",
+      "source": "count",
+      "target": "build",
+      "sourceHandle": "output",
+      "targetHandle": "count"
+    },
+    {
+      "id": "build-sample-animation",
+      "source": "build",
+      "target": "sample",
+      "sourceHandle": "animation",
+      "targetHandle": "animation"
+    },
+    {
+      "id": "timeMs-sample-timeMs",
+      "source": "timeMs",
+      "target": "sample",
+      "sourceHandle": "output",
+      "targetHandle": "timeMs"
+    },
+    {
+      "id": "out-schematic",
+      "source": "sample",
+      "target": "out-schematic",
+      "sourceHandle": "schematic",
+      "targetHandle": "input"
+    },
+    {
+      "id": "out-frame",
+      "source": "sample",
+      "target": "out-frame",
+      "sourceHandle": "frame",
+      "targetHandle": "input"
+    },
+    {
+      "id": "out-durationMs",
+      "source": "sample",
+      "target": "out-durationMs",
+      "sourceHandle": "durationMs",
+      "targetHandle": "input"
+    },
+    {
+      "id": "out-animation",
+      "source": "build",
+      "sourceHandle": "animation",
+      "target": "out-animation",
+      "targetHandle": "input"
+    }
+  ]
+}

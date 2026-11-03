@@ -173,7 +173,7 @@ export function TopBar({
     onSuccess: (flow) => {
       setFlowId(flow.id);
       queryClient.invalidateQueries({ queryKey: ['flows'] });
-      toast('Flow saved', 'success');
+      toast(flow.status === 'draft' ? 'Tool saved as a draft' : 'Tool saved', 'success');
     },
     onError: (e) => toast((e as Error).message || 'Save failed', 'error'),
   });
@@ -277,7 +277,7 @@ export function TopBar({
         loadFlow({
           ...flowData,
           id: '',
-          name: flowData.name || 'Imported Flow',
+          name: flowData.name || 'Imported tool',
           version: flowData.version || '1.0.0',
           createdAt: Date.now(),
           nodes: flowData.nodes.map((n: { id: string; [k: string]: unknown }) => ({ ...n, id: idMap.get(n.id) || n.id })),
@@ -401,7 +401,7 @@ export function TopBar({
                   <div className="fixed inset-0 z-40" onClick={() => setShowFileMenu(false)} />
                   <div className="absolute top-full left-0 mt-1 w-64 bg-[#0a0a0a] border border-neutral-800 rounded-lg shadow-2xl z-50 py-1 overflow-hidden">
                     {/* Primary actions */}
-                    <MenuItem icon={<Plus className="w-4 h-4" />} label="New flow" onClick={handleNewFlow} />
+                    <MenuItem icon={<Plus className="w-4 h-4" />} label="New tool" onClick={handleNewFlow} />
                     <MenuItem icon={<FolderOpen className="w-4 h-4" />} label="Open / manage…" onClick={() => { onShowFlowManager(); setShowFileMenu(false); }} />
 
                     <div className="h-px bg-neutral-800 my-1" />
@@ -540,7 +540,7 @@ export function TopBar({
         <button
           onClick={onShowSettings}
           className="hidden sm:flex p-1.5 rounded hover:bg-white/10 text-neutral-400 hover:text-white transition-colors"
-          title="Flow Settings"
+          title="Tool settings"
         >
           <Settings className="w-4 h-4" />
         </button>
@@ -550,7 +550,7 @@ export function TopBar({
           onClick={() => saveMutation.mutate()}
           disabled={saveMutation.isPending}
           className="hidden sm:flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-neutral-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors"
-          title="Save Flow (⌘S)"
+          title="Save tool (⌘S)"
         >
           {saveMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
           <span>Save</span>
@@ -611,15 +611,14 @@ export function TopBar({
         </div>
 
         {/* API Button */}
-        {features.apiExecution && !isMobile && flowId && (
           <button
             onClick={onShowApiPanel}
             className="p-2 text-neutral-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors"
-            title="API Settings"
+            title="Input API"
+            aria-label="Input API"
           >
             <Globe className="w-4 h-4" />
           </button>
-        )}
       </div>
     </div>
   );

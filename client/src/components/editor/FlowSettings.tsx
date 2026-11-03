@@ -22,6 +22,8 @@ interface FlowMeta {
   version: string;
   visibility: 'public' | 'private' | 'unlisted';
   status: string;
+  publishedVersion?: string;
+  hasUnpublishedChanges?: boolean;
   isForked: boolean;
   canEdit: boolean;
   canModerate: boolean;
@@ -159,7 +161,7 @@ export function FlowSettings({ onClose }: FlowSettingsProps) {
   if (!flowId) {
     return (
       <div className="p-6 text-center">
-        <p className="text-sm text-neutral-500">Save your flow first to edit its settings.</p>
+        <p className="text-sm text-neutral-500">Save your tool first to edit its settings.</p>
       </div>
     );
   }
@@ -206,6 +208,7 @@ export function FlowSettings({ onClose }: FlowSettingsProps) {
 
       {tab === 'settings' ? (
         <div className="p-5 pt-2 space-y-5">
+          {data?.publishedVersion && <p className="rounded border border-white/10 p-3 text-xs text-neutral-400">Published version: {data.publishedVersion}.{data.hasUnpublishedChanges ? " Your edits are a draft. Visitors continue using the reviewed version until the next publication." : " This is the version visitors run."}</p>}
           {/* Status & Stats bar */}
           <div className="flex items-center justify-between">
             <span className={`flex items-center gap-1 px-2 py-1 rounded border text-[10px] font-mono uppercase tracking-wider ${status.color}`}>
@@ -244,7 +247,7 @@ export function FlowSettings({ onClose }: FlowSettingsProps) {
           {/* Description */}
           <div>
             <label className="block text-[10px] font-mono uppercase tracking-wider text-neutral-500 mb-1.5">Description</label>
-            <MarkdownEditor value={description} onChange={setDescription} placeholder="What does this flow do?" disabled={!canEdit} />
+            <MarkdownEditor value={description} onChange={setDescription} placeholder="What does this tool do?" disabled={!canEdit} />
           </div>
 
           {/* Version */}

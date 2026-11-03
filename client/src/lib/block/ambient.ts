@@ -17,6 +17,8 @@
  */
 
 import nucleationRawDts from 'virtual:nucleation-dts';
+import { NUCLEATION_AMBIENT_DTS as COMPAT_DTS } from './nucleationAmbient';
+import { BLOCKS_DTS } from '../../../../packages/core/src/providers/blocks-dts';
 
 /**
  * Turn nucleation's per-class .d.ts files into ambient (global) declarations:
@@ -26,7 +28,7 @@ import nucleationRawDts from 'virtual:nucleation-dts';
  * already exports a class actually named `Schematic` (no more `*Wrapper`
  * suffix), so no renaming/aliasing is needed for the base class anymore.
  */
-function ambientizeNucleationDts(raw: string): string {
+function nativeDeclarations(raw: string): string {
   // Guard against any future single-file bundle that reintroduces
   // wasm-bindgen init plumbing at the tail of the .d.ts.
   const cut = raw.indexOf('export interface InitOutput');
@@ -40,7 +42,20 @@ function ambientizeNucleationDts(raw: string): string {
     .replace(/^export (class|function|const|enum)/gm, 'declare $1')
     .replace(/^export (interface|type)/gm, '$1');
 
-  return `${body}
+  return body;
+}
+
+export const NUCLEATION_REFERENCE_DTS = nativeDeclarations(nucleationRawDts);
+export const COMPAT_SCHEMATIC_DTS = COMPAT_DTS.split('declare namespace Schematic')[0]
+  .replace('readonly native: unknown', 'readonly native: Nucleation.Schematic');
+
+function ambientizeNucleationDts(raw: string): string {
+  const native = nativeDeclarations(raw).replace(/^declare /gm, 'export ');
+  // Legacy helper stays accurately typed; the complete native API has its own namespace.
+  return `declare namespace Nucleation {
+${native}
+}
+${COMPAT_SCHEMATIC_DTS}
 
 // ---- DX convenience methods (what the engine actually endows on top of the
 // real nucleation Schematic class, via packages/core's installSchematicMethods
@@ -99,7 +114,9 @@ declare namespace Schematic {
 
 export const NUCLEATION_AMBIENT_DTS = ambientizeNucleationDts(nucleationRawDts);
 
-export const AMBIENT_DTS = `
+export const AMBIENT_DTS = BLOCKS_DTS + `
+/** Convert native binary exports and file assets without platform-specific APIs. */
+declare const Bytes: { read(value: unknown): Uint8Array; text(value: unknown): string; fromBase64(value: string): Uint8Array; toBase64(value: Uint8Array): string };
 // ---- Widget helper types (erased at runtime; config drives the UI) ----
 
 /** A number edited with a slider widget. */

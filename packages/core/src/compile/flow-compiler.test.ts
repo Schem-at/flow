@@ -152,7 +152,7 @@ describe('compileFlow', () => {
   it('derives a publishable contract for the folded flow', () => {
     const folded = compileFlow(chainFlow());
     expect(folded.contract).toEqual({
-      inputs: { x: { kind: 'string', default: undefined } }, // input node has no dataType in this fixture
+      inputs: { x: { kind: 'number', default: 5, widget: 'input', min: undefined, max: undefined, step: undefined } }, // Legacy inputs infer their value's type.
       outputs: { result: { kind: 'number' } },
     });
 

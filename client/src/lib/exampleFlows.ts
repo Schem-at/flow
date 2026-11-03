@@ -1,3 +1,7 @@
+import showcase0 from '../../../tools/sdf-playground.json';
+import showcase1 from '../../../tools/build-animation.json';
+import showcase2 from '../../../tools/building-footprints.json';
+import showcase3 from '../../../tools/circuit-lab.json';
 /**
  * Built-in example FLOWS for the node editor — complete node/edge graphs that
  * exercise multi-step execution. The Julia flow chains two v2 blocks: one
@@ -766,4 +770,4 @@ export const EXAMPLE_ROM_GENERATOR_FLOW: FlowData = {
   ],
 };
 
-export const EXAMPLE_FLOWS: FlowData[] = [JULIA_STITCH_FLOW, WORLDGEN_FLOW, MANDELBROT_FLOW, EXAMPLE_ROM_GENERATOR_FLOW];
+export const EXAMPLE_FLOWS: FlowData[] = [...[showcase0, showcase1, showcase2, showcase3].map(graph => ({ ...graph, createdAt: 0 } as unknown as FlowData)), JULIA_STITCH_FLOW, WORLDGEN_FLOW, MANDELBROT_FLOW, EXAMPLE_ROM_GENERATOR_FLOW];

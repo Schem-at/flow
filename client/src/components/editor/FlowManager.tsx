@@ -1,7 +1,7 @@
 /**
  * FlowManager — open, create, import and manage flows.
  *
- * Tabbed (My Flows / Examples), searchable, brand-consistent. No native
+ * Tabbed (My tools / Examples), searchable, brand-consistent. No native
  * alert()/confirm() — errors go through the toast surface and deletes use an
  * inline confirm. Fixed-height body so the layout never shifts as content
  * loads or panels expand.
@@ -107,7 +107,7 @@ export function FlowManager({ isOpen, onClose }: FlowManagerProps) {
       if (flowId === id) clearFlow();
       setConfirmDelete(null);
       queryClient.invalidateQueries({ queryKey: ['flows'] });
-      toast('Flow deleted', 'success');
+      toast('Tool deleted', 'success');
     },
     onError: (e) => toast(`Could not delete flow: ${(e as Error).message}`, 'error'),
   });
@@ -132,7 +132,7 @@ export function FlowManager({ isOpen, onClose }: FlowManagerProps) {
         loadFlow({
           ...flowData,
           id: '',
-          name: flowData.name || 'Imported Flow',
+          name: flowData.name || 'Imported tool',
           version: flowData.version || '1.0.0',
           createdAt: Date.now(),
           nodes: flowData.nodes.map((n: { id: string; [k: string]: unknown }) => ({ ...n, id: idMap.get(n.id) || n.id })),
@@ -195,14 +195,14 @@ export function FlowManager({ isOpen, onClose }: FlowManagerProps) {
   );
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Flows" subtitle="Open, create, and manage your flows" icon={<FolderOpen className="w-5 h-5" />} iconColor="text-brand-400" size="lg">
+    <Modal isOpen={isOpen} onClose={onClose} title="Tools" subtitle="Open, create, and manage your tools" icon={<FolderOpen className="w-5 h-5" />} iconColor="text-brand-400" size="lg">
       <input type="file" ref={fileInputRef} onChange={handleImport} accept=".json,.polyflow.json" className="hidden" />
 
       <div className="flex h-[68vh] max-h-[620px] flex-col">
         {/* Tabs + search */}
         <div className="flex items-center gap-3 px-5 py-3 border-b border-neutral-800/60">
           <div className="flex items-center gap-1">
-            {tabBtn('flows', 'My Flows', flows.length)}
+            {tabBtn('flows', 'My tools', flows.length)}
             {tabBtn('examples', 'Examples', EXAMPLE_FLOWS.length)}
           </div>
           <div className="relative ml-auto w-56">
@@ -216,14 +216,14 @@ export function FlowManager({ isOpen, onClose }: FlowManagerProps) {
           </div>
         </div>
 
-        {/* Create / import row (My Flows only) */}
+        {/* Create / import row (My tools only) */}
         {tab === 'flows' && (
           <div className="flex items-center gap-2 px-5 py-3 border-b border-neutral-800/40">
             <input
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && newName.trim() && createMutation.mutate(newName.trim())}
-              placeholder="Name a new flow…"
+              placeholder="Name a new tool…"
               className="flex-1 bg-neutral-900/60 border border-neutral-800 rounded-lg px-3 py-1.5 text-sm text-neutral-200 placeholder:text-neutral-600 focus:outline-none focus:border-brand-500/50 transition-colors"
             />
             <button
@@ -237,7 +237,7 @@ export function FlowManager({ isOpen, onClose }: FlowManagerProps) {
             <button
               onClick={() => fileInputRef.current?.click()}
               className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-neutral-300 rounded-lg border border-neutral-800 hover:bg-white/5 hover:text-white transition-colors"
-              title="Import a flow from a .json file"
+              title="Import a tool from a .json file"
             >
               <Upload className="w-4 h-4" /> Import
             </button>
@@ -248,13 +248,13 @@ export function FlowManager({ isOpen, onClose }: FlowManagerProps) {
         <div className="flex-1 overflow-y-auto custom-scrollbar p-3">
           {tab === 'flows' ? (
             isLoading ? (
-              <Centered><Loader2 className="w-7 h-7 animate-spin text-brand-500/50" /><span className="text-sm text-neutral-500">Loading flows…</span></Centered>
+              <Centered><Loader2 className="w-7 h-7 animate-spin text-brand-500/50" /><span className="text-sm text-neutral-500">Loading tools…</span></Centered>
             ) : error ? (
-              <Centered><AlertCircle className="w-7 h-7 text-red-400" /><span className="text-sm text-red-400">Couldn't load your flows</span><span className="text-xs text-neutral-600">You may need to sign in</span></Centered>
+              <Centered><AlertCircle className="w-7 h-7 text-red-400" /><span className="text-sm text-red-400">Couldn't load your tools</span><span className="text-xs text-neutral-600">You may need to sign in</span></Centered>
             ) : filteredFlows.length === 0 ? (
               <Centered>
                 <div className="w-12 h-12 rounded-xl bg-neutral-900 border border-neutral-800/60 flex items-center justify-center"><FolderOpen className="w-6 h-6 text-neutral-700" /></div>
-                <span className="text-sm text-neutral-400">{q ? 'No matching flows' : 'No flows yet'}</span>
+                <span className="text-sm text-neutral-400">{q ? 'No matching tools' : 'No tools yet'}</span>
                 {!q && <span className="text-xs text-neutral-600">Name one above and hit Create</span>}
               </Centered>
             ) : (

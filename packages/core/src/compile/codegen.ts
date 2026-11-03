@@ -40,7 +40,7 @@ function propKey(name: string): string {
 function emitRecord(fields: Record<string, FlowType>): string {
   const entries = Object.entries(fields);
   if (entries.length === 0) return '{}';
-  const lines = entries.map(([name, type]) => `  ${propKey(name)}: ${emitType(type)};`);
+  const lines = entries.map(([name, type]) => `  ${fieldAnnotation(type)}${propKey(name)}: ${emitType(type)};`);
   return `{\n${lines.join('\n')}\n}`;
 }
 
@@ -63,6 +63,14 @@ function emitType(type: FlowType): string {
       return type.options
         .map((option) => (typeof option === 'string' ? quote(option) : String(option)))
         .join(' | ');
+    case 'palette': return 'BlockPalette';
+    case 'username': return 'MinecraftUsername';
+    case 'file': return 'ToolFile';
+    case 'animation': return 'BuildTimeline';
+    case 'simulation': return 'SimulationView';
+    case 'chart': return 'ChartData';
+    case 'native': return `Nucleation.${type.className}`;
+    case 'set': return `MultiSelect<${type.options.length ? type.options.map(quote).join(' | ') : 'never'}>`;
     case 'block':
       return type.default !== undefined ? `Block<{ default: ${quote(type.default)} }>` : 'Block';
     case 'schematic':
@@ -79,7 +87,7 @@ function emitType(type: FlowType): string {
     case 'object': {
       const entries = Object.entries(type.fields);
       if (entries.length === 0) return '{}';
-      const members = entries.map(([name, field]) => `${propKey(name)}: ${emitType(field)}`);
+      const members = entries.map(([name, field]) => `${fieldAnnotation(field)}${propKey(name)}: ${emitType(field)}`);
       return `{ ${members.join('; ')} }`;
     }
     case 'unknown':
@@ -108,4 +116,10 @@ function emitNumber(type: Extract<FlowType, { kind: 'number' }>): string {
 /** Single-quoted TS string literal. */
 function quote(value: string): string {
   return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+}
+
+/** Preserve widget options in plain TypeScript without inventing wrappers around native APIs. */
+function fieldAnnotation(type: FlowType): string {
+  if (['palette','username','file','set','animation','simulation','chart'].includes(type.kind) || (type.kind==='enum' && type.labels)) return `/** @toolField ${JSON.stringify(type).replaceAll('*/','\\u002a/')} */ `;
+  return '';
 }

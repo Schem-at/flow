@@ -19,7 +19,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import type { Edge } from '@xyflow/react';
 import type { TracedResult } from '@flow/core';
-import { isAssetNodeData, assetNodeValue, compileFlow, compileBlock, FlowCompileError } from '@flow/core';
+import { isAssetNodeData, assetNodeValue, inputDefault, validateToolInputs, compileFlow, compileBlock, FlowCompileError } from '@flow/core';
 import { type FlowNode } from '../../store/flowStore';
 import {
   collectFlowInputs,
@@ -49,6 +49,7 @@ import { useFlowStore } from '../../store/flowStore';
 import { nodeTypes } from '../nodes';
 import { edgeTypes } from '../edges';
 import { Toolbar } from './Toolbar';
+import { ToolFormPreview } from './ToolFormPreview';
 import { TopBar } from './TopBar';
 import { CodePanel } from './CodePanel';
 import { ExecutionPanel } from './ExecutionPanel';
@@ -56,7 +57,6 @@ import { NodePropertiesPanel } from './NodePropertiesPanel';
 import { FlowManager } from './FlowManager';
 import { ApiPanel } from './ApiPanel';
 import { FlowSettings } from './FlowSettings';
-import { features } from '../../config/features';
 import { Modal } from '../ui/Modal';
 import { ShortcutsModal } from '../ui/ShortcutsModal';
 import { CommandPalette } from '../ui/CommandPalette';
@@ -73,6 +73,7 @@ export function Editor() {
   const { flowId: urlFlowId } = useParams();
   const [searchParams] = useSearchParams();
   const exampleId = searchParams.get('example');
+  const officialTool = searchParams.get('tool');
   const navigate = useNavigate();
   
   const {
@@ -153,7 +154,7 @@ export function Editor() {
   useEffect(() => {
     if (flowData && flowData.id && hasLoadedFlowRef.current !== flowData.id) {
       hasLoadedFlowRef.current = flowData.id;
-      loadFlow(flowData.jsonContent);
+      loadFlow({ ...flowData.jsonContent, name: flowData.name, version: flowData.version, metadata: flowData.metadata });
       setFlowId(flowData.id);
       if (flowData.name) setFlowName(flowData.name);
     }
@@ -178,7 +179,27 @@ export function Editor() {
     setFlowName(example.name);
   }, [urlFlowId, exampleId, loadFlow, setFlowId, setFlowName]);
 
-  // Sync URL with store state
+  const [toolLoad, setToolLoad] = useState<{ loading: boolean; error?: string }>({ loading: !!officialTool });
+  const [toolLoadAttempt, setToolLoadAttempt] = useState(0);
+  const [showToolForm, setShowToolForm] = useState(false);
+  useEffect(() => {
+    if (urlFlowId || !officialTool) return;
+    setToolLoad({ loading: true });
+    const controller = new AbortController();
+    fetch(`${SERVER_URL}/api/tools/definitions/${encodeURIComponent(officialTool)}`, { credentials: 'include', signal: controller.signal })
+      .then(async response => { if (!response.ok) throw new Error('Could not open this tool.'); return response.json(); })
+      .then(({ graph }) => {
+        if (controller.signal.aborted) return;
+        loadFlow({ ...graph, metadata: { ...graph.metadata, remixedFromTool: officialTool }, id: '', createdAt: Date.now() });
+        setFlowId(null);
+        setFlowName(graph.name + ' (Remix)');
+        hasLoadedFlowRef.current = `tool:${officialTool}`;
+        setToolLoad({ loading: false });
+      })
+      .catch(error => { if (error.name !== 'AbortError') { setToolLoad({ loading: false, error: error.message }); addExecutionLog(error.message); } });
+    return () => controller.abort();
+  }, [officialTool, urlFlowId, loadFlow, setFlowId, setFlowName, addExecutionLog, toolLoadAttempt]);
+
   // Only sync FROM store TO URL when store has a new flow that wasn't loaded from URL
   useEffect(() => {
     // Don't navigate while a flow is loading from the URL
@@ -187,7 +208,7 @@ export function Editor() {
     // A deep-linked example owns the URL (?example=<id>); never sync the store's
     // (stale, previous) flowId back onto it — that's what bounced "Load example"
     // back to the flow you came from.
-    if (exampleId) return;
+    if (exampleId || officialTool) return;
 
     // If store has a flow ID that differs from URL, and we're not loading that URL's flow,
     // it means the store was updated independently (e.g., new flow created, imported)
@@ -197,7 +218,7 @@ export function Editor() {
       // If store has no ID but URL does, and we failed to load it, navigate to new editor
       navigate('/editor', { replace: true });
     }
-  }, [flowId, urlFlowId, navigate, isFlowLoading, flowData, exampleId]);
+  }, [flowId, urlFlowId, navigate, isFlowLoading, flowData, exampleId, officialTool]);
 
   // Modal states
   const [showFlowManager, setShowFlowManager] = useState(false);
@@ -716,13 +737,14 @@ export function Editor() {
       if (!onlyStale) clearExecutionLogs();
       addExecutionLog(onlyStale ? 'Live update…' : 'Running flow…');
 
-      // 1. COLLECT input values exactly as compileFlow names them.
-      const inputValues = collectFlowInputs(nodes);
+      // 1. COLLECT input values exactly as compileTool names them.
+      let inputValues: Record<string, unknown>;
 
       // 2. FOLD with trace. A compile error means the graph is incomplete /
       //    mid-edit — surface it, keep the canvas, bail.
       let compiled;
       try {
+        inputValues = validateToolInputs({ nodes, edges }, collectFlowInputs(nodes));
         compiled = compileFlow({ nodes: nodes as never, edges: edges as never }, { trace: true });
       } catch (err) {
         const message = (err as Error)?.message || 'Flow could not be compiled';
@@ -940,10 +962,7 @@ export function Editor() {
         for (const node of order) {
           // input / file_input
           if (node.type?.includes('input') && !node.type?.includes('schematic')) {
-            const outputValue =
-              node.type === 'file_input'
-                ? (node.data as { fileData: unknown }).fileData
-                : node.data.value;
+            const outputValue = inputDefault(node);
             const output = { output: outputValue, default: outputValue };
             nodeOutputs.set(node.id, output);
             setNodeExecutionStatus(node.id, 'completed', output);
@@ -1285,7 +1304,12 @@ export function Editor() {
         onToggleMobileMenu={() => setShowMobileMenu(!showMobileMenu)}
       />
       
-      {/* Mobile Menu Overlay */}
+      <div className="flex shrink-0 items-center justify-between gap-4 border-b border-white/10 bg-neutral-950 px-4 py-2 text-xs">
+        <span className="text-neutral-500">{officialTool ? 'Remixing a Schemat.io tool' : 'Graph editor'}</span>
+        <div className="flex gap-4">{officialTool && <a href={`/run?tool=${encodeURIComponent(officialTool)}`} className="text-neutral-400 hover:text-white">Use original tool ↗</a>}<button aria-pressed={showToolForm} onClick={() => setShowToolForm(!showToolForm)} className="text-neutral-200 hover:text-brand-300">{showToolForm ? 'Hide form' : 'Preview form'}</button></div>
+      </div>
+      {officialTool && (toolLoad.loading || toolLoad.error) && <div role={toolLoad.error ? 'alert' : 'status'} className="border-b border-white/10 px-4 py-3 text-sm text-neutral-300">{toolLoad.loading ? 'Loading tool graph…' : toolLoad.error}{toolLoad.error && <button className="ml-3 underline" onClick={() => setToolLoadAttempt(n => n + 1)}>Try again</button>}</div>}
+            {/* Mobile Menu Overlay */}
       {isMobile && showMobileMenu && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setShowMobileMenu(false)}>
           <div 
@@ -1337,7 +1361,7 @@ export function Editor() {
                   }}
                   className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-neutral-300 hover:text-white hover:bg-white/5 transition-colors text-sm"
                 >
-                  <Save className="w-4 h-4" /> Save Flow
+                  <Save className="w-4 h-4" /> Save tool
                 </button>
               </div>
 
@@ -1423,6 +1447,7 @@ export function Editor() {
           resolve to a bounded height and its internal scroll never engages,
           stretching the whole page past 100vh. */}
       <div className="flex-1 flex relative min-h-0">
+        {showToolForm && <ToolFormPreview nodes={nodes.map(node => ({ ...node, type: node.type ?? 'unknown' }))} updateNode={(id, data) => useFlowStore.getState().updateNodeData(id, data)} onClose={() => setShowToolForm(false)}/>}
         {/* Node Toolbar - Desktop sidebar */}
         {!isMobile && <Toolbar />}
 
@@ -1458,6 +1483,7 @@ export function Editor() {
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           fitView
+          minZoom={0.1}
           snapToGrid={snapToGrid}
           snapGrid={[16, 16]}
           defaultEdgeOptions={{
@@ -1637,7 +1663,7 @@ export function Editor() {
         isOpen={showExecution}
         onClose={() => setShowExecution(false)}
         title="Execute Flow"
-        subtitle="Run and debug your flow"
+        subtitle="Run and debug your tool"
         icon={<Terminal className="w-5 h-5" />}
         iconColor="text-cyan-400"
         size={isMobile ? 'full' : 'lg'}
@@ -1646,25 +1672,23 @@ export function Editor() {
       </Modal>
 
       {/* API Panel Modal */}
-      {features.apiExecution && (
         <Modal
           isOpen={showApiPanel}
           onClose={() => setShowApiPanel(false)}
-          title="Flow API"
-          subtitle="Publish and test as API"
+          title="Input API"
+          subtitle="Generated from your form fields"
           icon={<Globe className="w-5 h-5" />}
           iconColor="text-cyan-400"
           size={isMobile ? 'full' : 'lg'}
         >
-          <ApiPanel flowId={flowId || ''} flowName={flowName} onClose={() => setShowApiPanel(false)} />
+          <ApiPanel flowId={flowId || ''} flowName={flowName} />
         </Modal>
-      )}
 
-      {/* Flow Settings Modal */}
+      {/* Tool settings Modal */}
       <Modal
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
-        title="Flow Settings"
+        title="Tool settings"
         subtitle="Name, description, and visibility"
         icon={<Settings className="w-5 h-5" />}
         iconColor="text-green-400"

@@ -31,6 +31,7 @@ export default defineConfig(({ mode }) => {
       plugins: () => [nucleationDtsPlugin()],
     },
     server: {
+      allowedHosts: ['tools.schemati.test', 'flow.schemati.test'],
       port,
       host: '0.0.0.0',
       headers: {
@@ -51,6 +52,8 @@ export default defineConfig(({ mode }) => {
     },
     resolve: {
       alias: [
+        { find: /^@flow\/core$/, replacement: path.resolve(__dirname, "../packages/core/src/index.ts") },
+        { find: /^@flow\/core\/worker$/, replacement: path.resolve(__dirname, "../packages/core/src/worker/index.ts") },
         { find: "@", replacement: path.resolve(__dirname, "./src") },
         // nucleation's `diplomat.config.mjs` computes its wasm path with
         // node:url/node:path, which doesn't bundle for the browser (and

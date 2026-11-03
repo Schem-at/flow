@@ -92,10 +92,10 @@ export function useLocalExecutor() {
   const executeScript = useCallback(async (
     code: string,
     inputs: Record<string, unknown>,
-    options: { returnHandles?: boolean } = {}
+    options: { returnHandles?: boolean; timeout?: number } = {}
   ) => {
     return workerClient.executeScript(code, inputs, {
-      timeout: 60000,
+      timeout: options.timeout ?? 60000,
       returnHandles: options.returnHandles,
     });
   }, [workerClient]);

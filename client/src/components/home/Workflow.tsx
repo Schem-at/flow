@@ -40,7 +40,7 @@ export function Workflow() {
           <WorkflowStep 
             number="01"
             title="Define Inputs"
-            desc="Set up your flow schema. Accept Integers, Strings, Booleans, or even File uploads (Schematics/NBT)."
+            desc="Set up your tool inputs. Accept Integers, Strings, Booleans, or even File uploads (Schematics/NBT)."
             code={`{
   "radius": "number",
   "material": "string",

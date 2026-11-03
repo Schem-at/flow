@@ -23,6 +23,8 @@ type Vec3 = [number, number, number];
 `;
 
 const SCHEMATIC = `// ── nucleation ───────────────────────────────────────────────────────────────
+/** Complete public API of the installed Nucleation package. */
+declare const Nucleation: typeof import('nucleation');
 interface SchematicBlock { x: number; y: number; z: number; name: string }
 interface SchematicBounds { width: number; height: number; depth: number; min: Vec3; max: Vec3 }
 
@@ -256,7 +258,7 @@ declare const Asm: {
 
 export const PROVIDER_DECLARATIONS: Record<string, string> = {
   nucleation: SCHEMATIC,
-  flowlib: `${STANDARD}\n${TOOLKIT}`,
+  flowlib: `${STANDARD}\n${TOOLKIT}\ndeclare const Bytes: { read(value: unknown): Uint8Array; text(value: unknown): string; fromBase64(value: string): Uint8Array; toBase64(value: Uint8Array): string };`,
   vendor: VENDOR,
   schemati: SCHEMATI,
   rom: ROM,
@@ -265,8 +267,9 @@ export const PROVIDER_DECLARATIONS: Record<string, string> = {
 
 /** Per-category endowment keys, keyed by provider name. */
 export const PROVIDER_ENDOWMENT_KEYS: Record<string, string[]> = {
-  nucleation: ['Schematic', 'SchematicUtils'],
+  nucleation: ['Nucleation', 'Schematic', 'SchematicUtils'],
   flowlib: [
+    'Bytes',
     'Calculator', 'Easing', 'Logger', 'Noise', 'Progress', 'Vec', 'Vec2', 'Vec3', 'Math',
     'Field', 'Image', 'Random', 'Table', 'Mcfunction', 'McfunctionBuilder', 'Grid', 'Combinatorics',
     // Internal infra endowment: host-backed read-only clock for SES-safe trace

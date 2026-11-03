@@ -96,7 +96,7 @@ export function ModuleManager() {
               </div>
               <h1 className="text-2xl font-semibold tracking-tight">Modules</h1>
               <p className="text-sm text-neutral-500 mt-1 font-light">
-                Reusable code blocks for your flows
+                Reusable code blocks for your tools
               </p>
             </div>
           </div>

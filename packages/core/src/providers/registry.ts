@@ -13,6 +13,7 @@ import { nucleationProvider } from './nucleation.js';
 import { schematiProvider } from './schemati.js';
 import { romProvider } from './rom.js';
 import { asmProvider } from './asm.js';
+import { blocksProvider } from './blocks.js';
 
 export class ProviderRegistry {
   private providers: RuntimeProvider[] = [];
@@ -50,6 +51,7 @@ export class ProviderRegistry {
   createContext(env: Partial<RuntimeEnv> = {}): Promise<Record<string, unknown>> {
     if (!this.cached) {
       const fullEnv: RuntimeEnv = {
+        ...env,
         kind: env.kind ?? detectRuntimeEnvKind(),
         logCallback: env.logCallback,
         progressCallback: env.progressCallback,
@@ -92,5 +94,6 @@ export function createDefaultRegistry(): ProviderRegistry {
     .register(asmProvider)
     // After nucleation: Schemati.getSchematic / Field.toTerrain build on Schematic.
     .register(nucleationProvider)
+    .register(blocksProvider)
     .register(schematiProvider);
 }

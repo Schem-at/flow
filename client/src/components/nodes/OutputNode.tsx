@@ -11,6 +11,8 @@ import {
   Box, Image, FileSpreadsheet, FileText, Hash, Type, ToggleLeft
 } from 'lucide-react';
 import { useFlowStore } from '../../store/flowStore';
+import { SchematicViewer } from '../blocks/viewers';
+import { getSharedWorkerClient } from '../../hooks/useLocalExecutor';
 import { 
   type DataFormat,
   type DataValue,
@@ -20,6 +22,9 @@ import {
 } from '@flow/core';
 
 interface OutputNodeData {
+  dataType?: string;
+  preview?: boolean;
+  width?: number;
   label?: string;
   /** Description of this output */
   description?: string;
@@ -28,6 +33,8 @@ interface OutputNodeData {
   /** Custom filename for download (without extension) */
   downloadFileName?: string;
 }
+
+const resolveSchematic = (id: string) => getSharedWorkerClient().getData(id);
 
 // Helper to get icon for data type
 const getDataIcon = (value: unknown) => {
@@ -128,6 +135,7 @@ const OutputNode = memo(({ id, data, selected }: NodeProps & { data: OutputNodeD
   const [isHovered, setIsHovered] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [downloadError, setDownloadError] = useState('');
   const [isEditingLabel, setIsEditingLabel] = useState(false);
   const [tempLabel, setTempLabel] = useState(data.label || '');
 
@@ -166,23 +174,34 @@ const OutputNode = memo(({ id, data, selected }: NodeProps & { data: OutputNodeD
   
   const ownHasOutput = ownCache?.status === 'completed' || ownCache?.status === 'cached';
   const sourceHasOutput = sourceCache?.status === 'completed' || sourceCache?.status === 'cached';
-  const hasInput = (ownHasOutput || (inputEdge && sourceHasOutput)) && inputValue !== null;
+  const hasInput = (ownHasOutput || (inputEdge && sourceHasOutput)) && inputValue != null;
   const colors = getDataColor(inputValue);
   const Icon = getDataIcon(inputValue);
   const showDownload = data.allowDownload !== false && hasInput && canDownload(inputValue);
+  const valueObject = inputValue && typeof inputValue === 'object' ? inputValue as Record<string, unknown> : null;
+  const schematicOutput = data.preview !== false && (data.dataType === 'schematic' || !!valueObject?._schematicHandle || ['schem', 'schematic', 'litematic', 'nbt'].includes(String(valueObject?.format)));
 
   const handleDownload = useCallback(async () => {
     if (!inputValue) return;
 
     setIsSaving(true);
     setSaveSuccess(false);
+    setDownloadError('');
 
     try {
+      const downloadValue = valueObject?._schematicHandle
+        ? await resolveSchematic(String(valueObject._schematicHandle)) : inputValue;
+      if (downloadValue == null) throw new Error('The schematic is no longer available. Run the graph again.');
+      const downloadObject = typeof downloadValue === 'object' ? downloadValue as Record<string, unknown> : null;
       let blob: Blob;
       let fileName: string;
       
-      if (isDataValue(inputValue)) {
-        const dataValue = inputValue as DataValue;
+      if (downloadObject && typeof downloadObject.base64 === 'string') {
+        const bytes = Uint8Array.from(atob(downloadObject.base64), c => c.charCodeAt(0));
+        blob = new Blob([bytes], { type: 'application/octet-stream' });
+        fileName = (downloadObject.metadata as { name?: string })?.name || `${data.downloadFileName || 'output'}.${downloadObject.format || 'bin'}`;
+      } else if (isDataValue(downloadValue)) {
+        const dataValue = downloadValue as DataValue;
         const baseName = data.downloadFileName || dataValue.metadata?.name?.replace(/\.[^/.]+$/, '') || 'output';
         const extension = getExtensionForFormat(dataValue.format);
         fileName = `${baseName}${extension}`;
@@ -207,13 +226,13 @@ const OutputNode = memo(({ id, data, selected }: NodeProps & { data: OutputNodeD
         } else {
           throw new Error('Unsupported data type');
         }
-      } else if (typeof inputValue === 'string') {
+      } else if (typeof downloadValue === 'string') {
         fileName = `${data.downloadFileName || 'output'}.txt`;
-        blob = new Blob([inputValue], { type: 'text/plain' });
+        blob = new Blob([downloadValue], { type: 'text/plain' });
       } else {
         // JSON export for objects
         fileName = `${data.downloadFileName || 'output'}.json`;
-        blob = new Blob([JSON.stringify(inputValue, null, 2)], { type: 'application/json' });
+        blob = new Blob([JSON.stringify(downloadValue, null, 2)], { type: 'application/json' });
       }
 
       // Create download link
@@ -230,10 +249,11 @@ const OutputNode = memo(({ id, data, selected }: NodeProps & { data: OutputNodeD
       setTimeout(() => setSaveSuccess(false), 2000);
     } catch (error) {
       console.error('Failed to save file:', error);
+      setDownloadError(error instanceof Error ? error.message : 'Could not download this output.');
     } finally {
       setIsSaving(false);
     }
-  }, [inputValue, data.downloadFileName]);
+  }, [inputValue, valueObject, data.downloadFileName]);
 
   const handleLabelSave = useCallback(() => {
     updateNodeData(id, { label: tempLabel || 'Output' });
@@ -242,7 +262,8 @@ const OutputNode = memo(({ id, data, selected }: NodeProps & { data: OutputNodeD
 
   // Get value preview
   const getValuePreview = (): string => {
-    if (!inputValue) return 'No data';
+    if (inputValue == null) return 'No data';
+    if (valueObject?.base64 && valueObject.format) return `${String(valueObject.format).toUpperCase()} file`;
     
     if (isDataValue(inputValue)) {
       const dv = inputValue as DataValue;
@@ -271,7 +292,7 @@ const OutputNode = memo(({ id, data, selected }: NodeProps & { data: OutputNodeD
   return (
     <div
       className={`
-        relative min-w-[180px] max-w-[240px] rounded-xl overflow-hidden
+        relative min-w-[180px] rounded-xl overflow-hidden
         bg-gradient-to-br from-neutral-900 to-neutral-950
         border-2 transition-all duration-200
         ${selected 
@@ -283,6 +304,7 @@ const OutputNode = memo(({ id, data, selected }: NodeProps & { data: OutputNodeD
               : 'border-neutral-800/50'
         }
       `}
+      style={{ width: data.width || (schematicOutput ? 440 : 240) }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       onClick={() => selectNode(id)}
@@ -347,7 +369,9 @@ const OutputNode = memo(({ id, data, selected }: NodeProps & { data: OutputNodeD
       </div>
 
       {/* Content */}
-      <div className="px-3 py-2.5 space-y-2">
+      <div className="nodrag nopan nowheel px-3 py-2.5 space-y-2">
+        {downloadError && <p role="alert" className="text-xs text-red-400">{downloadError}</p>}
+        {hasInput && schematicOutput && <SchematicViewer type={{ kind: 'schematic' }} value={inputValue} getData={resolveSchematic} />}
         {/* Value preview */}
         <div className={`
           text-xs px-2 py-1.5 rounded-lg

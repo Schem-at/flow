@@ -18,6 +18,8 @@ function emptyTypeForKind(kind: FlowTypeKind): FlowType {
       return { kind, widget: 'slider', min: 0, max: 100, default: 0 };
     case 'enum':
       return { kind, options: ['option-a', 'option-b'] };
+    case 'set': return { kind, options: ['option-a', 'option-b'] };
+    case 'native': return { kind, className: 'Sdf' };
     case 'list':
       return { kind, of: { kind: 'number' } };
     case 'object':
@@ -63,6 +65,7 @@ export function TypeEditor({
     <div className="space-y-1.5">
       <div className="flex flex-wrap items-center gap-1.5">
         <select
+          aria-label={depth ? 'Nested value type' : 'Value type'}
           value={type.kind}
           onChange={(e) => onChange(emptyTypeForKind(e.target.value as FlowTypeKind))}
           className={inputCls}
@@ -74,6 +77,8 @@ export function TypeEditor({
           ))}
         </select>
 
+        {type.kind === 'native' && <input aria-label="Native class" className={inputCls} value={type.className} onChange={e=>onChange({...type,className:e.target.value})} />}
+        {type.kind === 'set' && <input aria-label="Choices" className={inputCls} value={type.options.join(', ')} onChange={e=>onChange({...type,options:e.target.value.split(',').map(s=>s.trim()).filter(Boolean)})} />}
         {type.kind === 'number' && (
           <>
             <select
@@ -131,6 +136,8 @@ export function TypeEditor({
           </label>
         )}
 
+        {type.kind === 'file' && <><input aria-label="Accepted file formats" className={inputCls} placeholder=".png,.jpg,.glb" value={type.accept?.join(',') ?? ''} onChange={e=>onChange({...type,accept:e.target.value.split(',').map(v=>v.trim()).filter(Boolean)})}/><NumberConstraint label="Max MB" value={type.maxBytes ? type.maxBytes/1048576 : undefined} onChange={v=>onChange({...type,maxBytes:v?Math.max(1,v)*1048576:undefined})}/></>}
+        {type.kind === 'username' && <input aria-label="Default username" className={inputCls} value={type.default ?? ''} onChange={e=>onChange({...type,default:e.target.value})}/>}
         {type.kind === 'block' && (
           <input
             type="text"

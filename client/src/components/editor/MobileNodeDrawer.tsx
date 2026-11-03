@@ -11,6 +11,7 @@ import {
   Type, 
   ToggleLeft, 
   Upload,
+  FormInput,
   ArrowRightFromLine,
   Eye,
   Workflow,
@@ -58,6 +59,7 @@ const nodeCategories: { name: string; color: string; nodes: NodeTemplate[] }[] =
     name: 'Inputs',
     color: 'purple',
     nodes: [
+      { type: 'form', label: 'Form', Icon: FormInput, description: 'Custom form and input API', color: 'text-brand-300', bg: 'bg-brand-500/20', config: { fields: [], bundle: { enabled: true, name: 'values' } } },
       {
         type: 'input',
         label: 'Number',
@@ -109,7 +111,7 @@ const nodeCategories: { name: string; color: string; nodes: NodeTemplate[] }[] =
         type: 'output',
         label: 'Output',
         Icon: ArrowRightFromLine,
-        description: 'Flow output',
+        description: 'Tool output',
         color: 'text-cyan-400',
         bg: 'bg-cyan-500/20',
       },

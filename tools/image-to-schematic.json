@@ -1,0 +1,509 @@
+{
+  "id": "image-to-schematic",
+  "name": "Image to schematic",
+  "version": "1.0.0",
+  "metadata": {
+    "description": "Pixel art from any image, one block per pixel, as a wall or a floor.",
+    "tool": {
+      "schemaVersion": 1,
+      "slug": "image-to-schematic",
+      "icon": "photo",
+      "tags": [
+        "minecraft",
+        "display"
+      ],
+      "timeout": 60,
+      "output": "schematic"
+    },
+    "examples": [
+      {
+        "name": "Sample pixel art",
+        "inputs": {
+          "file": {
+            "base64": "iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAAHUlEQVQImQXBAQ0AAAzDIJbcv+Uehio2iyPMSuMBpTwJA70UvgsAAAAASUVORK5CYII=",
+            "format": "png",
+            "metadata": {
+              "name": "example.png",
+              "mimeType": "image/png"
+            }
+          },
+          "width": 32
+        }
+      }
+    ]
+  },
+  "nodes": [
+    {
+      "id": "file",
+      "type": "input",
+      "position": {
+        "x": 332,
+        "y": 745.3333333333333
+      },
+      "data": {
+        "label": "file",
+        "dataType": "object",
+        "value": null,
+        "toolField": {
+          "name": "file",
+          "kind": "file",
+          "label": "Image",
+          "accept": [
+            "png",
+            "jpg",
+            "jpeg",
+            "webp"
+          ],
+          "max_kb": 8192,
+          "required": true,
+          "group": "Source",
+          "order": 0
+        },
+        "io": {
+          "inputs": {},
+          "outputs": {
+            "value": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "width",
+      "type": "input",
+      "position": {
+        "x": 332,
+        "y": 425.3333333333333
+      },
+      "data": {
+        "label": "width",
+        "dataType": "number",
+        "value": 64,
+        "toolField": {
+          "name": "width",
+          "kind": "int",
+          "label": "Width in blocks",
+          "help": "Height follows the image's aspect ratio.",
+          "default": 64,
+          "min": 8,
+          "max": 512,
+          "required": true,
+          "group": "Settings",
+          "order": 1
+        },
+        "io": {
+          "inputs": {},
+          "outputs": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "orientation",
+      "type": "input",
+      "position": {
+        "x": 1072,
+        "y": 852
+      },
+      "data": {
+        "label": "orientation",
+        "dataType": "string",
+        "value": "wall",
+        "toolField": {
+          "name": "orientation",
+          "kind": "enum",
+          "label": "Lay it",
+          "default": "wall",
+          "options": {
+            "wall": "Standing, as a wall",
+            "floor": "Flat, as a floor"
+          },
+          "required": true,
+          "group": "Settings",
+          "order": 2
+        },
+        "io": {
+          "inputs": {},
+          "outputs": {
+            "value": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "dither",
+      "type": "input",
+      "position": {
+        "x": 1072,
+        "y": 1172
+      },
+      "data": {
+        "label": "dither",
+        "dataType": "boolean",
+        "value": false,
+        "toolField": {
+          "name": "dither",
+          "kind": "bool",
+          "label": "Dither",
+          "help": "Mixes nearby blocks to fake colours the palette lacks. Looks better from far away.",
+          "default": false,
+          "required": true,
+          "group": "Settings",
+          "order": 3
+        },
+        "io": {
+          "inputs": {},
+          "outputs": {
+            "value": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "palette",
+      "type": "input",
+      "position": {
+        "x": 332,
+        "y": 62
+      },
+      "data": {
+        "label": "palette",
+        "dataType": "object",
+        "value": {
+          "preset": "solid",
+          "include": [],
+          "exclude": [],
+          "replace": {}
+        },
+        "toolField": {
+          "name": "palette",
+          "kind": "palette",
+          "label": "Palette",
+          "default": {
+            "preset": "solid",
+            "include": [],
+            "exclude": [],
+            "replace": {}
+          },
+          "required": true,
+          "group": "Materials",
+          "order": 4
+        },
+        "io": {
+          "inputs": {},
+          "outputs": {
+            "value": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "format",
+      "type": "input",
+      "position": {
+        "x": 12,
+        "y": 12
+      },
+      "data": {
+        "label": "format",
+        "dataType": "string",
+        "value": "schem",
+        "toolField": {
+          "name": "format",
+          "kind": "format",
+          "label": "Format",
+          "default": "schem",
+          "options": {
+            "schem": ".schem (WorldEdit)",
+            "litematic": ".litematic (Litematica)"
+          },
+          "required": true,
+          "group": "Export",
+          "order": 5
+        },
+        "io": {
+          "inputs": {},
+          "outputs": {
+            "value": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "palette-build",
+      "type": "code",
+      "position": {
+        "x": 732,
+        "y": 12
+      },
+      "data": {
+        "label": "Choose blocks",
+        "code": "type Inputs = { palette: any };\ntype Outputs = { palette: any };\nasync function generate(inputs: Inputs): Promise<Outputs> {\nreturn { palette: Blocks.palette(inputs.palette) };\n}",
+        "contract": {
+          "inputs": {
+            "palette": {
+              "kind": "unknown"
+            }
+          },
+          "outputs": {
+            "palette": {
+              "kind": "unknown"
+            }
+          }
+        },
+        "io": {
+          "inputs": {
+            "palette": {
+              "type": "object"
+            }
+          },
+          "outputs": {
+            "palette": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "decode",
+      "type": "code",
+      "position": {
+        "x": 732,
+        "y": 432
+      },
+      "data": {
+        "label": "Read image",
+        "code": "type Inputs = { file: any; width: any };\ntype Outputs = { image: any };\nasync function generate(inputs: Inputs): Promise<Outputs> {\nreturn { image: await Blocks.image(inputs.file, inputs.width) };\n}",
+        "contract": {
+          "inputs": {
+            "file": {
+              "kind": "unknown"
+            },
+            "width": {
+              "kind": "unknown"
+            }
+          },
+          "outputs": {
+            "image": {
+              "kind": "unknown"
+            }
+          }
+        },
+        "io": {
+          "inputs": {
+            "file": {
+              "type": "object"
+            },
+            "width": {
+              "type": "object"
+            }
+          },
+          "outputs": {
+            "image": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "convert",
+      "type": "code",
+      "position": {
+        "x": 1472,
+        "y": 466
+      },
+      "data": {
+        "label": "Map pixels to blocks",
+        "code": "type Inputs = { image: any; palette: any; orientation: any; dither: any };\ntype Outputs = { schematic: Schematic };\nasync function generate(inputs: Inputs): Promise<Outputs> {\nreturn { schematic: Blocks.pixelArt(inputs.image, inputs.palette, inputs.orientation, inputs.dither) };\n}",
+        "contract": {
+          "inputs": {
+            "image": {
+              "kind": "unknown"
+            },
+            "palette": {
+              "kind": "unknown"
+            },
+            "orientation": {
+              "kind": "unknown"
+            },
+            "dither": {
+              "kind": "unknown"
+            }
+          },
+          "outputs": {
+            "schematic": {
+              "kind": "schematic"
+            }
+          }
+        },
+        "io": {
+          "inputs": {
+            "image": {
+              "type": "object"
+            },
+            "palette": {
+              "type": "object"
+            },
+            "orientation": {
+              "type": "object"
+            },
+            "dither": {
+              "type": "object"
+            }
+          },
+          "outputs": {
+            "schematic": {
+              "type": "schematic"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "measure",
+      "type": "code",
+      "position": {
+        "x": 2212,
+        "y": 779.3333333333333
+      },
+      "data": {
+        "label": "Describe result",
+        "code": "type Inputs = { schematic: any };\ntype Outputs = { metadata: any };\nasync function generate(inputs: Inputs): Promise<Outputs> {\nreturn { metadata: Blocks.measure(inputs.schematic) };\n}",
+        "contract": {
+          "inputs": {
+            "schematic": {
+              "kind": "unknown"
+            }
+          },
+          "outputs": {
+            "metadata": {
+              "kind": "unknown"
+            }
+          }
+        },
+        "io": {
+          "inputs": {
+            "schematic": {
+              "type": "object"
+            }
+          },
+          "outputs": {
+            "metadata": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "output-schematic",
+      "type": "output",
+      "position": {
+        "x": 2212,
+        "y": 459.3333333333333
+      },
+      "data": {
+        "label": "schematic",
+        "dataType": "schematic"
+      }
+    },
+    {
+      "id": "output-metadata",
+      "type": "output",
+      "position": {
+        "x": 2952,
+        "y": 829.3333333333333
+      },
+      "data": {
+        "label": "metadata",
+        "dataType": "object"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "palette-palette-build-palette",
+      "source": "palette",
+      "target": "palette-build",
+      "sourceHandle": "output",
+      "targetHandle": "palette"
+    },
+    {
+      "id": "file-decode-file",
+      "source": "file",
+      "target": "decode",
+      "sourceHandle": "output",
+      "targetHandle": "file"
+    },
+    {
+      "id": "width-decode-width",
+      "source": "width",
+      "target": "decode",
+      "sourceHandle": "output",
+      "targetHandle": "width"
+    },
+    {
+      "id": "decode-convert-image",
+      "source": "decode",
+      "target": "convert",
+      "sourceHandle": "image",
+      "targetHandle": "image"
+    },
+    {
+      "id": "orientation-convert-orientation",
+      "source": "orientation",
+      "target": "convert",
+      "sourceHandle": "output",
+      "targetHandle": "orientation"
+    },
+    {
+      "id": "dither-convert-dither",
+      "source": "dither",
+      "target": "convert",
+      "sourceHandle": "output",
+      "targetHandle": "dither"
+    },
+    {
+      "id": "palette-build-convert-palette",
+      "source": "palette-build",
+      "target": "convert",
+      "sourceHandle": "palette",
+      "targetHandle": "palette"
+    },
+    {
+      "id": "convert-measure-schematic",
+      "source": "convert",
+      "target": "measure",
+      "sourceHandle": "schematic",
+      "targetHandle": "schematic"
+    },
+    {
+      "id": "convert-output-schematic-schematic",
+      "source": "convert",
+      "target": "output-schematic",
+      "sourceHandle": "schematic",
+      "targetHandle": "input"
+    },
+    {
+      "id": "measure-output-metadata-metadata",
+      "source": "measure",
+      "target": "output-metadata",
+      "sourceHandle": "metadata",
+      "targetHandle": "input"
+    }
+  ]
+}

@@ -27,10 +27,11 @@ const EXCLUDE_FILES = new Set(['index.d.ts', 'diplomat-runtime.d.ts']);
 
 function bundleNucleationDts(): string {
   if (!pkgDir) return '';
-  const files = fs
-    .readdirSync(pkgDir)
-    .filter((f) => f.endsWith('.d.ts') && !EXCLUDE_FILES.has(f))
-    .sort();
+  // Match the namespace actually endowed by the runtime, including future
+  // public exports, without advertising package-internal classes.
+  const barrel = fs.readFileSync(path.join(pkgDir, 'index.d.ts'), 'utf8');
+  const files = [...new Set([...barrel.matchAll(/from\s+["']\.\/([^"']+)\.mjs["']/g)]
+    .map(match => `${match[1]}.d.ts`))].filter(file => !EXCLUDE_FILES.has(file)).sort();
   const header = 'declare type pointer = number;\ndeclare type codepoint = number;\n';
   const bodies = files.map((f) => fs.readFileSync(path.join(pkgDir, f), 'utf8'));
   return header + bodies.join('\n');

@@ -36,7 +36,7 @@ export function Navbar() {
             <span className="text-neutral-500 group-hover:text-neutral-200 transition-colors">schemat.io</span>
           </a>
           <span className="text-neutral-600">/</span>
-          <Link to="/" className="text-white hover:text-brand-400 transition-colors focus:outline-none">flow</Link>
+          <Link to="/" className="text-white hover:text-brand-400 transition-colors focus:outline-none">tools</Link>
         </div>
 
         <div className="h-5 w-px bg-white/10" />
@@ -48,8 +48,9 @@ export function Navbar() {
               isActive('/') ? 'bg-white/10 text-white' : 'text-neutral-400 hover:text-white hover:bg-white/5'
             }`}
           >
-            Flows
+            Discover
           </Link>
+          <Link to="/mine" className="px-3 py-1 text-xs text-neutral-400 hover:text-white">My tools</Link>
           {features.modules && (
             <Link
               to="/modules"
@@ -91,7 +92,7 @@ export function Navbar() {
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-brand-500/10 text-brand-400 hover:bg-brand-500/20 rounded-md transition-colors"
         >
           <Plus className="w-3.5 h-3.5" />
-          New Flow
+          New tool
         </Link>
 
         <div className="h-5 w-px bg-white/10" />

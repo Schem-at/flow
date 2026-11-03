@@ -1,3 +1,6 @@
+import toolJobsRouter from './routes/tool-jobs.js';
+import { executionGate } from './services/executionGate.js';
+import { bodyLimit } from 'hono/body-limit';
 /**
  * Polymerase Server
  * Hono + Bun + SQLite backend for the Polymerase execution engine
@@ -53,7 +56,10 @@ export const app = new Hono()
 	// API Routes
 	.route('/api/flows', flowsRouter)
 	.route('/api/modules', modulesRouter)
+	.use('/api/execute/*', executionGate, bodyLimit({maxSize:16*1024*1024}))
+	.use('/api/execute', executionGate)
 	.route('/api/execute', executeRouter)
+	.route('/api/tool-jobs', toolJobsRouter)
 
 	// Schemati platform passthrough (standalone dev) — must precede /api/v1
 	// so schematic search/download reach Laravel, not the flow API.
@@ -61,6 +67,7 @@ export const app = new Hono()
 	.route('/api/tags', schematiProxy)
 
 	// API v1 Routes (with auth, OpenAPI, run tracking)
+	.use('/api/v1/*', executionGate)
 	.route('/api/v1', apiV1Router);
 
 // Export for Hono client type inference

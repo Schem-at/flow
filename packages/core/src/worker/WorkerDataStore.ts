@@ -6,6 +6,8 @@
  * The main thread receives lightweight handles instead of full data.
  */
 
+import { nativeValueType, isNativeSchematic, nativeSchematicBytes } from '../utils/native-values.js';
+
 import {
   type DataHandle,
   type DataValue,
@@ -96,7 +98,8 @@ export class WorkerDataStore {
       }
       
       // Rough estimate for objects
-      return JSON.stringify(value).length * 2;
+      if (nativeValueType(value)) return 1024; // Handle overhead only; WASM heap is reclaimed by ending the worker session.
+      try { return JSON.stringify(value).length * 2; } catch { return 1024; }
     }
     return 64; // Minimum size for primitives
   }
@@ -111,11 +114,12 @@ export class WorkerDataStore {
   ): DataHandle {
     const id = this.generateId();
     const byteSize = this.estimateSize(value);
+    if (byteSize > this.maxSize) throw new Error("Result exceeds the worker data budget.");
     const category = getDataCategory(format);
 
     // Check if we need to evict
     while (this.currentSize + byteSize > this.maxSize && this.dataMap.size > 0) {
-      this.evictLRU();
+      if (!this.evictLRU()) throw new Error('Worker data budget exhausted. Release previous results before continuing.');
     }
 
     const handle: DataHandle = {
@@ -172,6 +176,10 @@ export class WorkerDataStore {
 
     stored.lastAccess = Date.now();
     const { value, handle } = stored;
+
+    if (isNativeSchematic(value)) return { format: 'schem', data: nativeSchematicBytes(value), metadata: handle.metadata, handleId };
+    const nativeType = nativeValueType(value);
+    if (nativeType) return { format: 'json', data: JSON.stringify({ type: `Nucleation.${nativeType}`, resident: true }), metadata: handle.metadata, handleId };
 
     // Handle different data types
     // For SchematicWrapper, call its to_schematic method

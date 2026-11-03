@@ -89,6 +89,9 @@ describe('compileBlock', () => {
 });
 
 describe('positional `generate` params', () => {
+  it('passes the input object to the canonical typed entry point', async () => {
+    expect(await run('type Inputs = { palette: string }; function generate(inputs: Inputs) { return { value: inputs.palette }; }', { palette: 'wool' })).toEqual({ value: 'wool' });
+  });
   it('detects positional vs object/destructure/legacy forms', () => {
     expect(positionalInputNames('function generate(size: Slider<{min:0;max:1}>, seed: number): { o: number } {}')).toEqual(['size', 'seed']);
     // Array-typed (connection) params must split correctly despite the [][] brackets.

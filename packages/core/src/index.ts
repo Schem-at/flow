@@ -219,5 +219,10 @@ export {
 } from './worker/index.js';
 
 // Version
+export { validateToolInputs } from './tools/validate.js';
+export { FlowToolClient } from './tools/ToolClient.js';
 export const VERSION = '0.1.0';
 
+export { inputFieldType, DEFAULT_PALETTE, isToolFieldVisible, toolFieldPresentation, type ToolFieldPresentation, type PaletteChoice } from './tools/fields.js';
+
+export { getToolInputContract, inputName, inputDefault, TOOL_INPUT_TYPES, flowTypeInputSchema, type ToolInputField, type ToolInputNode, type InputJsonSchema } from './tools/input-contract.js';

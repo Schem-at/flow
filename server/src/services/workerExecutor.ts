@@ -1,3 +1,4 @@
+import { runInContainer } from './containerExecutor.js';
 /**
  * Worker executor — spawns one-shot Bun workers for user-code execution so
  * the main server thread never runs user code and every execution is
@@ -50,6 +51,7 @@ function resolveWorkerUrl(): URL {
 }
 
 export interface RunInWorkerOptions {
+  signal?: AbortSignal;
   /** Hard-kill deadline in ms (worker is terminated when it elapses). */
   timeoutMs: number;
   /** Streamed events from the worker (logs, node progress). */
@@ -70,6 +72,7 @@ export async function runInExecutionWorker<T>(
   request: ExecutionWorkerRequest,
   options: RunInWorkerOptions
 ): Promise<T> {
+  if (process.env.TOOLS_ISOLATED_JOB !== '1' && process.env.TOOLS_BACKEND_ENABLED === 'true') return runInContainer<T>(request, options);
   const worker = new Worker(resolveWorkerUrl(), { type: 'module' } as WorkerOptions);
 
   try {

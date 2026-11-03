@@ -471,6 +471,9 @@ export class WorkerClient {
    * reject all in-flight messages, then (if a workerFactory was provided)
    * spawn a fresh worker and re-initialize so the client returns to READY.
    */
+  /** End a result session, including all native WASM allocations and references. */
+  async resetSession(): Promise<boolean> { return this.killAndRespawn("Previous run released"); }
+
   async cancelExecution(): Promise<boolean> {
     if (this.state !== WORKER_STATES.EXECUTING) {
       return false;

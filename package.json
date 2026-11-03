@@ -10,8 +10,9 @@
   ],
   "scripts": {
     "dev": "turbo dev --filter=client",
-    "build": "turbo build",
-    "deploy": "turbo build && cp -r client/dist/ ../public/flow/"
+    "build": "node scripts/check-nucleation.mjs && turbo build",
+    "deploy": "turbo build && cp -r client/dist/ ../public/flow/",
+    "check:nucleation": "node scripts/check-nucleation.mjs"
   },
   "devDependencies": {
     "turbo": "^2.5.5"

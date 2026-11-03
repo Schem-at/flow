@@ -19,29 +19,31 @@ export function FieldWidget(props: WidgetProps) {
   return <Widget {...props} />;
 }
 
-export function NumberWidget({ type, value, onChange }: WidgetProps) {
+export function NumberWidget({ type, value, onChange, ariaLabel }: WidgetProps) {
   if (type.kind !== 'number') return null;
-  const num = typeof value === 'number' ? value : (type.default ?? type.min ?? 0);
+  const num = value === '' ? '' : typeof value === 'number' ? value : (type.default ?? type.min ?? 0);
 
   if (type.widget === 'slider' && type.min !== undefined && type.max !== undefined) {
     return (
       <div className="flex items-center gap-2">
         <input
+      aria-label={ariaLabel}
           type="range"
           min={type.min}
           max={type.max}
           step={type.step ?? 1}
           value={num}
-          onChange={(e) => onChange(Number(e.target.value))}
+          onChange={(e) => onChange(e.target.value === '' ? '' : Number(e.target.value))}
           className="h-1.5 flex-1 cursor-pointer accent-emerald-500"
         />
         <input
+      aria-label={ariaLabel}
           type="number"
           min={type.min}
           max={type.max}
           step={type.step ?? 1}
           value={num}
-          onChange={(e) => onChange(Number(e.target.value))}
+          onChange={(e) => onChange(e.target.value === '' ? '' : Number(e.target.value))}
           className={`${inputBaseCls} w-16 flex-none text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none`}
         />
       </div>
@@ -50,24 +52,26 @@ export function NumberWidget({ type, value, onChange }: WidgetProps) {
 
   return (
     <input
+      aria-label={ariaLabel}
       type="number"
       min={type.min}
       max={type.max}
       step={type.step}
       value={num}
-      onChange={(e) => onChange(Number(e.target.value))}
+      onChange={(e) => onChange(e.target.value === '' ? '' : Number(e.target.value))}
       className={inputCls}
     />
   );
 }
 
-export function StringWidget({ type, value, onChange }: WidgetProps) {
+export function StringWidget({ type, value, onChange, ariaLabel }: WidgetProps) {
   if (type.kind !== 'string') return null;
   const text = typeof value === 'string' ? value : (type.default ?? '');
 
   if (type.multiline) {
     return (
       <textarea
+      aria-label={ariaLabel}
         value={text}
         onChange={(e) => onChange(e.target.value)}
         spellCheck={false}
@@ -78,6 +82,7 @@ export function StringWidget({ type, value, onChange }: WidgetProps) {
   }
   return (
     <input
+      aria-label={ariaLabel}
       type="text"
       value={text}
       onChange={(e) => onChange(e.target.value)}
@@ -86,10 +91,11 @@ export function StringWidget({ type, value, onChange }: WidgetProps) {
   );
 }
 
-export function BooleanWidget({ value, onChange }: WidgetProps) {
+export function BooleanWidget({ value, onChange, ariaLabel }: WidgetProps) {
   const on = value === true;
   return (
     <button
+      aria-label={ariaLabel}
       type="button"
       role="switch"
       aria-checked={on}
@@ -103,11 +109,12 @@ export function BooleanWidget({ value, onChange }: WidgetProps) {
   );
 }
 
-export function EnumWidget({ type, value, onChange }: WidgetProps) {
+export function EnumWidget({ type, value, onChange, ariaLabel }: WidgetProps) {
   if (type.kind !== 'enum') return null;
   const current = value ?? type.default ?? type.options[0];
   return (
     <select
+      aria-label={ariaLabel}
       value={String(current)}
       onChange={(e) => {
         const raw = e.target.value;
@@ -118,7 +125,7 @@ export function EnumWidget({ type, value, onChange }: WidgetProps) {
     >
       {type.options.map((option) => (
         <option key={String(option)} value={String(option)}>
-          {String(option)}
+          {type.labels?.[String(option)] ?? String(option)}
         </option>
       ))}
     </select>
@@ -139,7 +146,7 @@ const COMMON_BLOCKS = [
   'minecraft:air',
 ];
 
-export function BlockWidget({ type, value, onChange }: WidgetProps) {
+export function BlockWidget({ type, value, onChange, ariaLabel }: WidgetProps) {
   const listId = useId();
   const text =
     typeof value === 'string'
@@ -148,6 +155,7 @@ export function BlockWidget({ type, value, onChange }: WidgetProps) {
   return (
     <>
       <input
+      aria-label={ariaLabel}
         type="text"
         value={text}
         list={listId}

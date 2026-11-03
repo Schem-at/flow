@@ -1,4 +1,5 @@
 import { uuid } from '../lib/uuid';
+import { renameInputConditions } from '../lib/renameInputConditions';
 /**
  * Zustand store for managing flow state with execution cache
  */
@@ -27,6 +28,7 @@ import type {
 } from '@flow/core';
 import {
   extractSubflowConfig,
+  inputFieldType,
   isTypeCompatible,
   groupNodes as deriveGroup,
   ungroup as inlineGroup,
@@ -82,7 +84,10 @@ export interface FlowNode extends Node {
     width?: number;
     height?: number;
     io?: IODefinition;
-    contract?: BlockContract;  // v2 blocks: FlowType contract (drives ports)
+    contract?: BlockContract;
+    inputName?: string;
+    fieldType?: FlowType;  // v2 blocks: FlowType contract (drives ports)
+    toolField?: import('@flow/core').ToolFieldPresentation;
     moduleRef?: {              // Shared-module reference for code nodes
       id: string;
       slug: string;
@@ -169,6 +174,8 @@ interface FlowState {
   // Flow data
   flowId: string | null;
   flowName: string;
+  flowMetadata: FlowData['metadata'];
+  flowVersion: string;
   nodes: FlowNode[];
   edges: Edge[];
   
@@ -334,7 +341,9 @@ const initialEdges: Edge[] = [];
 export const useFlowStore = create<FlowState>((set, get) => ({
   // Initial state
   flowId: null,
-  flowName: 'Untitled Flow',
+  flowName: 'Untitled Tool',
+  flowMetadata: {},
+  flowVersion: '1.0.0',
   nodes: initialNodes,
   edges: initialEdges,
   
@@ -577,11 +586,11 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     const shouldInvalidate = 'code' in data && !isValueNode;
     
     set({
-      nodes: state.nodes.map((node) =>
+      nodes: renameInputConditions(state.nodes, state.nodes.map((node) =>
         node.id === nodeId
           ? { ...node, data: { ...node.data, ...data } }
           : node
-      ),
+      )),
     });
     
     // For input/constant nodes with value changes, update cache and invalidate
@@ -692,6 +701,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
           : ('text' as const);
         return {
           name, label: n.data.label, dataType, widgetType, value: n.data.value,
+          isConstant: n.data.isConstant, inputName: n.data.inputName, fieldType: inputFieldType(n), toolField: n.data.toolField,
           min: n.data.min, max: n.data.max, step: n.data.step,
           options: n.data.options as string[] | undefined,
         };
@@ -802,7 +812,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
         const dataType = f.dataType === 'enum' ? 'string' : f.dataType;
         return {
           id: inId, type: 'input', position: { x: bx, y: by + i * 80 },
-          data: { label: f.label || f.name, dataType, widgetType, value: f.value, min: f.min, max: f.max, step: f.step, options: f.options },
+          data: { label: f.label || f.name, isConstant: f.isConstant, inputName: f.inputName, fieldType: f.fieldType, toolField: f.toolField, dataType, widgetType, value: f.value, min: f.min, max: f.max, step: f.step, options: f.options },
           selected: false,
         } as FlowNode;
       });
@@ -977,6 +987,8 @@ export const useFlowStore = create<FlowState>((set, get) => ({
 
   // Flow operations
   loadFlow: (flow) => {
+    const nodeTypes = new Map(flow.nodes.map(node => [node.id, node.type]));
+    const inputTypes = new Set(['input', 'file_input', 'number_input', 'text_input', 'boolean_input', 'select_input']);
     const newCache: Record<string, NodeExecutionCache> = {};
     for (const node of flow.nodes) {
       newCache[node.id] = { status: 'idle' };
@@ -985,6 +997,8 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     set({
       flowId: flow.id,
       flowName: flow.name,
+      flowMetadata: flow.metadata ?? {},
+      flowVersion: flow.version ?? '1.0.0',
       nodes: flow.nodes.map((node: NodeData) => ({
         id: node.id,
         type: node.type,
@@ -995,8 +1009,8 @@ export const useFlowStore = create<FlowState>((set, get) => ({
         id: edge.id,
         source: edge.source,
         target: edge.target,
-        sourceHandle: edge.sourceHandle,
-        targetHandle: edge.targetHandle,
+        sourceHandle: inputTypes.has(nodeTypes.get(edge.source) ?? '') ? 'output' : edge.sourceHandle,
+        targetHandle: ['output', 'file_output'].includes(nodeTypes.get(edge.target) ?? '') ? 'input' : edge.targetHandle,
       })),
       nodeCache: newCache,
       executionLogs: [],
@@ -1011,7 +1025,8 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     return {
       id: state.flowId || uuid(),
       name: state.flowName,
-      version: '1.0.0',
+      version: state.flowVersion,
+      metadata: state.flowMetadata,
       nodes: state.nodes.map((node) => ({
         id: node.id,
         type: node.type as NodeData['type'],
@@ -1032,7 +1047,9 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   clearFlow: () => {
     set({
       flowId: null,
-      flowName: 'Untitled Flow',
+      flowName: 'Untitled Tool',
+  flowMetadata: {},
+  flowVersion: '1.0.0',
       nodes: [],
       edges: [],
       nodeCache: {},

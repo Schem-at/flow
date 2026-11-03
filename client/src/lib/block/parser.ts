@@ -244,6 +244,9 @@ function mapMembers(
       continue;
     }
     record[key] = mapType(member.type, fieldPath, ctx);
+    const annotation = ctx.ts.getJSDocTags(member).find(tag=>tag.tagName.text==='toolField');
+    if (typeof annotation?.comment==='string') { try { const options=JSON.parse(annotation.comment); if (options.kind===record[key].kind && typeof options==='object') record[key]={...record[key],...options}; } catch { ctx.warnings.push(`${fieldPath}: invalid tool field options`); } }
+
   }
   return record;
 }
@@ -288,8 +291,17 @@ function mapType(node: TS.TypeNode, path: string, ctx: ParseContext): FlowType {
     return { kind: 'object', fields: mapMembers(node.members, path, ctx) };
   }
 
-  if (ts.isTypeReferenceNode(node) && ts.isIdentifier(node.typeName)) {
-    return mapTypeReference(node, node.typeName.text, path, ctx);
+  if (ts.isTypeReferenceNode(node)) {
+    if (ts.isIdentifier(node.typeName)) {
+      return mapTypeReference(node, node.typeName.text, path, ctx);
+    }
+    // Native objects stay resident in the worker and can connect between blocks.
+    const name = node.typeName.getText(ctx.sourceFile);
+    if (name.startsWith('Nucleation.')) {
+      return name === 'Nucleation.Schematic'
+        ? { kind: 'schematic' }
+        : { kind: 'native', className: name.slice('Nucleation.'.length) };
+    }
   }
 
   ctx.warnings.push(
@@ -328,6 +340,14 @@ function mapTypeReference(
   path: string,
   ctx: ParseContext
 ): FlowType {
+  const domains = { BlockPalette: 'palette', MinecraftUsername: 'username', ToolFile: 'file', BuildTimeline: 'animation', SimulationView: 'simulation', ChartData: 'chart' } as const;
+  if (name in domains) return { kind: domains[name as keyof typeof domains] } as FlowType;
+  if (name === 'MultiSelect') {
+    const inner = node.typeArguments?.[0];
+    const mapped = inner ? mapType(inner, path, ctx) : null;
+    return { kind: 'set', options: mapped?.kind === 'enum' ? mapped.options.map(String) : [] };
+  }
+
   const config = () => widgetConfig(node, path, ctx);
 
   switch (name) {

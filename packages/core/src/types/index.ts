@@ -84,6 +84,7 @@ export interface FlowData {
 }
 
 export interface FlowMetadata {
+  tool?: { schemaVersion: number; slug?: string; icon?: string; tags?: string[]; timeout?: number; output?: string };
   description?: string;
   author?: string;
   tags?: string[];

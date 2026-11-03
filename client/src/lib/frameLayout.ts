@@ -70,8 +70,8 @@ export function nodeSize(n: Node): Size {
     };
   }
   return {
-    width: (n.measured?.width ?? n.width ?? DEFAULT_WIDTH) as number,
-    height: (n.measured?.height ?? n.height ?? DEFAULT_HEIGHT) as number,
+    width: (n.measured?.width ?? n.width ?? (n.type === 'code' ? 640 : DEFAULT_WIDTH)) as number,
+    height: (n.measured?.height ?? n.height ?? (n.type === 'code' ? 320 : DEFAULT_HEIGHT)) as number,
   };
 }
 

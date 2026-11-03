@@ -15,6 +15,10 @@ describe('ROM build block', () => {
 describe('EXAMPLE_FLOWS', () => {
   it('lists the built-in flows', () => {
     expect(EXAMPLE_FLOWS.map((f) => f.id)).toEqual([
+      'sdf-playground',
+      'build-animation',
+      'building-footprints',
+      'circuit-lab',
       'example-julia-stitch',
       'example-worldgen',
       'example-mandelbrot',

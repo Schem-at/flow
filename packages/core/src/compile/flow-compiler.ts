@@ -1,3 +1,5 @@
+import { getToolInputContract, inputName, inputDefault } from '../tools/input-contract.js';
+import { inputFieldType } from '../tools/fields.js';
 /**
  * Flow folding — compile an entire flow graph into ONE v2 block.
  *
@@ -82,41 +84,13 @@ export interface CompiledFlow {
 
 /** Derive the FlowType of an input node from its widget configuration. */
 function inputNodeFlowType(node: FlowNodeLike): FlowType {
-  const data = node.data as {
-    dataType?: string;
-    widgetType?: string;
-    min?: number;
-    max?: number;
-    step?: number;
-    options?: string[];
-    value?: unknown;
-  };
-  if (data.dataType === 'number') {
-    return {
-      kind: 'number',
-      widget: data.widgetType === 'slider' ? 'slider' : 'input',
-      min: data.min,
-      max: data.max,
-      step: data.step,
-      default: typeof data.value === 'number' ? data.value : undefined,
-    };
-  }
-  if (data.dataType === 'boolean') {
-    return { kind: 'boolean', default: data.value === true ? true : undefined };
-  }
-  if (data.options && data.options.length) {
-    return {
-      kind: 'enum',
-      options: data.options,
-      default: typeof data.value === 'string' ? data.value : undefined,
-    };
-  }
-  return { kind: 'string', default: typeof data.value === 'string' ? data.value : undefined };
+  return inputFieldType(node);
 }
 
 const INPUT_TYPES = new Set([
   'input',
   'static_input',
+  'file_input',
   'number_input',
   'text_input',
   'boolean_input',
@@ -207,6 +181,10 @@ export function hashFlow(flow: FlowLike): string {
         code: n.data.code ?? null,
         value: n.data.value ?? null,
         label: n.data.label ?? null,
+        inputName: n.data.inputName,
+        fieldType: n.data.fieldType,
+        toolField: n.data.toolField,
+        isConstant: n.data.isConstant,
         contract: n.data.contract ?? null,
         passthrough: n.data.passthrough ?? false,
         // bundle/unbundle field config changes the emitted object shape
@@ -420,10 +398,10 @@ function compileGraph(flow: FlowLike, options: CompileOptions): CompiledFlow {
   );
 
   const isSubgraph = !!options.boundaryInputs || !!options.boundaryOutputs;
-  // A top-level flow must have code; a group subgraph may legitimately wrap only
-  // transformer/meta nodes (e.g. a lone bundle) and still be compilable.
+  // Forms may simply expose data through outputs without requiring a code node.
   if (
     codeNodes.length === 0 &&
+    !(outputNodes.length > 0 && (inputNodes.length + constantNodes.length + assetNodes.length > 0)) &&
     !isSubgraph &&
     bundleNodes.length === 0 &&
     unbundleNodes.length === 0 &&
@@ -530,14 +508,12 @@ function compileGraph(flow: FlowLike, options: CompileOptions): CompiledFlow {
   }
   const inputVar = new Map<string, string>(); // input node id → local var
   const flowInputs: Record<string, unknown> = {};
-  const usedInputNames = new Set<string>();
+  const inputContract = getToolInputContract({ nodes: inputNodes });
+  const inputFields = new Map(inputContract.fields.map(field => [field.node.id, field]));
   for (const node of inputNodes) {
-    let name = node.data.label || node.id;
-    let i = 2;
-    while (usedInputNames.has(name)) name = `${node.data.label || node.id}_${i++}`;
-    usedInputNames.add(name);
+    const name = inputFields.get(node.id)?.name ?? inputName(node);
     inputVar.set(node.id, `__in_${sanitizeId(node.id, used)}`);
-    flowInputs[name] = node.data.value;
+    if (!node.data.isConstant) flowInputs[name] = inputDefault(node);
     (node as FlowNodeLike & { __flowInputName?: string }).__flowInputName = name;
   }
 
@@ -834,7 +810,7 @@ function compileGraph(flow: FlowLike, options: CompileOptions): CompiledFlow {
   for (const node of inputNodes) {
     const name = (node as FlowNodeLike & { __flowInputName?: string }).__flowInputName!;
     lines.push(
-      `  const ${inputVar.get(node.id)} = inputs[${literal(name)}] !== undefined ? inputs[${literal(name)}] : ${literal(node.data.value)};`
+      `  const ${inputVar.get(node.id)} = ${node.data.isConstant ? literal(inputDefault(node)) : `inputs[${literal(name)}] !== undefined ? inputs[${literal(name)}] : ${literal(inputDefault(node))}`};`
     );
     traceLiteral(node.id, inputVar.get(node.id)!);
   }
@@ -1124,7 +1100,7 @@ function compileGraph(flow: FlowLike, options: CompileOptions): CompiledFlow {
   const contract: BlockContract = { inputs: {}, outputs: {} };
   for (const node of inputNodes) {
     const name = (node as FlowNodeLike & { __flowInputName?: string }).__flowInputName!;
-    contract.inputs[name] = inputNodeFlowType(node);
+    if (!node.data.isConstant) contract.inputs[name] = inputNodeFlowType(node);
   }
   for (const node of outputNodes) {
     const edge = flow.edges.find((e) => e.target === node.id);

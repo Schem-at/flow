@@ -788,7 +788,7 @@ export function CodePanel({ nodeId, onClose, isFullscreen, onToggleFullscreen }:
                       body: JSON.stringify({
                         code: localCode,
                         io_schema: node?.data?.io || { inputs: {}, outputs: {} },
-                        change_note: 'Updated from flow editor',
+                        change_note: 'Updated from Tools editor',
                       }),
                     });
                     const json = await res.json();
@@ -951,7 +951,7 @@ export function CodePanel({ nodeId, onClose, isFullscreen, onToggleFullscreen }:
               ? 'border-amber-600 bg-amber-500/15 text-amber-300'
               : 'border-neutral-700 text-neutral-400 hover:border-neutral-500 hover:text-neutral-200'
           }`}
-          title="Run this block standalone — inputs prefilled from the flow where connected"
+          title="Run this block standalone — inputs prefilled from the graph where connected"
         >
           <FlaskConical className="h-3 w-3" />
           Test
@@ -963,7 +963,7 @@ export function CodePanel({ nodeId, onClose, isFullscreen, onToggleFullscreen }:
         <div className="border-b border-amber-900/30 bg-amber-500/[0.03] px-4 py-3">
           <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
             <span className="text-[11px] text-neutral-500">
-              Inputs are edited inline in the editor — seeded from the connected flow where available.
+              Inputs are edited inline in the editor — seeded from the connected graph where available.
             </span>
 
             <div className="ml-auto flex items-center gap-2 pb-0.5">
@@ -1168,7 +1168,7 @@ export function CodePanel({ nodeId, onClose, isFullscreen, onToggleFullscreen }:
               </div>
               <div>
                 <h3 className="text-sm font-semibold text-white">Extract as Module</h3>
-                <p className="text-[10px] text-neutral-500">Make this code reusable across flows</p>
+                <p className="text-[10px] text-neutral-500">Make this code reusable across tools</p>
               </div>
             </div>
 

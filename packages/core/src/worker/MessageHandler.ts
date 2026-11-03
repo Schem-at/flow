@@ -4,6 +4,7 @@
  */
 
 import { MESSAGE_TYPES, type MessageType, type WorkerMessage, type SchematicData, type DataHandle, type DataValue, type DataFormat } from '../types/index.js';
+import { nativeValueType, isNativeSchematic, nativeSchematicBytes } from '../utils/native-values.js';
 import { SynthaseService } from '../services/SynthaseService.js';
 import { createContextProviders } from './contextProviders.js';
 import { shapeWorkerError } from './errorReporting.js';
@@ -143,7 +144,7 @@ export class MessageHandler {
 
   /**
    * Handle script execution
-   * 
+   *
    * If options.returnHandles is true, schematic outputs are stored in the
    * WorkerDataStore and handles are returned instead of serialized data.
    * This allows efficient passing of WASM objects between code nodes.
@@ -179,11 +180,11 @@ export class MessageHandler {
 
       // Resolve any handles in inputs to actual WASM objects
       const resolvedInputs = this.resolveHandleInputs(inputs);
-      
+
       // Also convert any serialized SchematicData to WASM objects
       // This handles the case where data was serialized for a viewer but also goes to a code node
       const processedInputs = await processInputSchematics(resolvedInputs);
-      
+
       // Debug: Log what we're passing to the script
       console.log('[Worker] Final inputs for script execution:');
       for (const [key, value] of Object.entries(processedInputs)) {
@@ -211,7 +212,7 @@ export class MessageHandler {
         if (executionResult.hasSchematic && executionResult.schematics) {
           // Always store handles - they're useful for downstream code nodes
           schematicHandles = this.storeSchematicsAsHandles(executionResult.schematics);
-          
+
           if (!returnHandles) {
             // Also serialize for transfer (for viewers that need the actual data)
             processedSchematics = await this.processSchematicsForTransfer(
@@ -279,6 +280,10 @@ export class MessageHandler {
     if (depth > 16 || value === null || typeof value !== 'object') return value;
     if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) return value;
 
+    if (isNativeSchematic(value)) return { format: 'schem', data: nativeSchematicBytes(value) };
+    const nativeType = nativeValueType(value);
+    if (nativeType) return workerDataStore.store(value, 'json', { pinned: true, metadata: { nativeType } });
+
     if (this.isSchematicWrapper(value)) {
       const schem = value as { to_schematic?: () => Uint8Array; name?: () => string };
       if (typeof schem.to_schematic !== 'function') return value;
@@ -331,13 +336,24 @@ export class MessageHandler {
     if (depth > 16 || value === null || typeof value !== 'object') return value;
     if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) return value;
 
+    const existing = memo.get(value);
+    if (existing !== undefined) return existing;
+    const nativeType = nativeValueType(value);
+    if (nativeType && nativeType !== 'Schematic') {
+      const handle = workerDataStore.store(value, 'json', { pinned: true, metadata: { nativeType } });
+      memo.set(value, handle);
+      return handle;
+    }
+
     if (this.isSchematicWrapper(value)) {
       try {
         const handle = workerDataStore.store(value, 'schem', {
           name: 'schematic',
           pinned: true, // keep resident so getData can resolve it post-message
         });
-        return { _schematicHandle: handle.id };
+        const ref = { _schematicHandle: handle.id };
+        memo.set(value, ref);
+        return ref;
       } catch (error) {
         console.error('Failed to extract nested schematic handle:', error);
         return null;
@@ -378,7 +394,7 @@ export class MessageHandler {
    */
   private storeSchematicsAsHandles(schematics: Record<string, unknown>): Record<string, string> {
     const handleIds: Record<string, string> = {};
-    
+
     for (const [key, value] of Object.entries(schematics)) {
       if (this.isSchematicWrapper(value)) {
         const handle = workerDataStore.store(value, 'schem', {
@@ -388,7 +404,7 @@ export class MessageHandler {
         handleIds[key] = handle.id;
       }
     }
-    
+
     return handleIds;
   }
 
@@ -396,49 +412,29 @@ export class MessageHandler {
    * Resolve any DataHandle inputs to actual WASM objects from the store
    */
   private resolveHandleInputs(inputs: Record<string, unknown>): Record<string, unknown> {
-    const resolved: Record<string, unknown> = {};
-    
-
-    
-    for (const [key, value] of Object.entries(inputs)) {
-      console.log(`[Worker] Resolving input "${key}":`, typeof value, value);
-      
-      if (this.isDataHandle(value)) {
-        // Resolve handle to actual WASM object
-        console.log(`[Worker] Found DataHandle, resolving id: ${value.id}`);
-        const data = workerDataStore.get(value.id);
-        if (data) {
-          console.log(`[Worker] Resolved DataHandle to:`, typeof data, data?.constructor?.name);
-          resolved[key] = data;
-        } else {
-          console.warn(`Handle ${value.id} not found in data store`);
-          resolved[key] = value;
-        }
-      } else if (this.isSchematicHandle(value)) {
-        // Resolve _schematicHandle format from client
-        console.log(`[Worker] Found _schematicHandle, resolving id: ${value._schematicHandle}`);
-        const data = workerDataStore.get(value._schematicHandle);
-        if (data) {
-          console.log(`[Worker] Resolved _schematicHandle to:`, typeof data, data?.constructor?.name);
-          resolved[key] = data;
-        } else {
-          console.warn(`Schematic handle ${value._schematicHandle} not found in data store`);
-          resolved[key] = value;
-        }
-      } else if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) {
-        // Don't recurse into typed arrays or ArrayBuffers - preserve them as-is
-        resolved[key] = value;
-      } else if (value && typeof value === 'object' && !Array.isArray(value)) {
-        // Recursively resolve nested objects (but not typed arrays)
-        console.log(`[Worker] Recursively resolving nested object for "${key}"`);
-        resolved[key] = this.resolveHandleInputs(value as Record<string, unknown>);
-      } else {
-        resolved[key] = value;
+    const memo = new WeakMap<object, unknown>();
+    const resolve = (value: unknown, depth = 0): unknown => {
+      if (!value || typeof value !== 'object' || ArrayBuffer.isView(value) || value instanceof ArrayBuffer) return value;
+      if (depth > 64) throw new Error('Input nesting is too deep.');
+      const id = this.isDataHandle(value) ? value.id : this.isSchematicHandle(value) ? value._schematicHandle : null;
+      if (id) {
+        const resident = workerDataStore.get(id);
+        if (resident === null || resident === undefined) throw new Error('This result is no longer in the worker. Run the upstream node again.');
+        return resident;
       }
-    }
-    
-    console.log('[Worker] resolveHandleInputs result:', Object.keys(resolved));
-    return resolved;
+      if (memo.has(value)) return memo.get(value);
+      if (Array.isArray(value)) {
+        const out: unknown[] = []; memo.set(value, out);
+        for (const item of value) out.push(resolve(item, depth + 1));
+        return out;
+      }
+      const proto = Object.getPrototypeOf(value);
+      if (proto !== Object.prototype && proto !== null) return value;
+      const out: Record<string, unknown> = {}; memo.set(value, out);
+      for (const [key, item] of Object.entries(value)) out[key] = resolve(item, depth + 1);
+      return out;
+    };
+    return resolve(inputs) as Record<string, unknown>;
   }
 
   /**
@@ -447,8 +443,8 @@ export class MessageHandler {
   private isDataHandle(value: unknown): value is DataHandle {
     if (!value || typeof value !== 'object') return false;
     const obj = value as Record<string, unknown>;
-    return typeof obj.id === 'string' && 
-           typeof obj.category === 'string' && 
+    return typeof obj.id === 'string' &&
+           typeof obj.category === 'string' &&
            typeof obj.format === 'string';
   }
 
@@ -530,9 +526,9 @@ export class MessageHandler {
 
           for (const edge of incomingEdges) {
             const srcOutput = nodeOutputs.get(edge.source);
-            console.log(`[Subflow] Edge ${edge.source} -> ${node.id}: srcOutput =`, 
+            console.log(`[Subflow] Edge ${edge.source} -> ${node.id}: srcOutput =`,
               srcOutput ? Object.keys(srcOutput) : 'NOT FOUND');
-            
+
             if (srcOutput) {
               const inputName = edge.targetHandle || 'default';
               const outputKey = edge.sourceHandle || inputName;
@@ -572,14 +568,14 @@ export class MessageHandler {
 
           // Store outputs - keep WASM objects as-is (no serialization!)
           const nodeResult: Record<string, unknown> = {};
-          
+
           // If there are schematics in the result, include them directly
           if (result.hasSchematic && result.schematics) {
             for (const [key, value] of Object.entries(result.schematics)) {
               if (value) nodeResult[key] = value;
             }
           }
-          
+
           // Also include any other result values
           if (result.result) {
             for (const [key, value] of Object.entries(result.result)) {
@@ -611,7 +607,7 @@ export class MessageHandler {
             // Try to get a single value - prefer 'default', then single key, then sourceHandle
             let value: unknown;
             const sourceKey = outputEdge.sourceHandle || 'default';
-            
+
             if (sourceKey in srcOutput) {
               value = srcOutput[sourceKey];
             } else if ('default' in srcOutput) {
@@ -620,7 +616,7 @@ export class MessageHandler {
               const keys = Object.keys(srcOutput);
               value = keys.length === 1 ? srcOutput[keys[0]] : srcOutput;
             }
-            
+
             finalOutputs[outputId] = value;
 
             // Check if it's a schematic (could be direct or nested)
@@ -688,9 +684,8 @@ export class MessageHandler {
   private isSchematicWrapper(value: unknown): boolean {
     if (!value || typeof value !== 'object') return false;
     const obj = value as Record<string, unknown>;
-    return typeof obj.to_schematic === 'function' || 
-           typeof obj.set_block === 'function' ||
-           '__wbg_ptr' in obj;
+    return isNativeSchematic(value) || typeof obj.to_schematic === 'function' ||
+           typeof obj.set_block === 'function';
   }
 
   /**
@@ -842,14 +837,18 @@ export class MessageHandler {
 
     for (const [key, schematic] of Object.entries(schematics)) {
       try {
+        if (isNativeSchematic(schematic)) {
+          processed[key] = { format: 'schem', data: nativeSchematicBytes(schematic), metadata: { name: key } };
+          continue;
+        }
         const schem = schematic as { to_schematic?: () => Uint8Array; name?: () => string };
-        
+
         if (!schem) continue;
 
         // Serialize to binary using to_schematic()
         if (typeof schem.to_schematic === 'function') {
           const binaryData = schem.to_schematic();
-          
+
           // Wrap in SchematicData for proper typing
           // to_schematic() outputs .schem format (Sponge schematic)
           processed[key] = {
@@ -859,7 +858,7 @@ export class MessageHandler {
               name: typeof schem.name === 'function' ? schem.name() : key,
             }
           };
-          
+
           this.postProgress(`Serialized schematic: ${key} (${binaryData.byteLength} bytes)`);
         }
       } catch (error) {
@@ -956,4 +955,3 @@ interface ExecuteSubflowResult {
   executionTime?: number;
   error?: { message: string; nodeId?: string };
 }
-

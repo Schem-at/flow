@@ -43,20 +43,20 @@ export class EditorErrorBoundary extends Component<Props, State> {
           <div className="text-4xl" aria-hidden>
             ⚠
           </div>
-          <h1 className="text-lg font-semibold">The editor hit an unexpected error</h1>
+          <h1 className="text-lg font-semibold">{ /import|chunk/i.test(error.message) ? 'The editor could not finish loading' : 'Tools hit an unexpected error'}</h1>
           <p className="max-w-md text-sm text-neutral-400">
-            Something went wrong while rendering the flow editor. Your last saved flow is
-            unaffected — reloading should recover the editor.
+            Reload this page to try again. Your saved tools are available from My tools.
           </p>
           <pre className="max-h-40 max-w-lg overflow-auto rounded-lg border border-red-500/30 bg-red-950/40 p-3 text-left text-[11px] font-mono text-red-300">
             {error?.message || String(error)}
           </pre>
           <button
             onClick={this.handleReload}
-            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-500"
+            className="rounded-lg bg-neutral-800 px-4 py-2 text-sm font-medium text-white transition hover:bg-neutral-700"
           >
-            Reload editor
+            Reload tools
           </button>
+          <a href="/mine" className="text-sm text-neutral-400 underline">Go to My tools</a>
         </div>
       );
     }
