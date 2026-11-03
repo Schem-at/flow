@@ -32,3 +32,23 @@ it('renders a custom Form node with explicit API keys, ordering and row widths',
   expect(onChange).toHaveBeenCalledWith('width', '8');
   expect(screen.getByText('Size')).toBeTruthy();
 });
+
+it('humanizes unlabelled input names', async () => {
+  const { humanizeInputName } = await import('./GeneratedToolForm');
+  expect(humanizeInputName('staggerIntersectionMode')).toBe('Stagger intersection mode');
+  expect(humanizeInputName('solidBlockOn0')).toBe('Solid block on 0');
+  expect(humanizeInputName('words_per_row')).toBe('Words per row');
+  expect(humanizeInputName('xStagger')).toBe('X stagger');
+});
+
+it('lays scalar fields out on one row and stacks large ones', () => {
+  const contract = getToolInputContract({ nodes: [{ id: 'f', type: 'form', data: { label: 'ROM', fields: [
+    { name: 'a', inputName: 'bitWidth', value: 2, fieldType: { kind: 'number' } },
+    { name: 'b', inputName: 'invertWord', value: true, fieldType: { kind: 'boolean' } },
+    { name: 'c', inputName: 'data', value: '0123', fieldType: { kind: 'string', multiline: true } },
+  ] } }] });
+  const { container } = render(<GeneratedToolForm nodes={contract.nodes} values={contract.defaults} onChange={() => {}}/>);
+  const layouts = [...container.querySelectorAll('fieldset.tool-field')].map(el => [el.querySelector('legend')?.textContent, el.getAttribute('data-layout')]);
+  expect(layouts).toEqual([['Bit width', 'inline'], ['Invert word', 'inline'], ['Data', 'stacked']]);
+  expect(screen.getByLabelText('Bit width')).toBeTruthy();
+});

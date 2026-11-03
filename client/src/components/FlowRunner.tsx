@@ -497,28 +497,29 @@ export function FlowRunner({ embed = false }: FlowRunnerProps = {}) {
       <div className="relative z-10">
         {!embed && <Navbar />}
 
-        <div className={`tools-rails mx-auto px-6 pb-16 ${embed ? 'pt-4' : 'pt-8'}`}>
-          {!embed && <Link to="/" className="mb-6 inline-flex text-xs text-neutral-500 hover:text-white">← All tools</Link>}
+        <div className={`tools-rails mx-auto px-6 pb-12 ${embed ? 'pt-3' : 'pt-5'}`}>
+          {!embed && <Link to="/" className="mb-3 inline-flex text-xs text-neutral-500 hover:text-white">← All tools</Link>}
           {/* Header */}
-          <div className="mb-8">
-            <div className="flex items-start justify-between">
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <div className="w-8 h-8 rounded-lg bg-brand-500/[0.07] border border-brand-500/10 flex items-center justify-center">
-                    <Workflow className="w-4 h-4 text-brand-500/60" />
+          <div className="mb-5">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <div className="w-7 h-7 rounded-lg bg-brand-500/[0.07] border border-brand-500/10 flex items-center justify-center">
+                    <Workflow className="w-3.5 h-3.5 text-brand-500/60" />
                   </div>
-                  <h1 className="text-3xl font-semibold tracking-tight text-white">{data.name}</h1>
+                  <h1 className="text-2xl font-semibold tracking-tight text-white">{data.name}</h1>
                   <span className="text-[10px] font-mono text-neutral-600">v{data.version}</span>
                   <VisIcon className="w-3 h-3 text-neutral-600" />
+                  {data.owner && (
+                    <span className="ml-1 flex items-center gap-1.5 text-xs text-neutral-500">
+                      <span className="text-neutral-600">by</span>
+                      <img src={data.owner.avatar} alt="" className="w-4 h-4 rounded" />
+                      {data.owner.username}
+                    </span>
+                  )}
                 </div>
-                {data.owner && (
-                  <div className="flex items-center gap-1.5 ml-10 mb-2">
-                    <img src={data.owner.avatar} alt="" className="w-4 h-4 rounded" />
-                    <span className="text-xs text-neutral-500">{data.owner.username}</span>
-                  </div>
-                )}
                 {data.metadata?.description && (
-                  <div className="ml-10 text-sm text-neutral-400 prose prose-sm prose-invert max-w-none prose-a:text-brand-400 prose-code:text-brand-300">
+                  <div className="mt-1.5 ml-9 text-sm text-neutral-400 prose prose-sm prose-invert max-w-none prose-p:my-0 prose-a:text-brand-400 prose-code:text-brand-300">
                     <Markdown>{data.metadata.description}</Markdown>
                   </div>
                 )}
@@ -535,35 +536,33 @@ export function FlowRunner({ embed = false }: FlowRunnerProps = {}) {
             </div>
           </div>
 
-          {!embed && <div className="mb-6 flex items-center justify-between border-b border-white/10 text-xs"><span className="border-b-2 border-brand-400 px-1 py-3 text-white">Use tool</span><span className="text-neutral-500">Runs in your browser</span></div>}
           <div className="tool-workspace">
-            {/* Left: Inputs + Run */}
-            <div>
-              <div className="bg-[#0c0c10] border border-neutral-800/40 rounded-xl overflow-hidden">
-                <div className="px-4 py-3 border-b border-neutral-800/30">
+            {/* Left: Inputs + Run (the run bar pins to the viewport bottom) */}
+              <div className="tool-config-panel bg-[#0c0c10] border border-neutral-800/40 rounded-xl">
+                <div className="flex items-center justify-between px-4 py-2 border-b border-neutral-800/30">
                   <h2 className="text-xs font-mono uppercase tracking-wider text-neutral-500">Configure</h2>
+                  <span className="text-[10px] text-neutral-600">Runs in your browser</span>
                 </div>
 
                 <div className="tool-form-body">
-                  {(data.metadata as any)?.examples?.length>0 && <select aria-label="Example inputs" className="w-full rounded border border-white/15 bg-neutral-950 p-2 text-sm text-neutral-300" value={exampleInputName} onChange={e=>{setExampleInputName(e.target.value);const item=(data.metadata as any).examples.find((x:any)=>x.name===e.target.value);if(item)setInputs(prev=>({...prev,...item.inputs}));}}><option value="">Try example inputs…</option>{(data.metadata as any).examples.map((e:any)=><option key={e.name}>{e.name}</option>)}</select>}
+                  {(data.metadata as any)?.examples?.length>0 && <select aria-label="Example inputs" className="w-full rounded border border-white/15 bg-neutral-950 px-2 py-1 text-xs text-neutral-300" value={exampleInputName} onChange={e=>{setExampleInputName(e.target.value);const item=(data.metadata as any).examples.find((x:any)=>x.name===e.target.value);if(item)setInputs(prev=>({...prev,...item.inputs}));}}><option value="">Try example inputs…</option>{(data.metadata as any).examples.map((e:any)=><option key={e.name}>{e.name}</option>)}</select>}
                   <GeneratedToolForm nodes={inputNodes} values={inputs} disabled={isRunning} onChange={(name, value) => {
                     setInput(name, value);
                     if (value instanceof File && flowId) void cacheFile(flowId, name, value);
                   }} />
                 </div>
 
-                <div className="flex items-center justify-between px-4 py-2 text-xs text-neutral-500"><span>Runs on your device</span><button onClick={()=>setInputs(Object.fromEntries(inputNodes.map(n=>[inputName(n),getInputDefault(n)])))}>Reset inputs</button></div>
-                {history.data?.runs.length ? <div className="px-4 pb-3"><select aria-label="Previous runs" className="w-full rounded border border-white/15 bg-neutral-950 p-2 text-xs text-neutral-400" value="" onChange={e=>{const run=history.data.runs.find(r=>r.id===e.target.value);if(run)setInputs(prev=>({...prev,...run.input}));}}><option value="">Restore inputs from a previous run…</option>{history.data.runs.map(r=><option key={r.id} value={r.id}>{new Date(r.created_at).toLocaleString()}</option>)}</select></div> : null}
-                {historyError && <p className="px-4 text-xs text-amber-400">{historyError}</p>}
                 {/* Run controls */}
-                <div className="px-4 py-3 border-t border-neutral-800/30 space-y-2">
+                <div className="tool-run-bar flex-none px-4 py-3 border-t border-neutral-800/30 space-y-2">
+                  {history.data?.runs.length ? <select aria-label="Previous runs" className="w-full rounded border border-white/10 bg-neutral-950 px-2 py-1 text-xs text-neutral-400" value="" onChange={e=>{const run=history.data.runs.find(r=>r.id===e.target.value);if(run)setInputs(prev=>({...prev,...run.input}));}}><option value="">Restore a previous run…</option>{history.data.runs.map(r=><option key={r.id} value={r.id}>{new Date(r.created_at).toLocaleString()}</option>)}</select> : null}
+                  {historyError && <p className="text-xs text-amber-400">{historyError}</p>}
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => handleRun()}
                       // Code can live INSIDE a group/map (no top-level code node),
                       // so the flow is still runnable — don't gate on codeNodes alone.
                       disabled={isRunning || !hasExecutable}
-                      className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-neutral-100 hover:bg-white disabled:bg-neutral-800 disabled:text-neutral-600 text-neutral-950 font-semibold text-sm rounded-lg transition-colors"
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-neutral-100 hover:bg-white disabled:bg-neutral-800 disabled:text-neutral-600 text-neutral-950 font-semibold text-sm rounded-lg transition-colors"
                     >
                       {isRunning ? (
                         <Loader2 className="w-4 h-4 animate-spin" />
@@ -574,7 +573,7 @@ export function FlowRunner({ embed = false }: FlowRunnerProps = {}) {
                     </button>
                     <button
                       onClick={() => setLiveMode(!liveMode)}
-                      className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium rounded-lg border transition-all ${
+                      className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border transition-all ${
                         liveMode
                           ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
                           : 'bg-[#07070a] border-neutral-800/40 text-neutral-500 hover:text-neutral-300'
@@ -585,7 +584,10 @@ export function FlowRunner({ embed = false }: FlowRunnerProps = {}) {
                       Live
                     </button>
                   </div>
-                  <label className="flex gap-2 text-xs text-neutral-400"><input type="checkbox" checked={debug} disabled={isRunning} onChange={e=>setDebug(e.target.checked)}/> Inspect node timings and results</label>
+                  <div className="flex items-center justify-between gap-2 text-xs text-neutral-500">
+                    <label className="flex items-center gap-2 text-neutral-400"><input type="checkbox" checked={debug} disabled={isRunning} onChange={e=>setDebug(e.target.checked)}/> Inspect node timings</label>
+                    <button className="flex-none hover:text-white" onClick={()=>setInputs(Object.fromEntries(inputNodes.map(n=>[inputName(n),getInputDefault(n)])))}>Reset inputs</button>
+                  </div>
                   {isRunning && (
                     <button className="w-full text-xs py-2 text-neutral-300 border border-white/10" onClick={() => {
                       runEpochRef.current++; queuedRef.current = false; runningRef.current = false;
@@ -601,12 +603,11 @@ export function FlowRunner({ embed = false }: FlowRunnerProps = {}) {
                   )}
                 </div>
               </div>
-            </div>
 
             {/* Right: Outputs */}
             <div className="tool-preview-column min-w-0">
               <div className="bg-[#0c0c10] border border-neutral-800/40 rounded-xl overflow-hidden">
-                <div className="px-4 py-3 border-b border-neutral-800/30">
+                <div className="px-4 py-2 border-b border-neutral-800/30">
                   <h2 className="text-xs font-mono uppercase tracking-wider text-neutral-500">Result</h2>
                 </div>
 
